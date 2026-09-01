@@ -1,0 +1,14 @@
+{
+  "name": "roughbid-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts",
+    "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
+    "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
+    "test:web": "node --experimental-strip-types --test apps/web/test/*.test.ts",
+    "build": "node scripts/build.mjs"
+  }
+}
