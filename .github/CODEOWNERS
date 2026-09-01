@@ -1,0 +1,13 @@
+# Platform / shared files require Kauan review by default.
+* @kauanszpaiva
+
+# Bruno owns the frontend surface. GitHub username must be added once resolved from his email/invite.
+/apps/web/ @kauanszpaiva
+/packages/ui/ @kauanszpaiva
+
+# Backend and data remain Kauan-owned.
+/apps/api/ @kauanszpaiva
+/supabase/ @kauanszpaiva
+
+# Shared business contracts require platform review and frontend coordination.
+/packages/domain/ @kauanszpaiva
