@@ -5,7 +5,7 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts",
+    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs",
     "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
     "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
     "test:web": "node --experimental-strip-types --test apps/web/test/*.test.ts",
