@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  ESTIMATOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum EstimateStatus {
+  DRAFT
+  ARCHIVED
+}
+
+enum QuoteStatus {
+  EXPORTED
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  VOIDED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  EXPORT
+  SUBMIT
+  STATUS_CHANGE
+}
+
+model Profile {
+  id          String   @id @db.Uuid
+  displayName String?  @map("display_name")
+  isPlatformAdmin Boolean @default(false) @map("is_platform_admin")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organizationsCreated Organization[]       @relation("OrganizationCreator")
+  organizationMembers  OrganizationMember[]
+  projectsCreated      Project[]            @relation("ProjectCreator")
+  projectMembers       ProjectMember[]
+  planRevisions        PlanRevision[]
+  estimatesCreated     ProjectEstimate[]
+  estimateRevisions    EstimateRevision[]
+  quotesCreated        QuoteSnapshot[]
+  quoteSubmissions     QuoteSubmission[]
+  auditEvents          AuditEvent[]
+
+  @@map("profiles")
+}
+
+model Organization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(120)
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator Profile              @relation("OrganizationCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  members OrganizationMember[]
+  projects Project[]
+  quotes   QuoteSnapshot[]
+  audits   AuditEvent[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  organizationId String           @map("organization_id") @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  role           OrganizationRole @default(MEMBER)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Project {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  createdBy      String        @map("created_by") @db.Uuid
+  name           String        @db.VarChar(160)
+  status         ProjectStatus @default(DRAFT)
+  projectNumber  String?       @map("project_number")
+  addressText    String?       @map("address_text")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      Profile           @relation("ProjectCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  members      ProjectMember[]
+  plans        ProjectPlan[]
+  estimates    ProjectEstimate[]
+  quotes       QuoteSnapshot[]
+  audits       AuditEvent[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String      @map("project_id") @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  role      ProjectRole
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model ProjectPlan {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String   @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revisions PlanRevision[]
+  quotes    QuoteSnapshot[]
+
+  @@index([projectId])
+  @@map("project_plans")
+}
+
+model PlanRevision {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId         String   @map("plan_id") @db.Uuid
+  revisionNumber Int      @map("revision_number")
+  storagePath    String   @unique @map("storage_path")
+  originalName   String   @map("original_name")
+  mimeType       String   @default("application/pdf") @map("mime_type")
+  byteSize       BigInt   @map("byte_size")
+  sha256         String   @db.Char(64)
+  changeSummary  String?  @map("change_summary")
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  plan    ProjectPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  creator Profile         @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  quotes  QuoteSnapshot[]
+
+  @@unique([planId, revisionNumber])
+  @@index([planId, createdAt(sort: Desc)])
+  @@map("plan_revisions")
+}
+
+model ProjectEstimate {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String         @map("project_id") @db.Uuid
+  name           String         @db.VarChar(200)
+  status         EstimateStatus @default(DRAFT)
+  createdBy      String         @map("created_by") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project   Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator   Profile            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  revisions EstimateRevision[]
+  quotes    QuoteSnapshot[]
+
+  @@index([projectId, updatedAt(sort: Desc)])
+  @@map("project_estimates")
+}
+
+model EstimateRevision {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  estimateId         String   @map("estimate_id") @db.Uuid
+  revisionNumber     Int      @map("revision_number")
+  basedOnRevisionId  String?  @map("based_on_revision_id") @db.Uuid
+  content            Json     @db.JsonB
+  calculationVersion String   @map("calculation_version") @db.VarChar(50)
+  currency           String   @default("USD") @db.Char(3)
+  directCost         Decimal  @map("direct_cost") @db.Decimal(14, 2)
+  overheadAmount     Decimal  @map("overhead_amount") @db.Decimal(14, 2)
+  markupAmount       Decimal  @map("markup_amount") @db.Decimal(14, 2)
+  total              Decimal  @db.Decimal(14, 2)
+  changeSummary      String?  @map("change_summary")
+  createdBy          String   @map("created_by") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  estimate ProjectEstimate    @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  creator  Profile            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  basedOn  EstimateRevision?  @relation("EstimateRevisionParent", fields: [basedOnRevisionId], references: [id], onDelete: Restrict)
+  children EstimateRevision[] @relation("EstimateRevisionParent")
+  quotes   QuoteSnapshot[]
+
+  @@unique([estimateId, revisionNumber])
+  @@index([estimateId, createdAt(sort: Desc)])
+  @@map("estimate_revisions")
+}
+
+model QuoteSnapshot {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String      @map("organization_id") @db.Uuid
+  projectId          String      @map("project_id") @db.Uuid
+  estimateId         String      @map("estimate_id") @db.Uuid
+  estimateRevisionId String      @map("estimate_revision_id") @db.Uuid
+  planId             String?     @map("plan_id") @db.Uuid
+  planRevisionId     String?     @map("plan_revision_id") @db.Uuid
+  quoteNumber        String      @map("quote_number")
+  status             QuoteStatus @default(EXPORTED)
+  snapshot           Json        @db.JsonB
+  documentPath       String?     @map("document_path")
+  documentSha256     String?     @map("document_sha256") @db.Char(64)
+  createdBy          String      @map("created_by") @db.Uuid
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  voidedAt           DateTime?   @map("voided_at") @db.Timestamptz(6)
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  estimate         ProjectEstimate  @relation(fields: [estimateId], references: [id], onDelete: Restrict)
+  estimateRevision EstimateRevision @relation(fields: [estimateRevisionId], references: [id], onDelete: Restrict)
+  plan             ProjectPlan?     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planRevision     PlanRevision?     @relation(fields: [planRevisionId], references: [id], onDelete: Restrict)
+  creator          Profile           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  submissions      QuoteSubmission[]
+
+  @@unique([organizationId, quoteNumber])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("quote_snapshots")
+}
+
+model QuoteSubmission {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteId     String   @map("quote_id") @db.Uuid
+  submittedBy String   @map("submitted_by") @db.Uuid
+  recipient   String
+  channel     String   @db.VarChar(30)
+  externalRef String?  @map("external_ref")
+  submittedAt DateTime @default(now()) @map("submitted_at") @db.Timestamptz(6)
+
+  quote     QuoteSnapshot @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  submitter Profile       @relation(fields: [submittedBy], references: [id], onDelete: Restrict)
+
+  @@index([quoteId, submittedAt(sort: Desc)])
+  @@map("quote_submissions")
+}
+
+model AuditEvent {
+  id             BigInt      @id @default(autoincrement())
+  organizationId String      @map("organization_id") @db.Uuid
+  projectId      String?     @map("project_id") @db.Uuid
+  actorId        String?     @map("actor_id") @db.Uuid
+  action         AuditAction
+  entityType     String      @map("entity_type") @db.VarChar(60)
+  entityId       String      @map("entity_id") @db.Uuid
+  metadata       Json        @default("{}") @db.JsonB
+  occurredAt     DateTime    @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  actor        Profile?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([projectId, occurredAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("audit_events")
+}

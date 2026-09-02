@@ -8,10 +8,16 @@
     "bullmq": "^5.58.5"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs",
+    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs prisma/*.test.mjs",
     "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
     "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
     "test:web": "node --experimental-strip-types --test apps/web/test/*.test.ts",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "db:validate": "prisma validate --schema prisma/schema.prisma",
+    "db:format": "prisma format --schema prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "prisma": "6.15.0"
   }
 }
