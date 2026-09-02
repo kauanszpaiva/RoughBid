@@ -9,3 +9,11 @@
 - Customer lifecycle: use Stripe Customer Portal once a paid plan exists.
 - Class Pass: never represented as a paid Stripe trial. It is an application entitlement with a fixed 60-day window and no card requirement.
 - Webhook state: mirror subscription state only after signature verification; persist Stripe event IDs for idempotency.
+
+## Server contract
+
+- `POST /api/billing/checkout` and `POST /api/billing/portal` require server authentication and return only a Stripe-hosted URL.
+- Checkout returns `503` while `STRIPE_PRICE_ID` is unset; the server must construct `BillingConfig` from that environment variable.
+- `POST /api/webhooks/stripe` reads the raw body, verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET`, and treats subscription webhooks as the sole authority for billing status.
+- The service-role-only `process_stripe_event` database function claims the Stripe event ID and updates `billing_customers` in the same transaction, making retries safe.
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the Supabase service-role key are server-only credentials.
