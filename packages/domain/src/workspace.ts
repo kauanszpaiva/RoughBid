@@ -1,4 +1,5 @@
-export const WORKSPACE_ROLES = ['owner', 'member'] as const;
+/** Roles are ordered from most to least privileged. */
+export const WORKSPACE_ROLES = ['admin', 'estimator', 'viewer'] as const;
 
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
@@ -21,6 +22,29 @@ export type UpdateWorkspaceInput = { name: string };
 export type AddWorkspaceMemberInput = { userId: string; role?: WorkspaceRole };
 export type UpdateWorkspaceMemberInput = { role: WorkspaceRole };
 
+export const WORKSPACE_PERMISSIONS = [
+  'workspace:manage',
+  'member:manage',
+  'project:read',
+  'project:write',
+  'estimate:read',
+  'estimate:write',
+  'plan-file:read',
+  'plan-file:write',
+] as const;
+
+export type WorkspacePermission = (typeof WORKSPACE_PERMISSIONS)[number];
+
+const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly WorkspacePermission[]> = {
+  admin: WORKSPACE_PERMISSIONS,
+  estimator: ['project:read', 'project:write', 'estimate:read', 'estimate:write', 'plan-file:read', 'plan-file:write'],
+  viewer: ['project:read', 'estimate:read', 'plan-file:read'],
+};
+
+export function hasWorkspacePermission(role: WorkspaceRole, permission: WorkspacePermission): boolean {
+  return ROLE_PERMISSIONS[role].includes(permission);
+}
+
 export function normalizeWorkspaceName(name: string): string {
   const normalized = name.trim();
   if (normalized.length === 0 || normalized.length > 120) {
@@ -28,4 +52,3 @@ export function normalizeWorkspaceName(name: string): string {
   }
   return normalized;
 }
-

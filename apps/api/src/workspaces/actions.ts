@@ -65,7 +65,7 @@ export async function listWorkspaceMembers(client: AuthenticatedSupabaseClient, 
 export async function addWorkspaceMember(client: AuthenticatedSupabaseClient, workspaceId: string, input: AddWorkspaceMemberInput): Promise<WorkspaceMembership> {
   await requireUser(client);
   const { data, error } = await client.from('workspace_members')
-    .insert({ workspace_id: workspaceId, user_id: input.userId, role: input.role ?? 'member' }).select('*').single();
+    .insert({ workspace_id: workspaceId, user_id: input.userId, role: input.role ?? 'viewer' }).select('*').single();
   throwIfError(error);
   if (!data) throw new Error('Membership insert returned no row.');
   return membership(data);
@@ -84,4 +84,3 @@ export async function removeWorkspaceMember(client: AuthenticatedSupabaseClient,
   const { error } = await client.from('workspace_members').delete().eq('workspace_id', workspaceId).eq('user_id', userId);
   throwIfError(error);
 }
-
