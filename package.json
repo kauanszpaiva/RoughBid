@@ -5,19 +5,35 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "dependencies": {
-    "bullmq": "^5.58.5"
+    "bullmq": "^5.58.5",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1"
   },
   "scripts": {
     "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs prisma/*.test.mjs",
     "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
     "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
     "test:web": "node --experimental-strip-types --test apps/web/test/*.test.ts",
+    "dev:app": "vite --config apps/web/app/vite.config.ts",
+    "build:app": "vite build --config apps/web/app/vite.config.ts",
     "build": "node scripts/build.mjs",
     "db:validate": "prisma validate --schema prisma/schema.prisma",
     "db:format": "prisma format --schema prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma"
   },
   "devDependencies": {
-    "prisma": "6.15.0"
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^5.0.4",
+    "prisma": "6.15.0",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
   }
 }
