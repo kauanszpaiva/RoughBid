@@ -1,20 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createClassPassWelcomeEmail,
+  createWorkspaceWelcomeEmail,
   loadResendServerConfig,
-  sendClassPassWelcomeEmail,
+  sendWorkspaceWelcomeEmail,
 } from '../src/email/resend.ts';
 
-test('Class Pass email references the staged Resend template and never requires payment', () => {
-  const email = createClassPassWelcomeEmail({
-    to: 'student@example.com',
+test('workspace welcome email references the staged Resend template and never requires payment', () => {
+  const email = createWorkspaceWelcomeEmail({
+    to: 'estimator@example.com',
     appUrl: 'https://app.example.com',
   });
-  assert.equal(email.templateAlias, 'roughbid-class-pass-welcome');
+  assert.equal(email.templateAlias, 'roughbid-workspace-welcome');
   assert.equal(email.from, 'RoughBid <hello@mail.kspdominion.group>');
-  assert.equal(email.to, 'student@example.com');
-  assert.equal(email.variables.CLASS_PASS_DAYS, 60);
+  assert.equal(email.to, 'estimator@example.com');
   assert.equal(email.variables.APP_URL, 'https://app.example.com');
   assert.equal('priceId' in email.variables, false);
 });
@@ -28,9 +27,9 @@ test('Resend client sends the fixed template and sender with a server credential
       headers: { 'Content-Type': 'application/json' },
     });
   };
-  const result = await sendClassPassWelcomeEmail(
+  const result = await sendWorkspaceWelcomeEmail(
     loadResendServerConfig({ RESEND_API_KEY: 're_secret' }),
-    { to: 'student@example.com', appUrl: 'https://app.example.com/' },
+    { to: 'estimator@example.com', appUrl: 'https://app.example.com/' },
     fetchMock,
   );
   assert.deepEqual(result, { id: 'email_123' });
@@ -39,10 +38,10 @@ test('Resend client sends the fixed template and sender with a server credential
   const body = JSON.parse(String(request?.init?.body));
   assert.deepEqual(body, {
     from: 'RoughBid <hello@mail.kspdominion.group>',
-    to: ['student@example.com'],
+    to: ['estimator@example.com'],
     template: {
-      id: 'roughbid-class-pass-welcome',
-      variables: { APP_URL: 'https://app.example.com', CLASS_PASS_DAYS: 60 },
+      id: 'roughbid-workspace-welcome',
+      variables: { APP_URL: 'https://app.example.com' },
     },
   });
   assert.equal(JSON.stringify(body).includes('re_secret'), false);

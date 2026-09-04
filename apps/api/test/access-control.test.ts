@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { beginEnterpriseSso, beginSso, sendMagicLink } from '../src/auth/sign-in.ts';
-import { hashClassPassToken, issueClassPass, redeemClassPass } from '../src/class-pass/tokens.ts';
+import { hashAccessGrantToken, issueAccessGrant, redeemAccessGrant } from '../src/access-grants/tokens.ts';
 import { hasWorkspacePermission } from '../../../packages/domain/src/index.ts';
 
 test('RBAC grants write access to estimators while keeping viewers read-only', () => {
@@ -17,8 +17,8 @@ test('magic links normalize email and use only the configured app callback', asy
     async signInWithOtp(input: unknown) { request = input; return { error: null }; },
     async signInWithOAuth() { return { data: {}, error: null }; },
   };
-  await sendMagicLink(auth as never, { email: ' Student@Example.COM ', appUrl: 'https://app.roughbid.com' });
-  assert.deepEqual(request, { email: 'student@example.com', options: {
+  await sendMagicLink(auth as never, { email: ' Estimator@Example.COM ', appUrl: 'https://app.roughbid.com' });
+  assert.deepEqual(request, { email: 'estimator@example.com', options: {
     emailRedirectTo: 'https://app.roughbid.com/auth/callback', shouldCreateUser: true,
   } });
 });
@@ -46,16 +46,16 @@ test('SAML SSO uses verified organization-domain discovery', async () => {
   assert.equal(await beginEnterpriseSso(auth, { domain: ' School.EDU ', appUrl: 'https://app.roughbid.com' }), 'https://school.example/saml');
 });
 
-test('Class Pass plaintext is returned once and only its digest is persisted', async () => {
+test('access grant plaintext is returned once and only its digest is persisted', async () => {
   let stored: Record<string, unknown> | undefined;
   const store = {
     async create(input: Record<string, unknown>) { stored = input; },
-    async redeem() { return { workspaceId: 'workspace-1', expiresAt: '2026-11-01T00:00:00.000Z' }; },
+    async redeem() { return { workspaceId: 'workspace-1', expiresAt: '2026-10-17T00:00:00.000Z' }; },
   };
-  const pass = await issueClassPass({ label: 'Fall cohort', startsAt: new Date('2026-09-02T00:00:00Z') }, store as never);
-  assert.match(pass.token, /^rbcp_[A-Za-z0-9_-]{43}$/);
-  assert.equal(stored?.tokenHash, hashClassPassToken(pass.token));
-  assert.equal(JSON.stringify(stored).includes(pass.token), false);
-  const redeemed = await redeemClassPass({ token: pass.token }, store as never);
+  const grant = await issueAccessGrant({ label: 'Estimator pilot', startsAt: new Date('2026-09-02T00:00:00Z'), durationDays: 45 }, store as never);
+  assert.match(grant.token, /^rbag_[A-Za-z0-9_-]{43}$/);
+  assert.equal(stored?.tokenHash, hashAccessGrantToken(grant.token));
+  assert.equal(JSON.stringify(stored).includes(grant.token), false);
+  const redeemed = await redeemAccessGrant({ token: grant.token }, store as never);
   assert.equal(redeemed.workspaceId, 'workspace-1');
 });

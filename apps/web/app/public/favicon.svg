@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="RoughBid">
+  <rect width="64" height="64" rx="12" fill="#f8fafc"/>
+  <path d="M17 47V15h17c7.5 0 12.5 4.2 12.5 10.8 0 4.5-2.2 7.7-6 9.5L50 47H39.4l-7.8-9.6H26V47h-9zm9-17h7.2c2.7 0 4.2-1.4 4.2-3.8 0-2.3-1.5-3.7-4.2-3.7H26V30z" fill="#0f172a"/>
+  <path d="M22 50h22V37l-11-8.8L22 37v13z" fill="#2563eb"/>
+  <path d="M18.5 38.5 33 27l14.5 11.5" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30 50v-7h6v7" fill="#f8fafc"/>
+</svg>

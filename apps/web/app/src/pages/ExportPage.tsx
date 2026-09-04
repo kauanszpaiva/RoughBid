@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Share2,
   Database,
+  AlertTriangle,
 } from "lucide-react";
 import { Project } from "../types";
 import { calculateProjectFinancials, formatCurrency } from "../utils/calculations";
@@ -33,8 +34,13 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     project.overheadPercentage,
     project.markupPercentage
   );
+  const hasPlan = project.revisions.length > 0;
+  const hasQuantities = project.quantities.length > 0;
+  const hasEstimate = project.estimateItems.length > 0;
+  const canExport = hasPlan && hasQuantities && hasEstimate;
 
   const handleExportRoughBidPackage = () => {
+    if (!canExport) return;
     exportRoughBidJSON(project);
     setSyncSuccess(true);
     setTimeout(() => setSyncSuccess(false), 4000);
@@ -64,6 +70,15 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       {/* Stepper timeline */}
       <Stepper currentStep="export" onSelectStep={onSelectStep} />
 
+      {!canExport && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <strong>Needs attention before export.</strong> Add {hasPlan ? "" : "a plan"}, {hasQuantities ? "" : "takeoff quantities"} and {hasEstimate ? "" : "priced estimate lines"} before creating client-ready files.
+          </div>
+        </div>
+      )}
+
       {/* 4 Export Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
         {/* CARD 1: Client Proposal (PDF) */}
@@ -88,6 +103,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="flex items-center gap-2 pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={() => setShowProposalModal(true)}
+              disabled={!canExport}
               className="flex-1 py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5"
             >
               <Eye className="w-3.5 h-3.5 text-[#6b7280]" />
@@ -95,6 +111,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             </button>
             <button
               onClick={() => exportClientProposalPDF(project)}
+              disabled={!canExport}
               className="flex-1 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
             >
               <Download className="w-3.5 h-3.5" />
@@ -125,6 +142,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={() => exportInternalEstimatePDF(project)}
+              disabled={!canExport}
               className="w-full py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
             >
               <Download className="w-3.5 h-3.5 text-[#6b7280]" />
@@ -150,6 +168,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={() => exportProjectCSV(project)}
+              disabled={!canExport}
               className="w-full py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
             >
               <Download className="w-3.5 h-3.5 text-[#6b7280]" />
@@ -180,6 +199,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={handleExportRoughBidPackage}
+              disabled={!canExport}
               className={`w-full py-2 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs ${
                 syncSuccess
                   ? "bg-emerald-600 text-white"

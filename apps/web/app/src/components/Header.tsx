@@ -1,5 +1,5 @@
 import React from "react";
-import { Bell, FileDown, Plus, ChevronLeft, Menu } from "lucide-react";
+import { Bell, FileDown, Plus, ChevronLeft, Menu, Home } from "lucide-react";
 import { Project, UserProfile } from "../types";
 
 export type ProjectStep = "plans" | "quantities" | "estimate" | "review" | "export";
@@ -80,8 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-[#2563eb] rounded flex items-center justify-center shadow-xs md:hidden">
-                <span className="text-white font-bold text-base leading-none">R</span>
+              <div className="w-7 h-7 bg-[#f8fafc] border border-blue-200 rounded flex items-center justify-center shadow-xs md:hidden relative">
+                <span className="text-[#111827] font-black text-base leading-none">R</span>
+                <Home className="w-3 h-3 text-[#2563eb] absolute bottom-0.5 right-0.5" />
               </div>
               <h2 className="text-base md:text-lg font-bold text-[#111827] tracking-tight">
                 <span className="md:hidden">ROUGH<span className="text-[#2563eb]">bid</span></span>

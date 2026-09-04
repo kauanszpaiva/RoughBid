@@ -7,7 +7,7 @@
 - Charges: none created by foundation work.
 - Recommended collection surface: Stripe-hosted Checkout for subscriptions.
 - Customer lifecycle: use Stripe Customer Portal once a paid plan exists.
-- Class Pass: never represented as a paid Stripe trial. It is an application entitlement with a fixed 60-day window and no card requirement.
+- Workspace access grants are not represented as paid Stripe trials. They are application entitlements with configured windows and no card requirement.
 - Webhook state: mirror subscription state only after signature verification; persist Stripe event IDs for idempotency.
 
 ## Server contract

@@ -40,17 +40,19 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     }
 
     const newId = `proj-${Date.now()}`;
-    const initialRevision: PlanRevision = {
-      id: `rev-${Date.now()}`,
-      revisionNumber: "01",
-      fileName: planFile ? planFile.name : `${name.replace(/\s+/g, "_")}_Plans_Rev01.pdf`,
-      fileSize: planFile ? `${(planFile.size / (1024 * 1024)).toFixed(1)} MB` : "14.2 MB",
-      pages: 18,
-      uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      uploadedBy: clientName,
-      isCurrent: true,
-      notes: "Initial project plan set uploaded",
-    };
+    const initialRevision: PlanRevision | null = planFile
+      ? {
+          id: `rev-${Date.now()}`,
+          revisionNumber: "01",
+          fileName: planFile.name,
+          fileSize: `${(planFile.size / (1024 * 1024)).toFixed(1)} MB`,
+          pages: 0,
+          uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          uploadedBy: clientName,
+          isCurrent: true,
+          notes: "Uploaded plan file. Page count and AI takeoff require processing.",
+        }
+      : null;
 
     const newProject: Project = {
       id: newId,
@@ -58,29 +60,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       clientName: clientName.trim(),
       address: address.trim(),
       projectType,
-      status: "In Progress",
+      status: initialRevision ? "In Progress" : "Planning",
       updatedAt: "Just now",
       overheadPercentage: overheadPct,
       markupPercentage: markupPct,
-      revisions: [initialRevision],
-      quantities: [
-        { id: `qty-${Date.now()}-1`, itemNumber: 1, name: "Framing & Structural", quantity: 500, unit: "LF", category: "Framing" },
-        { id: `qty-${Date.now()}-2`, itemNumber: 2, name: "Surface Decking / Finishes", quantity: 350, unit: "SF", category: "Finishes" },
-      ],
-      estimateItems: [
-        {
-          id: `est-${Date.now()}-1`,
-          quantityId: `qty-${Date.now()}-1`,
-          csiCode: "06 11 00",
-          name: "06 11 00 - Wood Framing",
-          quantity: 500,
-          unit: "LF",
-          materialCost: 1500,
-          laborCost: 1200,
-          equipmentCost: 150,
-          directCost: 2850,
-        },
-      ],
+      revisions: initialRevision ? [initialRevision] : [],
+      quantities: [],
+      estimateItems: [],
     };
 
     onCreate(newProject);
@@ -98,7 +84,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-bold text-[#111827]">Create New Project</h3>
-              <p className="text-[11px] sm:text-xs text-[#6b7280]">Initialize a new takeoff and estimate workspace</p>
+              <p className="text-[11px] sm:text-xs text-[#6b7280]">Start with project details, then upload plans and confirm quantities</p>
             </div>
           </div>
           <button
@@ -230,7 +216,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <label className="border-2 border-dashed border-[#e5e7eb] rounded-lg p-3.5 flex items-center justify-center gap-2.5 cursor-pointer hover:border-[#2563eb] hover:bg-[#eff6ff] transition text-center">
               <Upload className="w-4 h-4 text-[#2563eb] shrink-0" />
               <span className="text-xs text-[#6b7280] font-medium truncate">
-                {planFile ? planFile.name : "Select or drag & drop project PDF plan"}
+                {planFile ? planFile.name : "Select a PDF or image plan to start takeoff"}
               </span>
               <input
                 type="file"

@@ -25,17 +25,14 @@ create table public.workspace_members (
 create table public.entitlements (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  kind text not null check (kind in ('class_pass', 'subscription', 'admin')),
+  kind text not null check (kind in ('access_grant', 'subscription', 'admin')),
   source text not null,
   external_ref text,
   starts_at timestamptz not null default now(),
   expires_at timestamptz,
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
-  constraint entitlement_expiry_after_start check (expires_at is null or expires_at > starts_at),
-  constraint class_pass_is_exactly_60_days check (
-    kind <> 'class_pass' or expires_at = starts_at + interval '60 days'
-  )
+  constraint entitlement_expiry_after_start check (expires_at is null or expires_at > starts_at)
 );
 
 create index entitlements_user_window_idx
@@ -200,7 +197,7 @@ as $$
         and e.revoked_at is null
         and e.starts_at <= now()
         and (e.expires_at is null or e.expires_at > now())
-        and e.kind in ('class_pass', 'subscription', 'admin')
+        and e.kind in ('access_grant', 'subscription', 'admin')
     );
 $$;
 

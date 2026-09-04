@@ -33,3 +33,32 @@ test('routes unknown paths to 404 once Supabase env is configured', async () => 
     if (SUPABASE_PUBLISHABLE_KEY === undefined) delete process.env.SUPABASE_PUBLISHABLE_KEY; else process.env.SUPABASE_PUBLISHABLE_KEY = SUPABASE_PUBLISHABLE_KEY;
   }
 });
+
+test('billing routes are mounted but disabled until server billing credentials exist', async () => {
+  const previous = {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    STRIPE_PRODUCT_ID: process.env.STRIPE_PRODUCT_ID,
+    STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+  };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.STRIPE_PRODUCT_ID = 'prod_123';
+  delete process.env.STRIPE_PRICE_ID;
+  try {
+    const response = await handleApiRequest(new Request('https://roughbid.test/api/billing/checkout', { method: 'POST' }));
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'Billing is not configured.' });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});

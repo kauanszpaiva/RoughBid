@@ -46,6 +46,19 @@ export const HelpPage: React.FC = () => {
           </p>
         </div>
 
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">
+          <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-600" />
+            <span>Policies</span>
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[13px]">
+            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
+            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
+            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/data-use.html" target="_blank" rel="noreferrer">Data Use and AI Policy</a>
+            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/acceptable-use.html" target="_blank" rel="noreferrer">Acceptable Use Policy</a>
+          </div>
+        </div>
+
         {/* Support */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex items-center justify-between">
           <div>

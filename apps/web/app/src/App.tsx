@@ -20,7 +20,7 @@ import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
 import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
-import { bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type Workspace } from "./services/api";
+import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type Workspace } from "./services/api";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,6 +36,7 @@ export default function App() {
   // only additionally provisions/reads a real backend workspace, below.
   const { session } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
 
   // Modal States
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
@@ -63,6 +64,16 @@ export default function App() {
     (async () => {
       try {
         await bootstrapAuth();
+        const pendingInvite = new URLSearchParams(window.location.search).get("invite");
+        if (pendingInvite) {
+          try {
+            await acceptWorkspaceInvite(pendingInvite);
+            window.history.replaceState({}, "", window.location.pathname);
+            setInviteNotice("Invite accepted. Your organization access is ready.");
+          } catch (error) {
+            setInviteNotice(error instanceof Error ? error.message : "Invite could not be accepted.");
+          }
+        }
         const workspaces = await listWorkspaces();
         const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
         if (active) setWorkspace(resolved);
@@ -363,7 +374,8 @@ export default function App() {
       {/* Account / sign-in modal */}
       <AuthModal
         session={session}
-        workspaceName={workspace?.name ?? null}
+        workspace={workspace}
+        inviteNotice={inviteNotice}
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
       />

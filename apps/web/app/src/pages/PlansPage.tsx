@@ -45,11 +45,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         revisionNumber: nextRevNum,
         fileName: file.name,
         fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        pages: 24,
+        pages: 0,
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        uploadedBy: project.clientName || "J. Smith",
+        uploadedBy: "Estimator",
         isCurrent: true,
-        notes: `Revision ${nextRevNum} uploaded by estimator`,
+        notes: `Revision ${nextRevNum} uploaded. Page count and AI takeoff require processing.`,
       };
 
       // Mark all existing revisions as not current
@@ -88,17 +88,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   const handleDeletePlan = () => {
     if (confirm("Are you sure you want to remove this plan set from the project?")) {
-      const fallbackRev: PlanRevision = {
-        id: `rev-${Date.now()}`,
-        revisionNumber: "01",
-        fileName: "Empty_Plan_Set.pdf",
-        fileSize: "0.0 MB",
-        pages: 0,
-        uploadDate: new Date().toLocaleDateString(),
-        uploadedBy: "Estimator",
-        isCurrent: true,
-      };
-      onUpdateProject({ ...project, revisions: [fallbackRev] });
+      onUpdateProject({ ...project, revisions: [] });
     }
   };
 
@@ -118,6 +108,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         {/* AI Assistant Quick Trigger */}
         <button
           onClick={onOpenAIAssistant}
+          disabled={!currentRevision}
           className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
@@ -253,6 +244,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {/* View Revisions */}
             <button
               onClick={() => setShowRevisionsModal(true)}
+              disabled={project.revisions.length === 0}
               className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition"
             >
               <div className="flex items-center gap-2">
@@ -267,9 +259,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {/* Rename File */}
             <button
               onClick={() => {
+                if (!currentRevision) return;
                 setNewFileName(currentRevision?.fileName || "");
                 setEditingFileName(true);
               }}
+              disabled={!currentRevision}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition text-left"
             >
               <Edit2 className="w-3.5 h-3.5 text-[#6b7280]" />
@@ -278,7 +272,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             {/* Download Original */}
             <button
-              onClick={() => alert(`Downloading original plan file: ${currentRevision?.fileName}`)}
+              onClick={() => currentRevision && alert(`Downloading original plan file: ${currentRevision.fileName}`)}
+              disabled={!currentRevision}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition text-left"
             >
               <Download className="w-3.5 h-3.5 text-[#6b7280]" />
@@ -288,6 +283,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {/* Delete Plan */}
             <button
               onClick={handleDeletePlan}
+              disabled={!currentRevision}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-medium transition text-left"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-500" />

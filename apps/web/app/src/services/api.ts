@@ -83,6 +83,17 @@ export function bootstrapAuth() {
 }
 
 export type Workspace = { id: string; name: string; createdBy: string; createdAt: string };
+export type WorkspaceRole = "admin" | "estimator" | "viewer";
+export type WorkspaceInvite = {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: WorkspaceRole;
+  expiresAt: string;
+  acceptedAt: string | null;
+  createdAt: string;
+  token: string;
+};
 
 /** GET /api/workspaces */
 export function listWorkspaces() {
@@ -92,6 +103,16 @@ export function listWorkspaces() {
 /** POST /api/workspaces */
 export function createWorkspace(name: string) {
   return request<Workspace>("/api/workspaces", { method: "POST", body: { name } });
+}
+
+/** POST /api/workspaces/:id/invites */
+export function createWorkspaceInvite(workspaceId: string, input: { email: string; role: "estimator" | "viewer" }) {
+  return request<WorkspaceInvite>(`/api/workspaces/${workspaceId}/invites`, { method: "POST", body: input });
+}
+
+/** POST /api/workspace-invites/accept */
+export function acceptWorkspaceInvite(token: string) {
+  return request<{ workspaceId: string; role: WorkspaceRole }>("/api/workspace-invites/accept", { method: "POST", body: { token } });
 }
 
 /** GET /api/projects — requires a real workspace id (see apps/api/src/projects/routes.ts). */

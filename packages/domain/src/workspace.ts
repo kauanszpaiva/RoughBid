@@ -17,10 +17,21 @@ export type WorkspaceMembership = {
   createdAt: string;
 };
 
+export type WorkspaceInvite = {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: WorkspaceRole;
+  expiresAt: string;
+  acceptedAt: string | null;
+  createdAt: string;
+};
+
 export type CreateWorkspaceInput = { name: string };
 export type UpdateWorkspaceInput = { name: string };
 export type AddWorkspaceMemberInput = { userId: string; role?: WorkspaceRole };
 export type UpdateWorkspaceMemberInput = { role: WorkspaceRole };
+export type CreateWorkspaceInviteInput = { email: string; role?: WorkspaceRole };
 
 export const WORKSPACE_PERMISSIONS = [
   'workspace:manage',
@@ -51,4 +62,10 @@ export function normalizeWorkspaceName(name: string): string {
     throw new RangeError('Workspace name must contain between 1 and 120 characters.');
   }
   return normalized;
+}
+
+export function normalizeInviteRole(role: unknown): WorkspaceRole {
+  if (role === undefined || role === null || role === '') return 'estimator';
+  if (role === 'estimator' || role === 'viewer') return role;
+  throw new RangeError('Invite role must be estimator or viewer.');
 }

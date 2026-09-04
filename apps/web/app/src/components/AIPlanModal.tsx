@@ -36,6 +36,9 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[0];
+  const planLabel = currentRevision
+    ? `${currentRevision.fileName} (Rev ${currentRevision.revisionNumber})`
+    : "no uploaded plan";
 
   const handleAddItem = (
     key: string,
@@ -74,7 +77,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                 </span>
               </div>
               <div className="text-[10px] sm:text-xs text-[#6b7280]">
-                Authoritative financial engine • User approval required
+                Plan-reading workflow preview • User approval required
               </div>
             </div>
           </div>
@@ -131,10 +134,10 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
               <div className="p-3 sm:p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
                 <div className="font-semibold text-[#1e40af] mb-1 flex items-center gap-1.5">
                   <FileSearch className="w-4 h-4 text-[#2563eb]" />
-                  <span>Plan Takeoff Analysis for {currentRevision?.fileName} (Rev {currentRevision?.revisionNumber})</span>
+                  <span>Sample takeoff review for {planLabel}</span>
                 </div>
                 <p className="text-xs text-[#3b82f6] leading-relaxed">
-                  Based on architectural drawings, the structural scope includes deck footings, ledger board, joist framing, decking boards, and railing.
+                  These are sample suggestions until the live plan-reading pipeline is connected. Use them as a checklist, not an automatic takeoff result.
                 </p>
               </div>
 
@@ -236,7 +239,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                   <span>Cross-Trade Scope Completeness Check</span>
                 </div>
                 <p className="text-xs text-amber-700">
-                  Reviewing current items in project against industry standard CSI masterformat trade packages.
+                  Comparing the current estimate against common construction scope patterns. Confirm every item before using it in a bid.
                 </p>
               </div>
 

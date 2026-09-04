@@ -1,29 +1,27 @@
-export type ClassPassWelcomeInput = {
+export type WorkspaceWelcomeInput = {
   to: string;
   appUrl: string;
 };
 
-export type ClassPassWelcomeEmail = {
+export type WorkspaceWelcomeEmail = {
   from: 'RoughBid <hello@mail.kspdominion.group>';
   to: string;
-  templateAlias: 'roughbid-class-pass-welcome';
+  templateAlias: 'roughbid-workspace-welcome';
   variables: {
     APP_URL: string;
-    CLASS_PASS_DAYS: 60;
   };
 };
 
-export function createClassPassWelcomeEmail(input: ClassPassWelcomeInput): ClassPassWelcomeEmail {
+export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): WorkspaceWelcomeEmail {
   if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
   const appUrl = new URL(input.appUrl);
   if (appUrl.protocol !== 'https:') throw new Error('App URL must use HTTPS.');
   return {
     from: 'RoughBid <hello@mail.kspdominion.group>',
     to: input.to,
-    templateAlias: 'roughbid-class-pass-welcome',
+    templateAlias: 'roughbid-workspace-welcome',
     variables: {
       APP_URL: appUrl.toString().replace(/\/$/, ''),
-      CLASS_PASS_DAYS: 60,
     },
   };
 }
@@ -40,13 +38,13 @@ export function loadResendServerConfig(env: NodeJS.ProcessEnv = process.env): Re
   return { apiKey };
 }
 
-export async function sendClassPassWelcomeEmail(
+export async function sendWorkspaceWelcomeEmail(
   config: ResendServerConfig,
-  input: ClassPassWelcomeInput,
+  input: WorkspaceWelcomeInput,
   fetchImpl: Fetch = globalThis.fetch,
 ): Promise<{ id: string }> {
   if (!config.apiKey.trim()) throw new Error('A Resend API key is required.');
-  const email = createClassPassWelcomeEmail(input);
+  const email = createWorkspaceWelcomeEmail(input);
   const response = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -64,7 +62,7 @@ export async function sendClassPassWelcomeEmail(
   });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`Resend rejected the Class Pass welcome email (${response.status}): ${detail}`);
+    throw new Error(`Resend rejected the workspace welcome email (${response.status}): ${detail}`);
   }
   const result = await response.json() as { id?: unknown };
   if (typeof result.id !== 'string') throw new Error('Resend returned an invalid email response.');

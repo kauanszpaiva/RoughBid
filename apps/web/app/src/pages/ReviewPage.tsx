@@ -44,6 +44,28 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[0];
+  const readinessItems = [
+    {
+      label: currentRevision
+        ? `Plan uploaded: Rev ${currentRevision.revisionNumber}`
+        : "Upload a plan before proposal export",
+      done: Boolean(currentRevision),
+    },
+    {
+      label: `${project.quantities.length} takeoff items recorded`,
+      done: project.quantities.length > 0,
+    },
+    {
+      label: `${project.estimateItems.length} estimate lines priced`,
+      done: project.estimateItems.length > 0,
+    },
+    {
+      label: "Overhead and markup settings are present",
+      done: Number.isFinite(financials.overheadPercentage) && Number.isFinite(financials.markupPercentage),
+    },
+  ];
+  const readyCount = readinessItems.filter((item) => item.done).length;
+  const isReady = readyCount === readinessItems.length;
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
@@ -197,38 +219,22 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
             </h3>
 
             <div className="space-y-2.5 text-xs">
-              <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[#374151]">
-                  Plans verified (Rev {currentRevision?.revisionNumber || "01"})
-                </span>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[#374151]">
-                  {project.quantities.length} takeoff items matched to drawings
-                </span>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[#374151]">
-                  Overhead ({financials.overheadPercentage}%) and Markup ({financials.markupPercentage}%) applied
-                </span>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[#374151]">
-                  Direct costs validated against RoughBid standard rates
-                </span>
-              </div>
+              {readinessItems.map((item) => (
+                <div key={item.label} className="flex items-start gap-2.5">
+                  <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${item.done ? "text-emerald-600" : "text-[#9ca3af]"}`} />
+                  <span className={item.done ? "text-[#374151]" : "text-[#6b7280]"}>
+                    {item.label}
+                  </span>
+                </div>
+              ))}
             </div>
 
             <div className="pt-2 border-t border-[#f3f4f6]">
-              <div className="p-3 bg-[#f9fafb] rounded-lg text-xs text-[#6b7280] leading-relaxed">
-                <strong className="text-[#111827]">Readiness Status:</strong> Estimate is 100% mathematically balanced and ready for proposal or accounting export.
+              <div className={`p-3 rounded-lg text-xs leading-relaxed ${isReady ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+                <strong className={isReady ? "text-emerald-900" : "text-amber-900"}>Readiness Status:</strong>{" "}
+                {isReady
+                  ? "Ready for estimator review and export."
+                  : `${readyCount}/${readinessItems.length} checks complete. Finish the missing items before client delivery.`}
               </div>
             </div>
           </div>

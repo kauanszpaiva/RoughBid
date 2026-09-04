@@ -3,6 +3,9 @@ import { handleAuthBootstrapRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { createEstimateCalculationHandler } from '../estimates/routes.ts';
+import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
+import { createBillingEndpointHandler } from '../billing/endpoints.ts';
+import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 
@@ -48,8 +51,28 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
   }
-  if (pathname === '/api/workspaces') {
+  if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
     return handleWorkspacesRequest(request, client as unknown as AuthenticatedSupabaseClient);
+  }
+  if (pathname === '/api/billing/checkout' || pathname === '/api/billing/portal' || pathname === '/api/webhooks/stripe') {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
+    const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    if (!stripeSecretKey || !stripeWebhookSecret || !supabaseServiceRoleKey || !supabaseUrl) {
+      return json({ error: 'Billing is not configured.' }, 503);
+    }
+    const billing = createBillingEndpointHandler({
+      config: createBillingConfigFromEnv(process.env),
+      webhookSecret: stripeWebhookSecret,
+      stripe: new StripeHttpGateway(stripeSecretKey),
+      repository: new SupabaseBillingRepository(supabaseUrl, supabaseServiceRoleKey),
+      authenticate: async () => {
+        const { data } = await client.auth.getUser();
+        return data.user?.email ? { id: data.user.id, email: data.user.email } : null;
+      },
+    });
+    return billing(request);
   }
   if (pathname === '/api/estimates/recalculate') {
     const recalculate = createEstimateCalculationHandler({

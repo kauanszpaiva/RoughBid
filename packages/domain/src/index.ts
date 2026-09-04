@@ -20,7 +20,7 @@ export type EstimateResult = {
   grossMarginPercent: number;
 };
 
-export type ClassPassWindow = {
+export type AccessWindow = {
   startsAt: Date;
   expiresAt: Date;
   requiresPaymentMethod: false;
@@ -83,12 +83,15 @@ export function calculateEstimate(input: EstimateInput): EstimateResult {
   };
 }
 
-export function createClassPassWindow(startsAt: Date): ClassPassWindow {
+export function createAccessWindow(startsAt: Date, durationDays: number): AccessWindow {
   if (Number.isNaN(startsAt.getTime())) {
-    throw new TypeError('Class Pass start date must be valid.');
+    throw new TypeError('Access start date must be valid.');
+  }
+  if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 366) {
+    throw new RangeError('Access duration must be between 1 and 366 days.');
   }
   const expiresAt = new Date(startsAt.getTime());
-  expiresAt.setUTCDate(expiresAt.getUTCDate() + 60);
+  expiresAt.setUTCDate(expiresAt.getUTCDate() + durationDays);
 
   return {
     startsAt: new Date(startsAt.getTime()),
@@ -97,7 +100,7 @@ export function createClassPassWindow(startsAt: Date): ClassPassWindow {
   };
 }
 
-export function isClassPassActive(pass: ClassPassWindow, at: Date = new Date()): boolean {
+export function isAccessWindowActive(pass: AccessWindow, at: Date = new Date()): boolean {
   const timestamp = at.getTime();
   return timestamp >= pass.startsAt.getTime() && timestamp < pass.expiresAt.getTime();
 }

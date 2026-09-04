@@ -1,5 +1,11 @@
 import { handleApiRequest } from '../apps/api/src/http/handler.ts';
 
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 function headerEntries(headers: Record<string, string | string[] | undefined>) {
   return Object.entries(headers).flatMap(([name, value]) => {
     if (value === undefined) return [];

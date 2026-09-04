@@ -13,7 +13,7 @@ test('billing config is live-mode aware but refuses checkout without an approved
   assert.equal(config.mode, 'live');
   assert.equal(config.productId, 'prod_VB3s2SIgOAxwRR');
   assert.throws(() => createCheckoutRequest(config, {
-    customerEmail: 'student@example.com',
+    customerEmail: 'estimator@example.com',
     successUrl: 'https://app.example.com/billing/success',
     cancelUrl: 'https://app.example.com/billing/cancel',
   }), /approved Stripe price/i);
@@ -88,14 +88,14 @@ test('checkout request uses hosted subscription checkout only after price approv
     priceId: 'price_approved',
   });
   const request = createCheckoutRequest(config, {
-    customerEmail: 'student@example.com',
+    customerEmail: 'estimator@example.com',
     successUrl: 'https://app.example.com/billing/success',
     cancelUrl: 'https://app.example.com/billing/cancel',
   });
   assert.deepEqual(request, {
     mode: 'subscription',
     ui_mode: 'hosted',
-    customer_email: 'student@example.com',
+    customer_email: 'estimator@example.com',
     line_items: [{ price: 'price_approved', quantity: 1 }],
     success_url: 'https://app.example.com/billing/success',
     cancel_url: 'https://app.example.com/billing/cancel',
