@@ -19,8 +19,10 @@ import { ClientProposalPage } from "./pages/ClientProposalPage";
 import { NewProjectModal } from "./components/NewProjectModal";
 import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
+import { AuthGate } from "./components/AuthGate";
 import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
+import { isAuthConfigured } from "./services/supabaseClient";
 import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type RemoteProject, type Workspace } from "./services/api";
 
 export default function App() {
@@ -41,7 +43,7 @@ export default function App() {
   // configured in this environment — see services/supabaseClient.ts). The
   // rest of the app keeps working on local mock data either way; signing in
   // only additionally provisions/reads a real backend workspace, below.
-  const { session } = useSession();
+  const { session, loading: sessionLoading } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
 
@@ -262,6 +264,18 @@ export default function App() {
     if (!activeProject) return;
     setActiveStep("estimate");
   };
+
+  if (isAuthConfigured && sessionLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-sm font-semibold text-slate-600">
+        Loading RoughBid...
+      </div>
+    );
+  }
+
+  if (isAuthConfigured && !session) {
+    return <AuthGate />;
+  }
 
   return (
     <div className="flex h-screen bg-[#fcfcfd] text-slate-900 overflow-hidden font-sans">
