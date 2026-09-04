@@ -54,15 +54,43 @@ export type ProposalNotificationEmail = {
 
 type Fetch = typeof globalThis.fetch;
 
+export interface EmailRateLimiter {
+  take(key: string, limit: number, windowMs: number, now: number): { allowed: true } | { allowed: false; retryAfterSeconds: number };
+}
+
 export type ResendServerConfig = {
   apiKey: string;
+  maxEmailsPerRecipientPerHour: number;
+  rateLimiter?: EmailRateLimiter;
 };
 
 export function loadResendServerConfig(env: NodeJS.ProcessEnv = process.env): ResendServerConfig {
   const apiKey = env.RESEND_API_KEY?.trim();
   if (!apiKey) throw new Error('RESEND_API_KEY is required on the server.');
-  return { apiKey };
+  const parsedRate = Number(env.RESEND_EMAIL_RATE_LIMIT_PER_HOUR ?? 5);
+  const maxEmailsPerRecipientPerHour = Number.isFinite(parsedRate) && parsedRate > 0 ? Math.floor(parsedRate) : 5;
+  return { apiKey, maxEmailsPerRecipientPerHour };
 }
+
+export function createInMemoryEmailRateLimiter(): EmailRateLimiter {
+  const hits = new Map<string, number[]>();
+  return {
+    take(key, limit, windowMs, now) {
+      const cutoff = now - windowMs;
+      const recent = (hits.get(key) ?? []).filter((timestamp) => timestamp > cutoff);
+      if (recent.length >= limit) {
+        return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((recent[0]! + windowMs - now) / 1000)) };
+      }
+      recent.push(now);
+      hits.set(key, recent);
+      return { allowed: true };
+    },
+  };
+}
+
+const defaultEmailRateLimiter = createInMemoryEmailRateLimiter();
+const emailRateKey = (email: WorkspaceWelcomeEmail | WorkspaceInviteEmail | ProposalNotificationEmail) =>
+  `${email.templateAlias}:${email.to.trim().toLowerCase()}`;
 
 export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): WorkspaceWelcomeEmail {
   if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
@@ -137,6 +165,13 @@ async function sendTemplateEmail(
   idempotencyKey?: string,
 ): Promise<{ id: string }> {
   if (!config.apiKey.trim()) throw new Error('A Resend API key is required.');
+  const rate = (config.rateLimiter ?? defaultEmailRateLimiter).take(
+    emailRateKey(email),
+    config.maxEmailsPerRecipientPerHour,
+    60 * 60 * 1000,
+    Date.now(),
+  );
+  if (!rate.allowed) throw new Error(`Email rate limit reached. Try again in ${rate.retryAfterSeconds} seconds.`);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${config.apiKey}`,
     'Content-Type': 'application/json',

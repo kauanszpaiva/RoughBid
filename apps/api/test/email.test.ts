@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createProposalOpenedEmail,
   createProposalSignedEmail,
+  createInMemoryEmailRateLimiter,
   createWorkspaceInviteEmail,
   createWorkspaceWelcomeEmail,
   loadResendServerConfig,
@@ -152,4 +153,28 @@ test('Resend client sends proposal open and signature notifications without expo
 
 test('Resend config rejects missing server-only API key', () => {
   assert.throws(() => loadResendServerConfig({}), /RESEND_API_KEY/);
+});
+
+test('Resend client rate-limits repeated sends to the same recipient and template', async () => {
+  let sends = 0;
+  const fetchMock = async () => {
+    sends += 1;
+    return new Response(JSON.stringify({ id: `email_${sends}` }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const config = {
+    ...loadResendServerConfig({ RESEND_API_KEY: 're_secret', RESEND_EMAIL_RATE_LIMIT_PER_HOUR: '2' }),
+    rateLimiter: createInMemoryEmailRateLimiter(),
+  };
+  const input = { to: 'rate@example.com', appUrl: 'https://app.example.com' };
+
+  assert.deepEqual(await sendWorkspaceWelcomeEmail(config, input, fetchMock as typeof fetch), { id: 'email_1' });
+  assert.deepEqual(await sendWorkspaceWelcomeEmail(config, input, fetchMock as typeof fetch), { id: 'email_2' });
+  await assert.rejects(
+    () => sendWorkspaceWelcomeEmail(config, input, fetchMock as typeof fetch),
+    /Email rate limit reached/,
+  );
+  assert.equal(sends, 2);
 });
