@@ -92,7 +92,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
       <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md overflow-hidden">
         <div className="px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-[#e5e7eb] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <img src="/favicon.svg" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
+            <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
             <div>
               <h3 className="text-sm font-bold text-[#111827]">Sign in / Create account</h3>
               <p className="text-xs text-[#6b7280]">Enter your email. Supabase sends a secure magic link.</p>

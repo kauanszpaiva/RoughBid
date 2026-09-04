@@ -79,7 +79,7 @@ export const ClientProposalPage: React.FC<ClientProposalPageProps> = ({ token })
     <div className="min-h-screen bg-[#f8fafc] text-[#111827]">
       <header className="bg-white border-b border-[#e5e7eb] px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-          <img src="/favicon.svg" alt="RoughBid" className="w-9 h-9 object-contain" />
+          <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-9 h-9 object-contain" />
           <div className="text-right">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">Client Proposal</div>
             <div className="text-xs text-[#2563eb] font-semibold">Secure RoughBid view</div>

@@ -100,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className={`${collapsed ? "w-full flex justify-center" : ""}`}>
             <img
-              src="/favicon.svg"
+              src="/brand/roughbid-icon.png"
               alt="RoughBid"
               className={`${collapsed ? "w-9 h-9" : "w-10 h-10"} object-contain rounded bg-white`}
             />

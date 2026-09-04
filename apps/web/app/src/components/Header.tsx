@@ -83,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <div className="flex items-center gap-2">
               <img
-                src="/favicon.svg"
+                src="/brand/roughbid-icon.png"
                 alt="RoughBid"
                 className="w-8 h-8 object-contain rounded bg-white md:hidden"
               />
