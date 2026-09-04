@@ -16,3 +16,8 @@ test('vercel routes client proposals to app without exposing app at root', () =>
   assert.match(vercelConfig, /"source": "\/proposal\/:token"/);
   assert.match(vercelConfig, /"destination": "\/app"/);
 });
+
+test('content security policy allows local uploaded PDF previews', () => {
+  assert.match(vercelConfig, /frame-src 'self' blob: https:\/\/checkout\.stripe\.com/);
+  assert.match(vercelConfig, /frame-ancestors 'none'/);
+});

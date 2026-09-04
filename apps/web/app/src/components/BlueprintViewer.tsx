@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   ZoomIn,
   ZoomOut,
@@ -11,15 +11,18 @@ import {
   X,
 } from "lucide-react";
 import { PlanRevision } from "../types";
+import { createDocumentDownloadUrl } from "../services/api";
 
 interface BlueprintViewerProps {
   currentRevision: PlanRevision;
   projectName: string;
+  workspaceId?: string | null;
 }
 
 export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   currentRevision,
   projectName,
+  workspaceId,
 }) => {
   const getFitZoom = () => {
     if (typeof window === "undefined") return 100;
@@ -35,6 +38,8 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [startPan, setStartPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [currentPage] = useState<number>(1);
+  const [remotePreviewUrl, setRemotePreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 250));
@@ -122,7 +127,36 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
     },
   ];
 
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPreviewError(null);
+    setRemotePreviewUrl(null);
+
+    if (currentRevision.fileUrl || !workspaceId || !currentRevision.remoteFileId) return;
+
+    (async () => {
+      try {
+        const download = await createDocumentDownloadUrl(workspaceId, currentRevision.remoteFileId!);
+        const response = await fetch(download.url, { method: download.method, headers: download.headers });
+        if (!response.ok) throw new Error(`Preview download failed (${response.status})`);
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) setRemotePreviewUrl(objectUrl);
+      } catch (error) {
+        if (!cancelled) setPreviewError(error instanceof Error ? error.message : "Could not load PDF preview.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [currentRevision.fileUrl, currentRevision.remoteFileId, workspaceId]);
+
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === activeHotspot) ?? null;
+  const previewUrl = currentRevision.fileUrl ?? remotePreviewUrl;
+  const hasUploadedPdf = Boolean(previewUrl);
 
   return (
     <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden flex flex-col h-[68dvh] min-h-[430px] sm:h-[500px] md:h-[580px]">
@@ -257,8 +291,26 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
             transformOrigin: "center center",
             transition: isPanning ? "none" : "transform 0.15s ease-out",
           }}
-          className="w-[720px] h-[480px] bg-white border border-[#d1d5db] shadow-sm p-6 relative select-none rounded-lg"
+          className={`${hasUploadedPdf ? "w-[850px] h-[1100px] p-0" : "w-[720px] h-[480px] p-6"} bg-white border border-[#d1d5db] shadow-sm relative select-none rounded-lg overflow-hidden`}
         >
+          {hasUploadedPdf ? (
+            <>
+              <iframe
+                src={`${previewUrl}#page=1&toolbar=1&view=FitH`}
+                title={`${currentRevision.fileName} preview`}
+                className="w-full h-full border-0 bg-white"
+              />
+              <div className="absolute left-3 top-3 right-3 z-10 flex flex-wrap gap-2 pointer-events-none">
+                <div className="bg-white/95 border border-[#bfdbfe] rounded-lg px-3 py-2 shadow-xs max-w-sm">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#2563eb]">Uploaded PDF</div>
+                  <p className="text-xs text-[#475569] mt-0.5">
+                    This is the actual file for this project. AI callouts appear after RoughBid processing finishes.
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
           {/* Grid Background */}
           <div
             className="absolute inset-0 opacity-[0.05] pointer-events-none"
@@ -461,7 +513,15 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
               </p>
             </div>
           )}
+            </>
+          )}
         </div>
+
+        {previewError && (
+          <div className="absolute left-3 right-3 top-16 z-20 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs font-medium text-amber-800">
+            PDF preview could not load yet. Use Download Original while RoughBid refreshes the secure preview.
+          </div>
+        )}
 
         {/* Floating helper badge */}
         <div className="absolute bottom-3 left-3 right-3 sm:right-auto bg-white/90 backdrop-blur-xs border border-[#e5e7eb] px-3 py-2 rounded-md text-xs text-[#4b5563] flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs">

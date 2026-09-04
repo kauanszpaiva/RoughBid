@@ -19,6 +19,8 @@ interface ProjectsPageProps {
   onNewProject: () => void;
   onDeleteProject: (projectId: string) => void;
   onDuplicateProject: (project: Project) => void;
+  workspaceNotice?: string | null;
+  isWorkspaceReady?: boolean;
 }
 
 const getStatusBadge = (status: ProjectStatus) => {
@@ -40,6 +42,8 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNewProject,
   onDeleteProject,
   onDuplicateProject,
+  workspaceNotice = null,
+  isWorkspaceReady = true,
 }) => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -77,6 +81,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
 
             <button
               onClick={onNewProject}
+              disabled={!isWorkspaceReady}
               className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -84,6 +89,12 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
             </button>
           </div>
         </div>
+
+        {workspaceNotice && (
+          <div className="mt-4 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800">
+            {workspaceNotice}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
           <div className="rounded-md bg-[#f9fafb] border border-[#e5e7eb] p-3">
@@ -110,7 +121,11 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
           <FolderOpen className="w-10 h-10 text-[#9ca3af] mx-auto mb-3" />
           <h3 className="text-sm font-bold text-[#111827]">No projects found</h3>
           <p className="text-xs text-[#6b7280] mt-1 mb-4">Create your first construction project to start building takeoffs and estimates.</p>
-          <button onClick={onNewProject} className="px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs">
+          <button
+            onClick={onNewProject}
+            disabled={!isWorkspaceReady}
+            className="px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             Create New Project
           </button>
         </div>

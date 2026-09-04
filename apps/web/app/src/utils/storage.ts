@@ -12,6 +12,7 @@ import type {
 // invites, billing, and policy gates stay in services/api.ts and apps/api.
 
 const STORAGE_KEY_PROJECTS = "roughbid_projects_v1";
+const STORAGE_KEY_PROJECT_SCOPE_PREFIX = "roughbid_projects_scope_v1";
 const STORAGE_KEY_MATERIALS = "roughbid_materials_v1";
 const STORAGE_KEY_ASSEMBLIES = "roughbid_assemblies_v1";
 const STORAGE_KEY_PRICELISTS = "roughbid_pricelists_v1";
@@ -352,13 +353,30 @@ export const StorageService = {
   getProjects(): Project[] {
     try {
       const data = localStorage.getItem(STORAGE_KEY_PROJECTS);
-      if (!data) {
-        localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(INITIAL_PROJECTS));
-        return INITIAL_PROJECTS;
-      }
-      return JSON.parse(data);
+      return data ? JSON.parse(data) : [];
     } catch {
-      return INITIAL_PROJECTS;
+      return [];
+    }
+  },
+
+  scopedProjectsKey(scope: string): string {
+    return `${STORAGE_KEY_PROJECT_SCOPE_PREFIX}:${scope}`;
+  },
+
+  getProjectsForScope(scope: string): Project[] {
+    try {
+      const data = localStorage.getItem(this.scopedProjectsKey(scope));
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveProjectsForScope(scope: string, projects: Project[]): void {
+    try {
+      localStorage.setItem(this.scopedProjectsKey(scope), JSON.stringify(projects));
+    } catch (e) {
+      console.error("Failed to save scoped projects to localStorage", e);
     }
   },
 

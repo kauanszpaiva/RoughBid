@@ -16,6 +16,7 @@ interface PlansPageProps {
   project: Project;
   workspaceId: string | null;
   onUpdateProject: (updated: Project) => void;
+  onEnsureProjectSynced: (project: Project) => Promise<Project | null>;
   onContinue: () => void;
   onOpenAIAssistant: () => void;
 }
@@ -24,6 +25,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   project,
   workspaceId,
   onUpdateProject,
+  onEnsureProjectSynced,
   onContinue,
   onOpenAIAssistant,
 }) => {
@@ -66,14 +68,14 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     return error instanceof Error ? error.message : "Action failed.";
   };
 
-  const applyNewRevision = (newRev: PlanRevision) => {
-    const updatedRevisions = project.revisions.map((r) => ({
+  const applyNewRevision = (baseProject: Project, newRev: PlanRevision) => {
+    const updatedRevisions = baseProject.revisions.map((r) => ({
       ...r,
       isCurrent: false,
     }));
 
     const updatedProject: Project = {
-      ...project,
+      ...baseProject,
       revisions: [...updatedRevisions, newRev],
     };
 
@@ -92,16 +94,21 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setIsUploading(true);
     setPlanNotice(null);
     try {
-      const nextRevNum = String(project.revisions.length + 1).padStart(2, "0");
-      const canUseBackend = Boolean(workspaceId && project.remoteId);
+      const syncedProject = workspaceId ? await onEnsureProjectSynced(project) : project;
+      if (workspaceId && !syncedProject?.remoteId) {
+        throw new Error("Project could not be synced to your private workspace before upload.");
+      }
+      const effectiveProject = syncedProject ?? project;
+      const nextRevNum = String(effectiveProject.revisions.length + 1).padStart(2, "0");
+      const canUseBackend = Boolean(workspaceId && effectiveProject.remoteId);
       let remoteFileId: string | undefined;
       let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
       let notes = canUseBackend
         ? `Revision ${nextRevNum} uploading to private storage.`
         : `Revision ${nextRevNum} stored locally. Sign in and create a synced project for server AI processing.`;
 
-      if (canUseBackend && workspaceId && project.remoteId) {
-        const remote = await beginDocumentUpload(workspaceId, project.remoteId, {
+      if (canUseBackend && workspaceId && effectiveProject.remoteId) {
+        const remote = await beginDocumentUpload(workspaceId, effectiveProject.remoteId, {
           name: file.name,
           contentType: file.type,
           byteSize: file.size,
@@ -127,12 +134,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         uploadedBy: "Estimator",
         isCurrent: true,
+        fileUrl: URL.createObjectURL(file),
         notes,
         ...(remoteFileId ? { remoteFileId } : {}),
         ...(processingStatus ? { processingStatus } : {}),
       };
 
-      applyNewRevision(newRev);
+      applyNewRevision(effectiveProject, newRev);
       setPlanNotice(notes);
     } catch (error) {
       setPlanNotice(readableApiError(error));
@@ -251,6 +259,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <BlueprintViewer
               currentRevision={currentRevision}
               projectName={project.name}
+              workspaceId={workspaceId}
             />
           ) : (
             <div className="h-[520px] bg-white border-2 border-dashed border-[#e5e7eb] rounded-xl flex flex-col items-center justify-center p-8 text-center">

@@ -60,6 +60,7 @@ export default function App() {
   // public access stays limited to the landing page and client proposal links.
   const { session, loading: sessionLoading } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
 
   // Modal States
@@ -105,11 +106,22 @@ export default function App() {
     return stored?.notes ? { ...project, notes: stored.notes } : project;
   };
 
+  const stripTransientProjectState = (project: Project): Project => ({
+    ...project,
+    revisions: project.revisions.map(({ fileUrl: _fileUrl, ...revision }) => revision),
+  });
+
+  const projectStorageScope = session && workspace ? `${session.user.id}:${workspace.id}` : null;
+
+  const saveScopedProjects = (next: Project[]) => {
+    if (projectStorageScope) StorageService.saveProjectsForScope(projectStorageScope, next);
+  };
+
   const projectPayload = (project: Project) => ({
     name: project.name,
     address: project.address,
     status: toRemoteStatus(project.status),
-    appState: project,
+    appState: stripTransientProjectState(project),
   });
 
   // Once signed in, resolve the user's real backend workspace (creating one
@@ -121,16 +133,27 @@ export default function App() {
   useEffect(() => {
     if (!session) {
       setWorkspace(null);
+      setWorkspaceNotice(null);
+      setProjects([]);
+      setActiveProject(null);
       return;
     }
     let active = true;
     (async () => {
       try {
-        await bootstrapAuth();
+        setWorkspaceNotice("Loading your private workspace...");
+        try {
+          await bootstrapAuth();
+        } catch (error) {
+          console.warn("Profile bootstrap is delayed; continuing workspace setup.", error);
+          setWorkspaceNotice("Your profile is still syncing. RoughBid is opening your workspace anyway.");
+        }
         const pendingInvite = new URLSearchParams(window.location.search).get("invite");
+        let invitedWorkspaceId: string | null = null;
         if (pendingInvite) {
           try {
-            await acceptWorkspaceInvite(pendingInvite);
+            const accepted = await acceptWorkspaceInvite(pendingInvite);
+            invitedWorkspaceId = accepted.workspaceId;
             window.history.replaceState({}, "", window.location.pathname);
             setInviteNotice("Invite accepted. Your organization access is ready.");
           } catch (error) {
@@ -138,17 +161,29 @@ export default function App() {
           }
         }
         const workspaces = await listWorkspaces();
-        const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
+        const resolved = (invitedWorkspaceId ? workspaces.find((item) => item.id === invitedWorkspaceId) : null)
+          ?? workspaces[0]
+          ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
         if (!active) return;
         setWorkspace(resolved);
+        setWorkspaceNotice(null);
+        const scopedCacheKey = `${session.user.id}:${resolved.id}`;
+        setProjects(StorageService.getProjectsForScope(scopedCacheKey));
+        setActiveProject(null);
         const remoteProjects = await listRemoteProjects(resolved.id);
         if (active) {
           const mapped = remoteProjects.map(remoteToProject);
           setProjects(mapped);
-          StorageService.saveProjects(mapped);
+          StorageService.saveProjectsForScope(scopedCacheKey, mapped);
         }
       } catch (error) {
         console.error("Could not resolve your workspace from the backend.", error);
+        if (active) {
+          setWorkspace(null);
+          setWorkspaceNotice(error instanceof Error ? error.message : "Could not load your RoughBid workspace.");
+          setProjects([]);
+          setActiveProject(null);
+        }
       }
     })();
     return () => {
@@ -187,7 +222,7 @@ export default function App() {
     setActiveProject(updated);
     const newProjects = projects.map((p) => (p.id === updated.id ? updated : p));
     setProjects(newProjects);
-    StorageService.saveProjects(newProjects);
+    saveScopedProjects(newProjects);
     if (workspace && updated.remoteId) {
       updateRemoteProject(workspace.id, updated.remoteId, projectPayload(updated)).catch((error) => {
         console.error("Could not persist this project to the backend.", error);
@@ -195,29 +230,46 @@ export default function App() {
     }
   };
 
+  const handleEnsureProjectSynced = async (project: Project): Promise<Project | null> => {
+    if (!workspace) return null;
+    if (project.remoteId) return project;
+
+    const remote = await createRemoteProject(workspace.id, projectPayload(project));
+    const synced = { ...project, remoteId: remote.id, updatedAt: "Just now" };
+    setActiveProject((current) => current?.id === project.id ? synced : current);
+    setProjects((current) => {
+      const next = current.map((item) => item.id === project.id ? synced : item);
+      saveScopedProjects(next);
+      return next;
+    });
+    return synced;
+  };
+
   const handleCreateProject = (newProject: Project) => {
+    if (!workspace) {
+      alert(workspaceNotice ?? "Your RoughBid workspace is still loading. Try again in a moment.");
+      return;
+    }
     const stagedProject = { ...newProject, updatedAt: "Saving..." };
     const newProjects = [stagedProject, ...projects];
     setProjects(newProjects);
-    StorageService.saveProjects(newProjects);
+    saveScopedProjects(newProjects);
     setActiveProject(stagedProject);
     setActiveStep("plans");
     setActiveTab("projects");
 
-    if (workspace) {
-      createRemoteProject(workspace.id, projectPayload(stagedProject)).then((remote) => {
-        const remoteProject = remote as RemoteProject;
-        const synced = { ...stagedProject, remoteId: remoteProject.id, updatedAt: "Just now" };
-        setActiveProject((current) => current?.id === newProject.id ? synced : current);
-        setProjects((current) => {
-          const next = current.map((project) => project.id === newProject.id ? synced : project);
-          StorageService.saveProjects(next);
-          return next;
-        });
-      }).catch((error) => {
-        console.error("Could not sync this project to the backend.", error);
+    createRemoteProject(workspace.id, projectPayload(stagedProject)).then((remote) => {
+      const remoteProject = remote as RemoteProject;
+      const synced = { ...stagedProject, remoteId: remoteProject.id, updatedAt: "Just now" };
+      setActiveProject((current) => current?.id === newProject.id ? synced : current);
+      setProjects((current) => {
+        const next = current.map((project) => project.id === newProject.id ? synced : project);
+        saveScopedProjects(next);
+        return next;
       });
-    }
+    }).catch((error) => {
+      console.error("Could not sync this project to the backend.", error);
+    });
   };
 
   const handleDeleteProject = (projectId: string) => {
@@ -225,7 +277,7 @@ export default function App() {
       const projectToDelete = projects.find((p) => p.id === projectId);
       const updated = projects.filter((p) => p.id !== projectId);
       setProjects(updated);
-      StorageService.saveProjects(updated);
+      saveScopedProjects(updated);
       if (workspace && projectToDelete?.remoteId) {
         deleteRemoteProject(workspace.id, projectToDelete.remoteId).catch((error) => {
           console.error("Could not delete this project from the backend.", error);
@@ -238,27 +290,30 @@ export default function App() {
   };
 
   const handleDuplicateProject = (project: Project) => {
+    if (!workspace) {
+      alert(workspaceNotice ?? "Your RoughBid workspace is still loading. Try again in a moment.");
+      return;
+    }
     const duplicated: Project = {
       ...project,
       id: `proj-${Date.now()}`,
+      remoteId: undefined,
       name: `${project.name} (Copy)`,
       updatedAt: "Just now",
     };
     const updated = [duplicated, ...projects];
     setProjects(updated);
-    StorageService.saveProjects(updated);
-    if (workspace) {
-      createRemoteProject(workspace.id, projectPayload(duplicated)).then((remote) => {
-        const synced = { ...duplicated, remoteId: remote.id };
-        setProjects((current) => {
-          const next = current.map((project) => project.id === duplicated.id ? synced : project);
-          StorageService.saveProjects(next);
-          return next;
-        });
-      }).catch((error) => {
-        console.error("Could not persist duplicated project to the backend.", error);
+    saveScopedProjects(updated);
+    createRemoteProject(workspace.id, projectPayload(duplicated)).then((remote) => {
+      const synced = { ...duplicated, remoteId: remote.id };
+      setProjects((current) => {
+        const next = current.map((project) => project.id === duplicated.id ? synced : project);
+        saveScopedProjects(next);
+        return next;
       });
-    }
+    }).catch((error) => {
+      console.error("Could not persist duplicated project to the backend.", error);
+    });
   };
 
   const handleUpdateUser = (updatedUser: UserProfile) => {
@@ -408,6 +463,8 @@ export default function App() {
                   onNewProject={() => setShowNewProjectModal(true)}
                   onDeleteProject={handleDeleteProject}
                   onDuplicateProject={handleDuplicateProject}
+                  workspaceNotice={workspaceNotice}
+                  isWorkspaceReady={workspace !== null}
                 />
               ) : (
                 <>
@@ -416,6 +473,7 @@ export default function App() {
                       project={activeProject}
                       workspaceId={workspace?.id ?? null}
                       onUpdateProject={handleUpdateProject}
+                      onEnsureProjectSynced={handleEnsureProjectSynced}
                       onContinue={() => setActiveStep("quantities")}
                       onOpenAIAssistant={() => setShowAIModal(true)}
                     />
