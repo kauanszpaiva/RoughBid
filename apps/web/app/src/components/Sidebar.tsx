@@ -10,7 +10,6 @@ import {
   HelpCircle,
   Sparkles,
   X,
-  Home,
 } from "lucide-react";
 import { UserProfile } from "../types";
 
@@ -91,13 +90,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div>
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-[#f8fafc] border border-blue-200 rounded flex items-center justify-center shadow-xs relative">
-                <span className="text-[#111827] font-black text-xl leading-none">R</span>
-                <Home className="w-3.5 h-3.5 text-[#2563eb] absolute bottom-0.5 right-0.5" />
-              </div>
-              <h1 className="text-xl font-bold tracking-tight text-[#111827]">
-                ROUGH<span className="text-[#2563eb]">bid</span>
-              </h1>
+              <img
+                src="/roughbid-logo-generated.png"
+                alt="RoughBid"
+                className="w-40 h-12 object-contain object-left rounded bg-white"
+              />
             </div>
             <p className="text-[10px] text-[#6b7280] mt-1 uppercase font-semibold tracking-widest pl-0.5">
               by KSP Ventures

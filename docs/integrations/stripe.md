@@ -3,6 +3,8 @@
 - Account surface: official LIVE Stripe account connected to KSP.
 - Product: `RoughBid` exists in LIVE mode.
 - Product ID: `prod_VB3s2SIgOAxwRR`.
+- Test product: `RoughBid` exists in TEST mode.
+- Test product ID: `prod_VCHSqTxw7RucUe`.
 - Price: intentionally absent until commercial pricing and limits are approved.
 - Charges: none created by foundation work.
 - Recommended collection surface: Stripe-hosted Checkout for subscriptions.

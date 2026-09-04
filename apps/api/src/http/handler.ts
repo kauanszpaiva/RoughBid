@@ -6,6 +6,8 @@ import { createEstimateCalculationHandler } from '../estimates/routes.ts';
 import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
+import { handleAiPlanRequest } from '../ai-plan/routes.ts';
+import { createAiPlanQueue } from '../ai-plan/service.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 
@@ -82,6 +84,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       },
     });
     return recalculate(request);
+  }
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname)) {
+    if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL) {
+      return json({ error: 'AI plan reading is not configured.' }, 503);
+    }
+    return handleAiPlanRequest(request, client as unknown as SupabaseLike, await createAiPlanQueue(process.env.REDIS_URL));
   }
   if (pathname.startsWith('/api/projects') || pathname.startsWith('/api/project-files')) {
     return handleProjectRequest(request, client as unknown as SupabaseLike);

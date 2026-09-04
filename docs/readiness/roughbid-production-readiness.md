@@ -17,7 +17,7 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Organization invite links are generated server-side, token-hashed, email-bound, single-use, and expire after 14 days.
 - Magic-link login preserves pending invite tokens through the auth redirect.
 - Static operational drafts exist for Terms, Privacy, Data Use and AI, and Acceptable Use.
-- Favicon and in-app mark use a RoughBid `R` plus construction-home signal.
+- Favicon and in-app mark use a generated RoughBid logo image.
 - Export and review screens no longer claim readiness when a project has no plan, quantities, or priced estimate lines.
 - AI plan assistant is clearly marked as a plan-reading workflow preview until the live document AI pipeline is connected.
 - Production security headers are configured in Vercel.
@@ -25,7 +25,8 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 ## Must Finish Before Paid Launch
 
 - Connect real plan upload from the frontend to private storage, document processing, and page preview records.
-- Connect the plan-reading AI pipeline and require estimator approval before any AI-suggested quantity affects a bid.
+- Configure `OPENAI_API_KEY`, `REDIS_URL`, and the AI worker runtime so the mounted plan-reading endpoint can process jobs.
+- Require estimator approval before any AI-suggested quantity affects a bid.
 - Mount and validate Stripe Checkout, Portal, and webhook routes end-to-end before setting a live price.
 - Create and publish the Resend workspace welcome/invite templates after final copy approval.
 - Add account billing screens once Stripe pricing, limits, refund policy, and plan tiers are approved.
@@ -43,9 +44,9 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Vercel: production project is connected; runtime errors must be rechecked after each deploy.
 - Supabase: RLS-backed tables are active; workspace invites and legacy access cleanup are applied.
 - GitHub: PR #14 carries the RoughBid readiness work.
-- Stripe: live and test accounts are connected; no product price or live charge should be created without commercial approval.
-- Resend: no webhook is configured yet; transactional templates still need product-approved copy before sends.
-- Tavily: useful for research and benchmarking, but not connected to the app runtime today.
+- Stripe: live and test accounts are connected; TEST product `prod_VCHSqTxw7RucUe` exists; no price or live charge should be created without commercial approval.
+- Resend: approval template draft `6db15836-91a2-4b31-b08f-abcd2355d135` exists; publish/send only after sender and copy approval.
+- Tavily: useful for research and benchmarking; connector still returned reauthentication errors on 2026-09-04 and is not connected to the app runtime today.
 - DocuSign: not needed for current RoughBid scope unless signed contracts/proposals become a product requirement.
 
 ## User Acceptance Checklist
