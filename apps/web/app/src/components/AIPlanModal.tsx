@@ -345,7 +345,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 leading-relaxed">
-                <strong>Prime Bid Estimator Principle:</strong> Markup is applied to project cost, while Margin is the portion of final contract revenue retained as gross profit. A 20% Markup on a $13,328 Cost Before Markup generates a $2,665.60 profit, yielding a 16.67% true Gross Margin.
+                <strong>RoughBid Estimator Principle:</strong> Markup is applied to project cost, while Margin is the portion of final contract revenue retained as gross profit. A 20% Markup on a $13,328 Cost Before Markup generates a $2,665.60 profit, yielding a 16.67% true Gross Margin.
               </div>
             </div>
           )}

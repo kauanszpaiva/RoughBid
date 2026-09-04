@@ -77,7 +77,7 @@ export function exportInternalEstimateCSV(project: Project): void {
 
 export const exportProjectCSV = exportInternalEstimateCSV;
 
-export function exportPrimeBidJSON(project: Project): void {
+export function exportRoughBidJSON(project: Project): void {
   const financials = calculateProjectFinancials(
     project.estimateItems,
     project.overheadPercentage,
@@ -86,7 +86,7 @@ export function exportPrimeBidJSON(project: Project): void {
 
   const payload = {
     platform: "ROUGHbid",
-    targetSystem: "Prime Bid Estimating Suite",
+    targetSystem: "RoughBid SaaS",
     version: "2026.3",
     exportedAt: new Date().toISOString(),
     project: {
@@ -102,7 +102,7 @@ export function exportPrimeBidJSON(project: Project): void {
   const link = document.createElement("a");
   const sanitizedName = project.name.replace(/[^a-zA-Z0-9_-]/g, "_");
   link.setAttribute("href", url);
-  link.setAttribute("download", `PrimeBid_Package_${sanitizedName}.json`);
+  link.setAttribute("download", `RoughBid_Package_${sanitizedName}.json`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

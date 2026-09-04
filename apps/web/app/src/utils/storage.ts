@@ -28,9 +28,8 @@ export const INITIAL_USER: UserProfile = {
   name: "J. Smith",
   email: "j.smith@estimator.roughbid.com",
   role: "Lead Estimator",
-  plan: "Prime Bid Class Pass",
-  classPassRemainingDays: 60,
-  company: "Prime Bid Academy / KSP Ventures",
+  plan: "RoughBid SaaS",
+  company: "KSP Ventures",
   licenseNumber: "GC-94021",
   defaultOverhead: 12,
   defaultMarkup: 20,
@@ -344,9 +343,15 @@ export const INITIAL_ASSEMBLIES: AssemblyItem[] = [
 
 export const INITIAL_PRICELISTS: PriceList[] = [
   { id: "pl-1", name: "West Coast Regional Construction Guide", region: "Pacific NW / CA", trade: "General Commercial & Residential", effectiveDate: "Q3 2026", itemCount: 1420 },
-  { id: "pl-2", name: "Prime Bid Master Contractor Rates", region: "National Average", trade: "Residential Remodel & Additions", effectiveDate: "2026 Standard", itemCount: 850 },
+  { id: "pl-2", name: "RoughBid Contractor Rates", region: "National Average", trade: "Residential Remodel & Additions", effectiveDate: "2026 Standard", itemCount: 850 },
   { id: "pl-3", name: "Lumber & Engineered Wood Feed", region: "North America", trade: "Framing & Structural", effectiveDate: "Weekly Auto-Sync", itemCount: 320 },
 ];
+
+function normalizeUserProfile(user: UserProfile): UserProfile {
+  const plan = /prime bid|class pass/i.test(user.plan) ? "RoughBid SaaS" : user.plan;
+  const company = /prime bid/i.test(user.company) ? "KSP Ventures" : user.company;
+  return { ...user, plan, company };
+}
 
 // Local Storage Helper
 export const StorageService = {
@@ -446,7 +451,9 @@ export const StorageService = {
         localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(INITIAL_USER));
         return INITIAL_USER;
       }
-      return JSON.parse(data);
+      const normalized = normalizeUserProfile(JSON.parse(data));
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(normalized));
+      return normalized;
     } catch {
       return INITIAL_USER;
     }

@@ -11,7 +11,7 @@ import {
 import { Project } from "../types";
 import { calculateProjectFinancials, formatCurrency } from "../utils/calculations";
 import { exportInternalEstimatePDF, exportClientProposalPDF } from "../utils/pdfExport";
-import { exportProjectCSV, exportPrimeBidJSON } from "../utils/csvExport";
+import { exportProjectCSV, exportRoughBidJSON } from "../utils/csvExport";
 import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 import { ProposalModal } from "../components/ProposalModal";
@@ -34,8 +34,8 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     project.markupPercentage
   );
 
-  const handleSyncPrimeBid = () => {
-    exportPrimeBidJSON(project);
+  const handleExportRoughBidPackage = () => {
+    exportRoughBidJSON(project);
     setSyncSuccess(true);
     setTimeout(() => setSyncSuccess(false), 4000);
   };
@@ -49,7 +49,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             Export
           </h2>
           <p className="text-xs text-[#6b7280] mt-0.5">
-            Export client proposals, internal audit estimates, CSV raw data, and Prime Bid packages.
+            Export client proposals, internal audit estimates, CSV raw data, and RoughBid packages.
           </p>
         </div>
 
@@ -158,7 +158,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           </div>
         </div>
 
-        {/* CARD 4: Prime Bid Integration */}
+        {/* CARD 4: RoughBid Package */}
         <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
           <div>
             <div className="w-10 h-10 rounded-lg bg-[#eff6ff] text-[#2563eb] flex items-center justify-center mb-3">
@@ -166,20 +166,20 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[#111827]">
-                Prime Bid Integration
+                RoughBid Package
               </h3>
               <span className="text-[10px] font-bold bg-[#eff6ff] text-[#2563eb] px-2 py-0.5 rounded">
-                Connected
+                JSON
               </span>
             </div>
             <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
-              Export data formatted for direct sync with KSP Ventures Prime Bid estimating suites, bid packages, and project scheduling pipelines.
+              Export a structured RoughBid project package for backups, handoff, import workflows, and operational review.
             </p>
           </div>
 
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
-              onClick={handleSyncPrimeBid}
+              onClick={handleExportRoughBidPackage}
               className={`w-full py-2 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs ${
                 syncSuccess
                   ? "bg-emerald-600 text-white"
@@ -189,12 +189,12 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               {syncSuccess ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Synced to Prime Bid (JSON Package Exported)</span>
+                  <span>RoughBid package exported</span>
                 </>
               ) : (
                 <>
                   <Share2 className="w-3.5 h-3.5" />
-                  <span>Sync with Prime Bid</span>
+                  <span>Export RoughBid JSON</span>
                 </>
               )}
             </button>

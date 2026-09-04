@@ -78,7 +78,7 @@ export const AssembliesPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => alert("Assemblies builder is integrated with Prime Bid standards.")}
+          onClick={() => alert("Assemblies builder opened.")}
           className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[13px] font-semibold transition shadow-xs"
         >
           <Plus className="w-4 h-4" />

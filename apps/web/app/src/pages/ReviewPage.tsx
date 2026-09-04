@@ -221,7 +221,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
               <div className="flex items-start gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <span className="text-[#374151]">
-                  Direct costs validated against Prime Bid standard rates
+                  Direct costs validated against RoughBid standard rates
                 </span>
               </div>
             </div>

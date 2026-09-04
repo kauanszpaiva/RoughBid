@@ -22,7 +22,7 @@ export const MaterialsPage: React.FC = () => {
   const [newCat, setNewCat] = useState("Lumber");
   const [newUnit, setNewUnit] = useState<UnitType>("SF");
   const [newCost, setNewCost] = useState(1.5);
-  const [newSupplier, setNewSupplier] = useState("Prime Supply");
+  const [newSupplier, setNewSupplier] = useState("RoughBid Supply");
 
   const categories = ["all", "Drywall", "Lumber", "Finishes", "Concrete", "Paint", "Millwork"];
 

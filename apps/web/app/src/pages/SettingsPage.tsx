@@ -39,7 +39,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
             Settings & Estimator Profile
           </h1>
           <p className="text-[13px] text-slate-500 mt-0.5">
-            Configure default financial parameters, proposal branding, and Prime Bid integration.
+            Configure default financial parameters, proposal branding, and account settings.
           </p>
         </div>
 
@@ -158,7 +158,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
           </div>
         </div>
 
-        {/* Prime Bid Connected License */}
+        {/* RoughBid account status */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -166,16 +166,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
             </div>
             <div>
               <h3 className="text-[14px] font-bold text-slate-900">
-                Prime Bid Class Pass Integration
+                RoughBid SaaS Account
               </h3>
               <p className="text-[12px] text-slate-500">
-                Active Estimator License • {user.classPassRemainingDays} Days Remaining
+                Independent estimating workspace
               </p>
             </div>
           </div>
 
           <span className="px-3 py-1 rounded bg-emerald-50 text-emerald-700 text-[12px] font-bold border border-emerald-200">
-            Active & Verified
+            Active
           </span>
         </div>
 

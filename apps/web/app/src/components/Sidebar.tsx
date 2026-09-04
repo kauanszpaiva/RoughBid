@@ -189,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <p className="text-xs font-semibold text-[#111827] truncate">{user.name}</p>
             <p className="text-[10px] text-[#6b7280] truncate flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
-              <span>Prime Bid Class Pass ({user.classPassRemainingDays}d)</span>
+              <span>{user.plan}</span>
             </p>
           </div>
         </div>

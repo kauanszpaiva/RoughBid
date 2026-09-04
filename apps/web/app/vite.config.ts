@@ -12,10 +12,8 @@ export default defineConfig(() => ({
   // file's directory — pin it explicitly since scripts/build.mjs invokes
   // `vite build --config` from the repo root.
   root: here,
-  // Built and served from /app/ so it can sit alongside the static landing
-  // page in apps/web — see scripts/build.mjs, which builds this app into
-  // dist/app/ after copying the landing page into dist/.
-  base: '/app/',
+  // Built and served from / as the production product experience.
+  base: '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -28,7 +26,7 @@ export default defineConfig(() => ({
     fs: { allow: [repoRoot] },
   },
   build: {
-    outDir: path.join(repoRoot, 'dist/app'),
+    outDir: path.join(repoRoot, 'dist'),
     emptyOutDir: true,
   },
 }));

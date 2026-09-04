@@ -101,7 +101,6 @@ export interface UserProfile {
   email: string;
   role: string;
   plan: string;
-  classPassRemainingDays: number;
   company: string;
   licenseNumber?: string;
   defaultOverhead: number;

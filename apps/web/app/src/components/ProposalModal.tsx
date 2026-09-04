@@ -82,7 +82,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   General Contracting & Estimating
                 </div>
                 <div className="text-xs text-[#6b7280] mt-1.5">
-                  Prime Bid Contractor Network • License #GC-94021
+                  RoughBid Estimating Workspace • License #GC-94021
                 </div>
               </div>
               <div className="sm:text-right">

@@ -7,7 +7,7 @@ export const PriceListsPage: React.FC = () => {
   const priceLists = [
     {
       id: "pl-1",
-      name: "Prime Bid Master Price Book (Q3 2026)",
+      name: "RoughBid Master Price Book (Q3 2026)",
       region: "North America - National Average",
       itemsCount: 4250,
       accuracy: "99.2%",
@@ -50,7 +50,7 @@ export const PriceListsPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => alert("Checking for latest Prime Bid price updates...")}
+          onClick={() => alert("Checking for latest RoughBid price updates...")}
           className="flex items-center gap-1.5 px-3.5 py-1.5 border border-slate-300 rounded-md text-[13px] font-medium text-slate-700 bg-white hover:bg-slate-50 transition shadow-2xs"
         >
           <RefreshCw className="w-4 h-4 text-slate-500" />

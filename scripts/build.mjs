@@ -3,12 +3,8 @@ import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 await rm(new URL('../dist', import.meta.url), { recursive: true, force: true });
-await mkdir(new URL('../dist', import.meta.url), { recursive: true });
-await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/index.html', import.meta.url));
-await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/styles.css', import.meta.url));
 
-// Builds the RoughBid product app (apps/web/app) into dist/app/, alongside
-// the static landing page copied above. See apps/web/app/vite.config.ts.
+// Build the RoughBid product app as the production root experience.
 execFileSync(
   process.execPath,
   [
@@ -19,6 +15,10 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 );
+
+await mkdir(new URL('../dist/landing', import.meta.url), { recursive: true });
+await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/landing/index.html', import.meta.url));
+await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/landing/styles.css', import.meta.url));
 
 const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY'];
 async function assertNoServerSecrets(directory) {
@@ -38,4 +38,4 @@ async function assertNoServerSecrets(directory) {
 }
 
 await assertNoServerSecrets(new URL('../dist/', import.meta.url));
-console.log('Built static landing to dist/');
+console.log('Built RoughBid app to dist/ and static landing to dist/landing/');

@@ -1,5 +1,5 @@
 import React from "react";
-import { HelpCircle, BookOpen, Calculator, ShieldCheck, Mail } from "lucide-react";
+import { Calculator, ShieldCheck, Mail } from "lucide-react";
 
 export const HelpPage: React.FC = () => {
   return (
@@ -35,14 +35,14 @@ export const HelpPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Prime Bid Class Pass Info */}
+        {/* Platform Info */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>About KSP Ventures & Prime Bid</span>
+            <span>About RoughBid</span>
           </h2>
           <p className="text-[13px] text-slate-600 leading-relaxed">
-            ROUGHbid is built by KSP Ventures as an accessible, high-speed construction takeoff and rough estimating utility connected directly to the Prime Bid master estimating platform.
+            ROUGHbid is an independent SaaS product from KSP Ventures for construction takeoff, estimating, review, and export workflows.
           </p>
         </div>
 

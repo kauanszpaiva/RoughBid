@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "framework": null,
   "cleanUrls": true,
+  "redirects": [
+    { "source": "/app", "destination": "/", "permanent": false },
+    { "source": "/app/:path*", "destination": "/", "permanent": false }
+  ],
   "functions": {
     "api/[...path].ts": {
       "includeFiles": "{apps/api/src,packages/domain/src}/**"

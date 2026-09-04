@@ -50,7 +50,7 @@ fixed-point engine the backend exposes at `POST /api/estimates/recalculate`
 
 ## Not in scope here
 
-Real payments, document upload/processing, and Class Pass redemption UI are
+Real payments and document upload/processing UI are
 still unbuilt on the frontend even though their backend/DB pieces now exist
 (see `supabase/migrations/`). `packages/domain/**` changes still need review
 from both owners per `docs/OWNERSHIP.md`.
