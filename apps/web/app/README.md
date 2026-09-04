@@ -19,13 +19,12 @@ npm run dev:app     # vite dev server for this app
 npm run build:app   # builds into ../../../dist/app (also runs as part of `npm run build`)
 ```
 
-## Auth: real, backend: real — most screens: still mock
+## Auth: required; backend: partially live
 
 Sign-in is real Supabase Auth (magic link, `src/services/supabaseClient.ts` +
-`src/components/AuthModal.tsx`). When `VITE_SUPABASE_URL` /
-`VITE_SUPABASE_PUBLISHABLE_KEY` aren't set (e.g. a fresh clone with no `.env`),
-the app runs in a clearly-labeled demo mode instead of a broken login form —
-no key or password is required to browse it.
+`src/components/AuthGate.tsx`). `/app/` is not accessible without a session.
+When `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` aren't set, the
+login gate stays closed and tells the operator that auth must be configured.
 
 Once signed in, `App.tsx` calls the real backend (`GET /api/auth/bootstrap`,
 `GET`/`POST /api/workspaces`) to resolve or create the user's workspace. New
@@ -34,15 +33,11 @@ best-effort basis. All of that goes through `/api/*`, which now actually
 exists — see `/api/[...path].ts` at the repo root and
 `apps/api/src/http/handler.ts`.
 
-Every *screen* (plans, quantities, materials, estimate line items) still
-reads and writes through `src/utils/storage.ts`, a deterministic
-`localStorage`-backed mock. That's deliberate, not a shortcut: the real
-`projects` table doesn't yet carry the full plans/quantities/estimate-items
-shape this UI works with, so swapping it in now would either invent backend
-fields that don't exist or break the working demo. `src/services/api.ts` is
-the single place that talks to the backend — see the `TODO(joshua-backend)`
-markers there and in `storage.ts` for exactly what widening the backend
-contract would take.
+The UI-first estimating screens still keep some rich editable state in
+`src/utils/storage.ts` after login while the backend contract is widened for
+full plans, quantities, assemblies, and estimate line items. The app must not
+claim server persistence for fields the API does not yet store. `src/services/api.ts`
+is the single place that talks to the backend.
 
 The estimate math itself (`src/utils/calculations.ts`) already calls the same
 fixed-point engine the backend exposes at `POST /api/estimates/recalculate`
@@ -50,7 +45,6 @@ fixed-point engine the backend exposes at `POST /api/estimates/recalculate`
 
 ## Not in scope here
 
-Real payments and document upload/processing UI are
-still unbuilt on the frontend even though their backend/DB pieces now exist
-(see `supabase/migrations/`). `packages/domain/**` changes still need review
-from both owners per `docs/OWNERSHIP.md`.
+Real Stripe checkout prices remain disabled until approved live price IDs are
+configured. `packages/domain/**` changes still need review from both owners
+per `docs/OWNERSHIP.md`.

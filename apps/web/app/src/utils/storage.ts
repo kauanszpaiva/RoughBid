@@ -6,16 +6,10 @@ import type {
   UserProfile,
 } from "../types";
 
-// This service is the app's mock/offline data layer — every screen reads and
-// writes projects, materials, assemblies and the user profile through
-// localStorage here instead of the network. That satisfies the "don't invent
-// backend success" rule: nothing pretends a save request went to a server
-// that isn't wired up yet. TODO(joshua-backend): once this app carries a real
-// Supabase session + workspace id, replace getProjects/saveProjects below with
-// services/api.ts#listProjects / #createProject / #updateProject
-// (GET/POST/PATCH /api/projects, see apps/api/src/projects/routes.ts). There
-// is no backend endpoint for materials/assemblies/price lists/user profile
-// yet, so those stay local-only until that contract exists.
+// Local workspace state used after authentication for UI-first estimating
+// screens whose full backend contract is still being widened. Server-backed
+// workspace creation, project shell creation, uploads, AI jobs, proposals,
+// invites, billing, and policy gates stay in services/api.ts and apps/api.
 
 const STORAGE_KEY_PROJECTS = "roughbid_projects_v1";
 const STORAGE_KEY_MATERIALS = "roughbid_materials_v1";
@@ -25,8 +19,8 @@ const STORAGE_KEY_USER = "roughbid_user_v1";
 
 export const INITIAL_USER: UserProfile = {
   id: "user-1",
-  name: "J. Smith",
-  email: "j.smith@estimator.roughbid.com",
+  name: "RoughBid Estimator",
+  email: "estimator@roughbid.app",
   role: "Lead Estimator",
   plan: "RoughBid SaaS",
   company: "KSP Ventures",

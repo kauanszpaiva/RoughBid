@@ -29,13 +29,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
 
   const handleSendLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
+    if (!supabase) {
+      setState("error");
+      setError("Sign-in is not configured for this environment.");
+      return;
+    }
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
     const emailRedirectTo = inviteToken
-      ? `${window.location.origin}/?invite=${encodeURIComponent(inviteToken)}`
-      : window.location.origin;
+      ? `${window.location.origin}/app/?invite=${encodeURIComponent(inviteToken)}`
+      : `${window.location.origin}/app/`;
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo },
@@ -62,7 +66,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
     setInviteLink(null);
     try {
       const invite = await createWorkspaceInvite(workspace.id, { email: inviteEmail, role: inviteRole });
-      setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(invite.token)}`);
+      setInviteLink(`${window.location.origin}/app/?invite=${encodeURIComponent(invite.token)}`);
       setInviteState("ready");
       setInviteEmailSent(invite.emailSent === true);
       if (invite.emailError) {
@@ -102,10 +106,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
         <div className="p-4 sm:p-6 space-y-4 text-[#111827] text-xs">
           {!isAuthConfigured && (
             <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
-              <div className="font-semibold mb-1">Demo mode</div>
+              <div className="font-semibold mb-1">App access locked</div>
               <p className="text-amber-800">
-                Sign-in isn't configured in this environment yet. You're browsing with local demo data —
-                nothing you do here reaches a server.
+                Sign-in is not configured in this environment. RoughBid requires Supabase Auth before workspace access.
               </p>
             </div>
           )}

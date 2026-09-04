@@ -23,10 +23,9 @@
  * a preview backend) — it's a public, non-secret value.
  *
  * Every call attaches the signed-in user's Supabase session token, when one
- * exists (see services/supabaseClient.ts). Callers are responsible for
- * checking `useSession()` first and falling back to local mock data (see
- * ./storage.ts and ./calculations.ts) when there's no session — this module
- * does not invent a fake "success" response from the backend.
+ * exists (see services/supabaseClient.ts). App routes check `useSession()`
+ * before rendering workspace screens; local UI state is only used after the
+ * login gate and this module never invents a fake backend success response.
  */
 import { supabase } from "./supabaseClient";
 

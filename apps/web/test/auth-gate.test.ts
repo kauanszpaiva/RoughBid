@@ -18,3 +18,10 @@ test('auth gate offers sign-in and account creation without password storage', (
   assert.match(authGate, /Supabase Auth is configured/);
   assert.doesNotMatch(authGate, /PrimeBid|Class Pass|60\s+days/i);
 });
+
+test('account modal sends auth and organization invite links back to the protected app path', () => {
+  const authModal = readFileSync(new URL('../app/src/components/AuthModal.tsx', import.meta.url), 'utf8');
+  assert.match(authModal, /\/app\/\?invite=/);
+  assert.match(authModal, /window\.location\.origin\}\/app\//);
+  assert.doesNotMatch(authModal, /Demo mode|local demo data/);
+});
