@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../src/storage/object-storage.ts';
+import { loadVercelBlobStorageConfig } from '../src/storage/vercel-blob-storage.ts';
 
 test('loads an S3-compatible configuration without exposing credentials', () => {
   const config = loadObjectStorageConfig({ OBJECT_STORAGE_ENDPOINT: 'https://account.r2.cloudflarestorage.com', OBJECT_STORAGE_BUCKET: 'plans', OBJECT_STORAGE_ACCESS_KEY_ID: 'access', OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret' });
@@ -19,4 +20,9 @@ test('download signatures are short lived and sanitize response filenames', () =
   assert.equal(request.expiresAt, '2026-09-02T12:15:00.000Z');
   assert.equal(decodeURIComponent(request.url).includes('\r'), false);
   assert.equal(decodeURIComponent(request.url).includes('\n'), false);
+});
+
+test('loads Vercel Blob storage configuration from a server-only token', () => {
+  assert.deepEqual(loadVercelBlobStorageConfig({ BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_token' }), { token: 'vercel_blob_rw_token' });
+  assert.throws(() => loadVercelBlobStorageConfig({}), /BLOB_READ_WRITE_TOKEN/);
 });

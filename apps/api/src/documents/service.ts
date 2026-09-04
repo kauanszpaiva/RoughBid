@@ -1,5 +1,5 @@
 import { ProjectApiError } from '../projects/service.ts';
-import type { S3ObjectStorage } from '../storage/object-storage.ts';
+import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
 
 export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
@@ -7,6 +7,9 @@ export interface PdfJob { fileId: string; workspaceId: string; projectId: string
 export interface JobQueue { add(name: 'process-pdf', data: PdfJob, options: { jobId: string; attempts: number; backoff: { type: 'exponential'; delay: number }; removeOnComplete: number }): Promise<unknown>; }
 export interface BullMqQueueModule { Queue: new (name: string, options: unknown) => JobQueue; }
 export interface DocumentDb { from(table: string): any; }
+export interface DocumentObjectStorage {
+  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options?: { expiresIn?: number; contentType?: string; downloadName?: string }): PresignedObjectRequest | Promise<PresignedObjectRequest>;
+}
 
 export async function createDocumentQueue(redisUrl: string, loader: () => Promise<BullMqQueueModule> = () => import('bullmq') as Promise<unknown> as Promise<BullMqQueueModule>) {
   if (!redisUrl) throw new Error('REDIS_URL is required');
@@ -18,12 +21,12 @@ const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(
 
 export class DocumentService {
   private db: DocumentDb;
-  private storage: S3ObjectStorage;
+  private storage: DocumentObjectStorage;
   private queue: JobQueue;
   private userId: string;
   private workspaceId: string;
   private fetcher: typeof fetch;
-  constructor(db: DocumentDb, storage: S3ObjectStorage, queue: JobQueue, userId: string, workspaceId: string, fetcher: typeof fetch = fetch) {
+  constructor(db: DocumentDb, storage: S3ObjectStorage | DocumentObjectStorage, queue: JobQueue, userId: string, workspaceId: string, fetcher: typeof fetch = fetch) {
     this.db = db; this.storage = storage; this.queue = queue; this.userId = userId; this.workspaceId = workspaceId; this.fetcher = fetcher;
   }
 
@@ -36,14 +39,14 @@ export class DocumentService {
     const objectKey = `${this.workspaceId}/${projectId}/${id}/source.pdf`;
     const row = await this.db.from('project_files').insert({ id, workspace_id: this.workspaceId, project_id: projectId, uploaded_by: this.userId, storage_path: objectKey, original_name: safeName(input.name), mime_type: 'application/pdf', byte_size: input.byteSize, processing_status: 'uploading' }).select('*').single();
     if (row.error) throw new ProjectApiError(500, row.error.message ?? 'Could not create upload');
-    return { file: row.data, upload: this.storage.presign('PUT', objectKey, { contentType: 'application/pdf', expiresIn: 300 }) };
+    return { file: row.data, upload: await this.storage.presign('PUT', objectKey, { contentType: 'application/pdf', expiresIn: 300 }) };
   }
 
   async completeUpload(fileId: string) {
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
     if (result.data.processing_status !== 'uploading' && result.data.processing_status !== 'queued') throw new ProjectApiError(409, 'Upload has already been completed');
-    const head = this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
+    const head = await this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
     const object = await this.fetcher(head.url, { method: 'HEAD' });
     const storedBytes = Number(object.headers.get('content-length'));
     const storedType = object.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
