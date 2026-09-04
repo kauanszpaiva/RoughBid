@@ -23,11 +23,7 @@
   ],
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": [
-        "api/_bridge.ts",
-        "apps/api/src/**",
-        "packages/domain/src/**"
-      ]
+      "includeFiles": "{api/_bridge.ts,apps/api/src/**,packages/domain/src/**}"
     }
   }
 }
