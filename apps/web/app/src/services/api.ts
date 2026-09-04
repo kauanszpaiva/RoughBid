@@ -270,3 +270,27 @@ export function signClientProposal(token: string, signerName: string) {
     { method: "POST", body: { signerName } },
   );
 }
+
+export type BillingPriceKey =
+  | "plan_starter"
+  | "plan_pro"
+  | "plan_team"
+  | "project_small"
+  | "project_standard"
+  | "project_large"
+  | "project_complex"
+  | "marketplace_new_england_codes"
+  | "marketplace_regional_material_prices"
+  | "marketplace_labor_benchmarks"
+  | "marketplace_supplier_import";
+
+export function createBillingCheckout(priceKey: BillingPriceKey) {
+  return request<{ url: string }>("/api/billing/checkout", {
+    method: "POST",
+    body: {
+      priceKey,
+      successUrl: `${window.location.origin}/app/`,
+      cancelUrl: `${window.location.origin}/app/`,
+    },
+  });
+}

@@ -19,6 +19,10 @@ test('billing page is wired to shared unit economics and keeps Stripe checkout g
   assert.match(billingPage, /ROUGHBID_MARKETPLACE_FEEDS/);
   assert.match(billingPage, /calculateSizedProjectUnitEconomics/);
   assert.match(billingPage, /marketplaceFeedEconomics/);
-  assert.match(billingPage, /Stripe approval pending/);
+  assert.match(billingPage, /createBillingCheckout/);
+  assert.match(billingPage, /Checkout is not live yet/);
+  assert.match(billingPage, /Choose plan/);
+  assert.match(billingPage, /Buy project/);
+  assert.match(billingPage, /Add feed/);
   assert.doesNotMatch(billingPage, /Checkout now|Buy now|Subscribe now/i);
 });

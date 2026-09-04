@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, CreditCard, Database, FolderKanban, Lock, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, CreditCard, Database, FolderKanban, ShieldCheck, Sparkles } from "lucide-react";
 import {
   MINIMUM_GROSS_MARGIN_PERCENT,
   ROUGHBID_COMMERCIAL_PLANS,
@@ -12,6 +12,7 @@ import {
   marketplaceFeedEconomics,
   projectPriceForSize,
 } from "../../../../../packages/domain/src/billing.ts";
+import { createBillingCheckout, type BillingPriceKey } from "../services/api";
 
 const formatMoney = (value: number) => `$${value.toFixed(value % 1 === 0 ? 0 : 2)}`;
 
@@ -20,6 +21,21 @@ const projectSizeIds = Object.keys(ROUGHBID_PROJECT_SIZE_PRICES) as Array<keyof 
 const feedIds = Object.keys(ROUGHBID_MARKETPLACE_FEEDS) as Array<keyof typeof ROUGHBID_MARKETPLACE_FEEDS>;
 
 export const BillingPage: React.FC = () => {
+  const [checkoutState, setCheckoutState] = React.useState<"idle" | "loading" | "error">("idle");
+  const [checkoutError, setCheckoutError] = React.useState<string | null>(null);
+
+  const startCheckout = async (priceKey: BillingPriceKey) => {
+    setCheckoutState("loading");
+    setCheckoutError(null);
+    try {
+      const session = await createBillingCheckout(priceKey);
+      window.location.assign(session.url);
+    } catch (error) {
+      setCheckoutState("error");
+      setCheckoutError(error instanceof Error ? error.message : "Checkout is not configured yet.");
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-6 select-none font-sans">
       <section className="bg-white border border-slate-200 rounded-lg p-5 sm:p-6 shadow-xs">
@@ -93,17 +109,24 @@ export const BillingPage: React.FC = () => {
               </div>
               <button
                 type="button"
-                disabled
-                className="mt-5 w-full h-10 rounded-md bg-slate-100 text-slate-400 text-xs font-bold flex items-center justify-center gap-1.5"
-                title="Stripe prices must be created and approved before checkout is enabled."
+                onClick={() => startCheckout(`plan_${plan.id}` as BillingPriceKey)}
+                disabled={checkoutState === "loading"}
+                className="mt-5 w-full h-10 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                title="Starts Stripe Checkout when the approved RoughBid price ID is configured."
               >
-                <Lock className="w-3.5 h-3.5" />
-                Stripe approval pending
+                <CreditCard className="w-3.5 h-3.5" />
+                {checkoutState === "loading" ? "Opening checkout..." : "Choose plan"}
               </button>
             </div>
           );
         })}
       </section>
+
+      {checkoutState === "error" && checkoutError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          <strong>Checkout is not live yet.</strong> {checkoutError}
+        </div>
+      )}
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
         <div className="px-5 py-4 border-b border-slate-200">
@@ -119,6 +142,7 @@ export const BillingPage: React.FC = () => {
                 {planIds.map((planId) => <th key={planId} className="px-5 py-3 text-right font-bold">{ROUGHBID_COMMERCIAL_PLANS[planId].name}</th>)}
                 <th className="px-5 py-3 text-right font-bold">COGS cap</th>
                 <th className="px-5 py-3 text-right font-bold">Margin</th>
+                <th className="px-5 py-3 text-right font-bold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -143,6 +167,16 @@ export const BillingPage: React.FC = () => {
                         <Check className="w-3 h-3" />
                         {baseEconomics.grossMarginPercent.toFixed(0)}%
                       </span>
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => startCheckout(`project_${size.id}` as BillingPriceKey)}
+                        disabled={checkoutState === "loading"}
+                        className="px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 font-semibold"
+                      >
+                        Buy project
+                      </button>
                     </td>
                   </tr>
                 );
@@ -194,6 +228,14 @@ export const BillingPage: React.FC = () => {
                 <h3 className="text-sm font-black text-slate-900 mt-1">{feed.name}</h3>
                 <p className="text-2xl font-black text-slate-900 mt-3">{formatMoney(feed.priceUsd)}<span className="text-xs font-semibold text-slate-500">/mo</span></p>
                 <p className="text-xs text-slate-500 mt-2">Estimated margin: {economics.grossMarginPercent.toFixed(0)}%</p>
+                <button
+                  type="button"
+                  onClick={() => startCheckout(`marketplace_${feed.id}` as BillingPriceKey)}
+                  disabled={checkoutState === "loading"}
+                  className="mt-4 w-full px-3 py-2 rounded-md border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Add feed
+                </button>
               </div>
             );
           })}
