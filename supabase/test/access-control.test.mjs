@@ -42,3 +42,14 @@ test('legacy access migration removes class-specific grant contract', async () =
   const fixedWindowPattern = new RegExp(String.raw`interval\s+'` + '60' + String.raw`\s+days'`);
   assert.equal(fixedWindowPattern.test(sql), false);
 });
+
+test('workspace owner trigger uses RBAC admin role for new workspaces', async () => {
+  const sql = (await readFile(new URL('../migrations/0014_fix_workspace_owner_trigger_role.sql', import.meta.url), 'utf8')).toLowerCase();
+  for (const required of [
+    'create or replace function public.add_workspace_owner_membership()',
+    "values (new.id, new.created_by, 'admin')",
+    'drop trigger if exists on_workspace_created_add_owner on public.workspaces',
+    'for each row execute function public.add_workspace_owner_membership()',
+  ]) assert.ok(sql.includes(required), `missing workspace trigger fix: ${required}`);
+  assert.equal(/values\s*\([^)]*'owner'/.test(sql), false);
+});
