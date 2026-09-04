@@ -38,6 +38,20 @@ Published RoughBid SaaS templates created on 2026-09-04:
 - Sender: `RoughBid <hello@mail.kspdominion.group>`
 - Status: published
 
+- Name: RoughBid Proposal Opened Notification
+- Alias: `roughbid-proposal-opened`
+- Template ID: `61d9441b-de16-4a75-8dae-274e1af12d8f`
+- Preview: https://resend.com/templates/61d9441b-de16-4a75-8dae-274e1af12d8f
+- Sender: `RoughBid <hello@mail.kspdominion.group>`
+- Status: published
+
+- Name: RoughBid Proposal Signed Notification
+- Alias: `roughbid-proposal-signed`
+- Template ID: `84301e57-44cb-4a93-829e-9b548aad9d28`
+- Preview: https://resend.com/templates/84301e57-44cb-4a93-829e-9b548aad9d28
+- Sender: `RoughBid <hello@mail.kspdominion.group>`
+- Status: published
+
 Backend activation:
 - Add `RESEND_API_KEY` to Vercel Production.
 - Optionally add `APP_URL=https://roughbid.vercel.app`.
