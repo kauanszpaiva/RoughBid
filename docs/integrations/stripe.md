@@ -5,6 +5,7 @@
 - Product ID: `prod_VB3s2SIgOAxwRR`.
 - Test product: `RoughBid` exists in TEST mode.
 - Test product ID: `prod_VCHSqTxw7RucUe`.
+- Test product image: `https://roughbid.vercel.app/roughbid-logo-generated.png`.
 - Price: intentionally absent until commercial pricing and limits are approved.
 - Charges: none created by foundation work.
 - Recommended collection surface: Stripe-hosted Checkout for subscriptions.
