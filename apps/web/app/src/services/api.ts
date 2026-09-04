@@ -126,24 +126,40 @@ export function acceptWorkspaceInvite(token: string) {
   return request<{ workspaceId: string; role: WorkspaceRole }>("/api/workspace-invites/accept", { method: "POST", body: { token } });
 }
 
+export type RemoteProject = {
+  id: string;
+  name: string;
+  status?: "draft" | "active" | "archived";
+  project_number?: string | null;
+  address_text?: string | null;
+  app_state?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 /** GET /api/projects — requires a real workspace id (see apps/api/src/projects/routes.ts). */
 export function listProjects(workspaceId: string) {
-  return request<unknown[]>("/api/projects", { workspaceId });
+  return request<RemoteProject[]>("/api/projects", { workspaceId });
 }
 
 /** POST /api/projects */
 export function createProject(workspaceId: string, project: unknown) {
-  return request<unknown>("/api/projects", { method: "POST", workspaceId, body: project });
+  return request<RemoteProject>("/api/projects", { method: "POST", workspaceId, body: project });
 }
 
 /** GET /api/projects/:id */
 export function getProject(workspaceId: string, id: string) {
-  return request<unknown>(`/api/projects/${id}`, { workspaceId });
+  return request<RemoteProject>(`/api/projects/${id}`, { workspaceId });
 }
 
 /** PATCH /api/projects/:id */
 export function updateProject(workspaceId: string, id: string, patch: unknown) {
-  return request<unknown>(`/api/projects/${id}`, { method: "PATCH", workspaceId, body: patch });
+  return request<RemoteProject>(`/api/projects/${id}`, { method: "PATCH", workspaceId, body: patch });
+}
+
+/** DELETE /api/projects/:id */
+export function deleteProject(workspaceId: string, id: string) {
+  return request<RemoteProject>(`/api/projects/${id}`, { method: "DELETE", workspaceId });
 }
 
 /**
@@ -157,7 +173,6 @@ export function recalculateEstimate(input: unknown) {
   return request<unknown>("/api/estimates/recalculate", { method: "POST", body: input });
 }
 
-export type RemoteProject = { id: string; name: string };
 export type RemoteProjectFile = {
   id: string;
   original_name: string;

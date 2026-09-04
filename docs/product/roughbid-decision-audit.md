@@ -26,7 +26,8 @@ This file tracks the product decisions from the owner conversation against the c
 - Login gate: `apps/web/app/src/App.tsx`, `apps/web/app/src/components/AuthGate.tsx`, `apps/web/test/auth-gate.test.ts`.
 - Organization invites: `apps/web/app/src/components/AuthModal.tsx`, `apps/api/src/workspaces/routes.ts`, `apps/api/src/email/resend.ts`.
 - Client view and open/sign notifications: `apps/web/app/src/pages/ExportPage.tsx`, `apps/web/app/src/pages/ClientProposalPage.tsx`, `apps/api/src/proposals/routes.ts`, `supabase/migrations/0008_client_proposals.sql`, `supabase/migrations/0009_public_client_proposal_links.sql`.
-- Tenant isolation and RLS: `supabase/migrations/0001_foundation.sql`, `supabase/migrations/0013_tenant_project_isolation.sql`, related tests under `supabase/test/`.
+- Tenant isolation and RLS: `supabase/migrations/0001_foundation.sql`, `supabase/migrations/0011_tenant_project_isolation.sql`, related tests under `supabase/test/`.
+- Full project UI state persistence: `supabase/migrations/0013_project_app_state.sql`.
 - Pricing and margin rules: `packages/domain/src/billing.ts`, `packages/domain/test/billing.test.ts`.
 - AI plan-reading architecture: `docs/architecture/ai-plan-reading-pipeline.md`, `apps/api/src/ai-plan/`, `apps/web/app/src/components/BlueprintViewer.tsx`.
 - Mobile/tablet layout protections: `apps/web/test/responsive-layout.test.ts`.

@@ -39,6 +39,17 @@ function status(value: unknown): ProjectStatus {
   return value;
 }
 
+function appState(input: Record<string, unknown>): Record<string, unknown> {
+  const value = input.app_state ?? input.appState;
+  if (value == null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new ProjectApiError(400, 'appState must be an object');
+  }
+  const encoded = JSON.stringify(value);
+  if (encoded.length > 250_000) throw new ProjectApiError(413, 'appState is too large');
+  return value as Record<string, unknown>;
+}
+
 export async function validatePlanFile(file: File): Promise<void> {
   if (!(file instanceof Blob) || file.type.toLowerCase() !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) {
     throw new ProjectApiError(415, 'Only PDF files are accepted');
@@ -82,6 +93,7 @@ export class ProjectService {
       project_number: optionalText(input.project_number, 'project_number', 80),
       address_text: optionalText(input.address, 'address', 500),
       status: input.status == null ? 'draft' : status(input.status),
+      app_state: appState(input),
     };
     return dbResult(await this.db.from('projects').insert(row).select('*').single());
   }
@@ -92,6 +104,7 @@ export class ProjectService {
     if ('project_number' in input) changes.project_number = optionalText(input.project_number, 'project_number', 80);
     if ('address' in input) changes.address_text = optionalText(input.address, 'address', 500);
     if ('status' in input) changes.status = status(input.status);
+    if ('app_state' in input || 'appState' in input) changes.app_state = appState(input);
     return dbResult(await this.db.from('projects').update(changes).eq('workspace_id', this.workspaceId).eq('id', projectId).select('*').maybeSingle(), true);
   }
 

@@ -24,7 +24,18 @@ import { AuthGate } from "./components/AuthGate";
 import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
 import { isAuthConfigured } from "./services/supabaseClient";
-import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type RemoteProject, type Workspace } from "./services/api";
+import {
+  acceptWorkspaceInvite,
+  bootstrapAuth,
+  createProject as createRemoteProject,
+  createWorkspace,
+  deleteProject as deleteRemoteProject,
+  listProjects as listRemoteProjects,
+  listWorkspaces,
+  updateProject as updateRemoteProject,
+  type RemoteProject,
+  type Workspace,
+} from "./services/api";
 
 export default function App() {
   const publicProposalMatch = window.location.pathname.match(/^\/proposal\/([A-Za-z0-9_-]+)$/);
@@ -55,11 +66,50 @@ export default function App() {
   const [showAIModal, setShowAIModal] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
 
-  // Initialize projects on load
-  useEffect(() => {
-    const loaded = StorageService.getProjects();
-    setProjects(loaded);
-  }, []);
+  const toRemoteStatus = (status: Project["status"]) => {
+    if (status === "Completed") return "archived";
+    if (status === "In Progress") return "active";
+    return "draft";
+  };
+
+  const fromRemoteStatus = (status?: RemoteProject["status"]): Project["status"] => {
+    if (status === "archived") return "Completed";
+    if (status === "active") return "In Progress";
+    return "Planning";
+  };
+
+  const isStoredProject = (value: unknown): value is Project => {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Partial<Project>;
+    return typeof candidate.name === "string" && Array.isArray(candidate.revisions) && Array.isArray(candidate.quantities) && Array.isArray(candidate.estimateItems);
+  };
+
+  const remoteToProject = (remote: RemoteProject): Project => {
+    const stored = isStoredProject(remote.app_state) ? remote.app_state : null;
+    const project: Project = {
+      id: stored?.id ?? remote.id,
+      remoteId: remote.id,
+      name: stored?.name ?? remote.name,
+      clientName: stored?.clientName ?? "Client",
+      address: stored?.address ?? remote.address_text ?? "",
+      projectType: stored?.projectType ?? "Construction Project",
+      status: stored?.status ?? fromRemoteStatus(remote.status),
+      updatedAt: remote.updated_at ? `Updated ${new Date(remote.updated_at).toLocaleDateString()}` : stored?.updatedAt ?? "Updated recently",
+      overheadPercentage: stored?.overheadPercentage ?? user.defaultOverhead,
+      markupPercentage: stored?.markupPercentage ?? user.defaultMarkup,
+      revisions: stored?.revisions ?? [],
+      quantities: stored?.quantities ?? [],
+      estimateItems: stored?.estimateItems ?? [],
+    };
+    return stored?.notes ? { ...project, notes: stored.notes } : project;
+  };
+
+  const projectPayload = (project: Project) => ({
+    name: project.name,
+    address: project.address,
+    status: toRemoteStatus(project.status),
+    appState: project,
+  });
 
   // Once signed in, resolve the user's real backend workspace (creating one
   // the first time), so real projects created below have somewhere to live.
@@ -88,7 +138,14 @@ export default function App() {
         }
         const workspaces = await listWorkspaces();
         const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
-        if (active) setWorkspace(resolved);
+        if (!active) return;
+        setWorkspace(resolved);
+        const remoteProjects = await listRemoteProjects(resolved.id);
+        if (active) {
+          const mapped = remoteProjects.map(remoteToProject);
+          setProjects(mapped);
+          StorageService.saveProjects(mapped);
+        }
       } catch (error) {
         console.error("Could not resolve your workspace from the backend.", error);
       }
@@ -130,25 +187,26 @@ export default function App() {
     const newProjects = projects.map((p) => (p.id === updated.id ? updated : p));
     setProjects(newProjects);
     StorageService.saveProjects(newProjects);
+    if (workspace && updated.remoteId) {
+      updateRemoteProject(workspace.id, updated.remoteId, projectPayload(updated)).catch((error) => {
+        console.error("Could not persist this project to the backend.", error);
+      });
+    }
   };
 
   const handleCreateProject = (newProject: Project) => {
-    const newProjects = [newProject, ...projects];
+    const stagedProject = { ...newProject, updatedAt: "Saving..." };
+    const newProjects = [stagedProject, ...projects];
     setProjects(newProjects);
     StorageService.saveProjects(newProjects);
-    setActiveProject(newProject);
+    setActiveProject(stagedProject);
     setActiveStep("plans");
     setActiveTab("projects");
 
-    // Best-effort: also register the project with the real backend once a
-    // workspace is resolved, so a growing, real `projects` table exists
-    // alongside the local mock. Never blocks or fails the UI — see the
-    // effect above and api.ts for why this app doesn't yet read projects
-    // back from the backend.
     if (workspace) {
-      createRemoteProject(workspace.id, { name: newProject.name, address: newProject.address }).then((remote) => {
+      createRemoteProject(workspace.id, projectPayload(stagedProject)).then((remote) => {
         const remoteProject = remote as RemoteProject;
-        const synced = { ...newProject, remoteId: remoteProject.id };
+        const synced = { ...stagedProject, remoteId: remoteProject.id, updatedAt: "Just now" };
         setActiveProject((current) => current?.id === newProject.id ? synced : current);
         setProjects((current) => {
           const next = current.map((project) => project.id === newProject.id ? synced : project);
@@ -163,9 +221,15 @@ export default function App() {
 
   const handleDeleteProject = (projectId: string) => {
     if (confirm("Are you sure you want to delete this project?")) {
+      const projectToDelete = projects.find((p) => p.id === projectId);
       const updated = projects.filter((p) => p.id !== projectId);
       setProjects(updated);
       StorageService.saveProjects(updated);
+      if (workspace && projectToDelete?.remoteId) {
+        deleteRemoteProject(workspace.id, projectToDelete.remoteId).catch((error) => {
+          console.error("Could not delete this project from the backend.", error);
+        });
+      }
       if (activeProject?.id === projectId) {
         setActiveProject(null);
       }
@@ -182,6 +246,18 @@ export default function App() {
     const updated = [duplicated, ...projects];
     setProjects(updated);
     StorageService.saveProjects(updated);
+    if (workspace) {
+      createRemoteProject(workspace.id, projectPayload(duplicated)).then((remote) => {
+        const synced = { ...duplicated, remoteId: remote.id };
+        setProjects((current) => {
+          const next = current.map((project) => project.id === duplicated.id ? synced : project);
+          StorageService.saveProjects(next);
+          return next;
+        });
+      }).catch((error) => {
+        console.error("Could not persist duplicated project to the backend.", error);
+      });
+    }
   };
 
   const handleUpdateUser = (updatedUser: UserProfile) => {
