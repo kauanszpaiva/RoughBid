@@ -1,20 +1,31 @@
 /**
  * Single integration point between this app (apps/web/app) and the real
- * backend (apps/api). Nothing else in this app should call `fetch` against
- * the backend directly — funnel every call through here so API_BASE_URL,
- * headers and error handling stay in one place, per the integration contract:
+ * backend (apps/api, deployed as Vercel Edge Functions under /api — see
+ * /api/[...path].ts and apps/api/src/http/handler.ts). Nothing else in this
+ * app should call `fetch` against the backend directly — funnel every call
+ * through here so headers and error handling stay in one place, per the
+ * integration contract:
  *
  *   GET  /api/health
- *   GET  /api/projects            POST /api/projects
- *   GET  /api/projects/:id        PATCH /api/projects/:id
+ *   GET  /api/auth/bootstrap
+ *   GET  /api/workspaces           POST /api/workspaces
+ *   GET  /api/projects             POST /api/projects
+ *   GET  /api/projects/:id         PATCH /api/projects/:id
  *   POST /api/estimates/recalculate
  *   upload/download protegido de documentos/PDF (TODO, see below)
  *
- * VITE_API_BASE_URL is a public, non-secret value (no keys/passwords). When
- * it is unset, every call below throws ApiNotConfiguredError so callers can
- * fall back to the local mock in ./storage.ts and ./calculations.ts — this
- * app does not invent a fake "success" response from the backend.
+ * Requests default to same-origin relative paths, since /api and /app are
+ * built and deployed together (see scripts/build.mjs, vercel.json). Set
+ * VITE_API_BASE_URL only to point this app at a *different* deployment (e.g.
+ * a preview backend) — it's a public, non-secret value.
+ *
+ * Every call attaches the signed-in user's Supabase session token, when one
+ * exists (see services/supabaseClient.ts). Callers are responsible for
+ * checking `useSession()` first and falling back to local mock data (see
+ * ./storage.ts and ./calculations.ts) when there's no session — this module
+ * does not invent a fake "success" response from the backend.
  */
+import { supabase } from "./supabaseClient";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
@@ -27,14 +38,6 @@ export class ApiError extends Error {
   }
 }
 
-/** Thrown when VITE_API_BASE_URL isn't set yet — callers should use mock data. */
-export class ApiNotConfiguredError extends Error {
-  constructor(path: string) {
-    super(`VITE_API_BASE_URL is not set; cannot call ${path}. Falling back to local mock data.`);
-    this.name = "ApiNotConfiguredError";
-  }
-}
-
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   workspaceId?: string;
@@ -42,16 +45,16 @@ type RequestOptions = {
 };
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  if (!API_BASE_URL) throw new ApiNotConfiguredError(path);
   const { method = "GET", workspaceId, body } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (workspaceId) headers["x-workspace-id"] = workspaceId;
+  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
-    credentials: "include",
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
@@ -66,6 +69,29 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 /** GET /api/health */
 export function getHealth() {
   return request<{ status: string; service: string }>("/api/health");
+}
+
+export type AuthBootstrap = {
+  userId: string;
+  email: string | null;
+  profile: { id: string; displayName: string | null; isPlatformAdmin: boolean; createdAt: string };
+};
+
+/** GET /api/auth/bootstrap — the signed-in user's profile row. */
+export function bootstrapAuth() {
+  return request<AuthBootstrap>("/api/auth/bootstrap");
+}
+
+export type Workspace = { id: string; name: string; createdBy: string; createdAt: string };
+
+/** GET /api/workspaces */
+export function listWorkspaces() {
+  return request<Workspace[]>("/api/workspaces");
+}
+
+/** POST /api/workspaces */
+export function createWorkspace(name: string) {
+  return request<Workspace>("/api/workspaces", { method: "POST", body: { name } });
 }
 
 /** GET /api/projects — requires a real workspace id (see apps/api/src/projects/routes.ts). */
@@ -92,7 +118,8 @@ export function updateProject(workspaceId: string, id: string, patch: unknown) {
  * POST /api/estimates/recalculate — the authoritative, server-verified totals.
  * `input` matches ProjectCalculationInput from packages/domain/src/calculation.ts.
  * calculations.ts#calculateProjectFinancials runs the same engine locally today
- * (mock/offline path); prefer this once the app carries a real session.
+ * so every screen has real numbers immediately; prefer this call once a
+ * screen needs a server-verified total instead of the local computation.
  */
 export function recalculateEstimate(input: unknown) {
   return request<unknown>("/api/estimates/recalculate", { method: "POST", body: input });

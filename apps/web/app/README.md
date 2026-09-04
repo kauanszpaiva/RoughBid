@@ -19,31 +19,38 @@ npm run dev:app     # vite dev server for this app
 npm run build:app   # builds into ../../../dist/app (also runs as part of `npm run build`)
 ```
 
-## Data: mock today, real backend next
+## Auth: real, backend: real — most screens: still mock
 
-Every screen currently reads and writes through `src/utils/storage.ts`, a
-deterministic `localStorage`-backed mock — there is no `.env`, key, or
-password required to run this app locally, and it never pretends a save
-reached a server that isn't wired up yet.
+Sign-in is real Supabase Auth (magic link, `src/services/supabaseClient.ts` +
+`src/components/AuthModal.tsx`). When `VITE_SUPABASE_URL` /
+`VITE_SUPABASE_PUBLISHABLE_KEY` aren't set (e.g. a fresh clone with no `.env`),
+the app runs in a clearly-labeled demo mode instead of a broken login form —
+no key or password is required to browse it.
 
-`src/services/api.ts` is the single place that will talk to the real backend
-(`apps/api`) once this app carries a real Supabase session and workspace id.
-It implements the agreed contract (`GET /api/health`, `GET`/`POST
-/api/projects`, `GET`/`PATCH /api/projects/:id`, `POST
-/api/estimates/recalculate`) behind `VITE_API_BASE_URL` — see the `.env.example`
-at the repo root. When that variable is unset, every call throws
-`ApiNotConfiguredError` so callers know to fall back to the mock instead of
-faking success.
+Once signed in, `App.tsx` calls the real backend (`GET /api/auth/bootstrap`,
+`GET`/`POST /api/workspaces`) to resolve or create the user's workspace. New
+projects are also mirrored to the real backend (`POST /api/projects`) on a
+best-effort basis. All of that goes through `/api/*`, which now actually
+exists — see `/api/[...path].ts` at the repo root and
+`apps/api/src/http/handler.ts`.
+
+Every *screen* (plans, quantities, materials, estimate line items) still
+reads and writes through `src/utils/storage.ts`, a deterministic
+`localStorage`-backed mock. That's deliberate, not a shortcut: the real
+`projects` table doesn't yet carry the full plans/quantities/estimate-items
+shape this UI works with, so swapping it in now would either invent backend
+fields that don't exist or break the working demo. `src/services/api.ts` is
+the single place that talks to the backend — see the `TODO(joshua-backend)`
+markers there and in `storage.ts` for exactly what widening the backend
+contract would take.
 
 The estimate math itself (`src/utils/calculations.ts`) already calls the same
 fixed-point engine the backend exposes at `POST /api/estimates/recalculate`
-(`packages/domain/src/calculation.ts`), so totals match the backend exactly
-ahead of that network call being wired up.
+(`packages/domain/src/calculation.ts`), so totals match the backend exactly.
 
 ## Not in scope here
 
-Per the brief this app shipped under: no changes to `apps/api/**`,
-`supabase/**`, real authentication, Vercel, or the database. Those stay
-Joshua's/backend's responsibility — see the `TODO(joshua-backend)` markers in
-`src/utils/storage.ts` and `src/services/api.ts` for exactly where this app
-is ready to be connected.
+Real payments, document upload/processing, and Class Pass redemption UI are
+still unbuilt on the frontend even though their backend/DB pieces now exist
+(see `supabase/migrations/`). `packages/domain/**` changes still need review
+from both owners per `docs/OWNERSHIP.md`.

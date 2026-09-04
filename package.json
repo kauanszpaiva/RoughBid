@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
     "bullmq": "^5.58.5",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

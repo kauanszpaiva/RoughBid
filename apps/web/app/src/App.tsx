@@ -19,6 +19,8 @@ import { NewProjectModal } from "./components/NewProjectModal";
 import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
 import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
+import { useSession } from "./services/useSession";
+import { bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type Workspace } from "./services/api";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -27,6 +29,13 @@ export default function App() {
   const [activeStep, setActiveStep] = useState<ProjectStep>("plans");
   const [user, setUser] = useState<UserProfile>(StorageService.getUserProfile());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  // Real Supabase Auth session (null when signed out or when auth isn't
+  // configured in this environment — see services/supabaseClient.ts). The
+  // rest of the app keeps working on local mock data either way; signing in
+  // only additionally provisions/reads a real backend workspace, below.
+  const { session } = useSession();
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
   // Modal States
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
@@ -38,6 +47,33 @@ export default function App() {
     const loaded = StorageService.getProjects();
     setProjects(loaded);
   }, []);
+
+  // Once signed in, resolve the user's real backend workspace (creating one
+  // the first time), so real projects created below have somewhere to live.
+  // This intentionally does not replace the local project list above yet —
+  // the backend `projects` table doesn't carry the full plans/quantities/
+  // estimate-items shape this app already works with (see api.ts and
+  // storage.ts TODOs) — it only proves and keeps the real auth chain wired.
+  useEffect(() => {
+    if (!session) {
+      setWorkspace(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        await bootstrapAuth();
+        const workspaces = await listWorkspaces();
+        const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
+        if (active) setWorkspace(resolved);
+      } catch (error) {
+        console.error("Could not resolve your workspace from the backend.", error);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [session]);
 
   const handleSelectTab = (tab: NavTab) => {
     setActiveTab(tab);
@@ -73,6 +109,17 @@ export default function App() {
     setActiveProject(newProject);
     setActiveStep("plans");
     setActiveTab("projects");
+
+    // Best-effort: also register the project with the real backend once a
+    // workspace is resolved, so a growing, real `projects` table exists
+    // alongside the local mock. Never blocks or fails the UI — see the
+    // effect above and api.ts for why this app doesn't yet read projects
+    // back from the backend.
+    if (workspace) {
+      createRemoteProject(workspace.id, { name: newProject.name, address: newProject.address }).catch((error) => {
+        console.error("Could not sync this project to the backend.", error);
+      });
+    }
   };
 
   const handleDeleteProject = (projectId: string) => {
@@ -313,9 +360,10 @@ export default function App() {
         />
       )}
 
-      {/* Estimator Account / Prime Bid Pass Modal */}
+      {/* Account / sign-in modal */}
       <AuthModal
-        user={user}
+        session={session}
+        workspaceName={workspace?.name ?? null}
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
       />
