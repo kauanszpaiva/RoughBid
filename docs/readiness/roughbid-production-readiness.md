@@ -21,6 +21,7 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Export and review screens no longer claim readiness when a project has no plan, quantities, or priced estimate lines.
 - AI plan assistant is clearly marked as a plan-reading workflow preview until the live document AI pipeline is connected.
 - Production security headers are configured in Vercel.
+- Product, tenanting, pricing, AI routing, data, marketplace, and legal gates are consolidated in `docs/product/roughbid-operating-model.md`.
 
 ## Must Finish Before Paid Launch
 
@@ -48,6 +49,7 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Resend: approval template draft `6db15836-91a2-4b31-b08f-abcd2355d135` exists; publish/send only after sender and copy approval.
 - Tavily: useful for research and benchmarking; connector still returned reauthentication errors on 2026-09-04 and is not connected to the app runtime today.
 - DocuSign: not needed for current RoughBid scope unless signed contracts/proposals become a product requirement.
+- Operating model: the SaaS boundaries are user, organization/workspace, project, client proposal, and marketplace feed.
 
 ## User Acceptance Checklist
 

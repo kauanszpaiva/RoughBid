@@ -20,3 +20,27 @@
 - `POST /api/webhooks/stripe` reads the raw body, verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET`, and treats subscription webhooks as the sole authority for billing status.
 - The service-role-only `process_stripe_event` database function claims the Stripe event ID and updates `billing_customers` in the same transaction, making retries safe.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the Supabase service-role key are server-only credentials.
+
+## Commercial model
+
+The recommended RoughBid commercial model is subscriptions, one-time project credit packs, and marketplace add-ons defined in `docs/business-finance-pricing.md`.
+
+Do not grant credits or paid access from frontend success redirects alone. RoughBid must wait for a signed Stripe webhook before writing credit grants, subscription state, or marketplace entitlements.
+
+## Payment method flow
+
+1. A logged-in user selects a plan, credit pack, or marketplace add-on inside RoughBid.
+2. The API maps the internal item ID to a Stripe price ID.
+3. Stripe-hosted Checkout collects the card/payment method.
+4. RoughBid waits for a signed webhook before granting paid access.
+5. The webhook creates credit grants, subscription status, or marketplace entitlements in Supabase.
+6. The Customer Portal handles card updates, invoices, cancellations, and plan changes.
+
+## Price creation gate
+
+Create Stripe prices only after owner approval for:
+- Starter, Pro, and Team monthly prices.
+- One-time project credit packs.
+- Marketplace add-on prices.
+- Credit expiration/refund policy.
+- Any card-required trial rule.

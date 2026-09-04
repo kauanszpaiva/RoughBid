@@ -7,32 +7,59 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <style>
     body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; background: #fcfcfd; line-height: 1.6; }
-    main { max-width: 840px; margin: 0 auto; padding: 48px 20px 72px; }
+    main { max-width: 880px; margin: 0 auto; padding: 48px 20px 72px; }
     a { color: #2563eb; }
     h1 { font-size: 34px; line-height: 1.1; margin: 0 0 8px; }
     h2 { font-size: 18px; margin: 30px 0 8px; }
     p, li { font-size: 14px; color: #374151; }
     .note { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; color: #1e3a8a; }
+    .warning { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px; color: #7c2d12; }
   </style>
 </head>
 <body>
   <main>
     <p><a href="/">Back to RoughBid</a></p>
     <h1>RoughBid Privacy Policy</h1>
-    <p class="note">Operational draft. This policy documents intended product behavior and should be reviewed by qualified counsel before broad commercial use.</p>
-    <h2>Data We Process</h2>
-    <p>RoughBid may process account email addresses, organization membership, project names, client/project details, plan files, takeoff quantities, estimate line items, pricing assumptions, proposal exports, and security logs.</p>
-    <h2>How Data Is Used</h2>
-    <p>Data is used to provide estimating workflows, authenticate users, enforce workspace access, generate exports, troubleshoot issues, improve product reliability, and maintain security.</p>
-    <h2>AI Plan Reading</h2>
-    <p>When AI plan reading is enabled, uploaded plans and related project context may be processed to extract candidate scope, quantities, notes, and review flags. AI output should be treated as a draft suggestion until confirmed by a user.</p>
-    <h2>Sharing and Processors</h2>
-    <p>RoughBid may rely on infrastructure and product processors such as hosting, database, authentication, storage, email, payment, logging, and AI providers. Production processor configuration must match the environment actually deployed.</p>
-    <h2>Security</h2>
-    <p>RoughBid uses workspace roles, row-level security, private plan storage, hashed invite tokens, and server-only credentials for sensitive integrations. Users should report suspected unauthorized access quickly.</p>
-    <h2>Retention</h2>
-    <p>Project and account data may be retained while an organization account is active and for a reasonable period needed for security, audit, dispute, legal, or backup purposes.</p>
-    <h2>Contact</h2>
+    <p class="note">Operational draft. This policy documents intended product behavior. It is not legal advice and should be reviewed by qualified counsel before broad commercial use.</p>
+
+    <h2>1. Data RoughBid Processes</h2>
+    <ul>
+      <li>Account data: email address, session identifiers, organization membership, role, invite status, and authentication events.</li>
+      <li>Organization data: workspace name, teammates, permissions, billing status, usage limits, subscription status, and credit metadata.</li>
+      <li>Project data: project names, addresses or regions if entered, client names or contacts if entered, plan files, drawings, specifications, photos, notes, quantities, estimate line items, proposals, signatures, and audit events.</li>
+      <li>Usage and security data: device/browser metadata, API events, proposal open events, logs, error reports, abuse signals, and operational diagnostics.</li>
+      <li>Payment data: payment status, subscription identifiers, checkout events, invoices, and limited billing metadata. Full payment card details should be handled by the payment processor, not stored directly by RoughBid.</li>
+    </ul>
+
+    <h2>2. How Data Is Used</h2>
+    <p>Data is used to operate RoughBid, authenticate users, separate organizations and projects, enforce permissions, process plan files, generate estimate drafts, share client proposals, send transactional emails, track proposal opens and signatures, process payments, manage credits and usage limits, troubleshoot issues, maintain security, and improve product reliability.</p>
+
+    <h2>3. Organization and Project Access</h2>
+    <p>RoughBid is designed so each organization controls access to its own projects, files, estimates, price lists, proposals, and billing data. Administrators should review access regularly. Client proposal links may allow limited public access to a specific proposal without a RoughBid login.</p>
+
+    <h2>4. AI Plan Reading and Model Providers</h2>
+    <p>When AI plan reading is enabled, uploaded plans and related project context may be sent to AI providers or internal processing systems to extract candidate scope, quantities, notes, and review flags. AI output is a draft suggestion and should be reviewed by a user.</p>
+    <p>RoughBid should not use customer project files to train shared or public AI models unless the customer has clearly agreed in writing or the data has been handled under an approved de-identification and governance process.</p>
+
+    <h2>5. Sensitive Data</h2>
+    <p>Construction plans can include confidential business, property, client, and contractor information. Users should avoid uploading unnecessary personal data, payment card data, government identifiers, health data, biometric data, children's data, passwords, secrets, or unrelated sensitive data.</p>
+
+    <h2>6. Sharing and Service Providers</h2>
+    <p>RoughBid may rely on hosting, database, authentication, storage, email, payment, logging, analytics, and AI providers. Production processor configuration should match the actual deployed environment and be reviewed before broad commercial use.</p>
+
+    <h2>7. Security</h2>
+    <p>RoughBid uses a combination of workspace roles, row-level security, private plan storage, server-side credentials, hashed invite or proposal tokens, and access checks. No system is perfect. Users should report suspected unauthorized access quickly and remove users who no longer need access.</p>
+
+    <h2>8. Retention and Deletion</h2>
+    <p>Project and account data may be retained while an organization account is active and for a reasonable period needed for security, audit, dispute, billing, legal, backup, or operational purposes. Deletion requests may be limited where retention is required for payment records, security logs, legal claims, or backup integrity.</p>
+
+    <h2>9. Privacy Requests</h2>
+    <p>Users and proposal recipients may contact RoughBid about access, correction, deletion, or other privacy requests. The response process and deadlines depend on the person's location, the applicable law, the user's relationship to a RoughBid customer, and identity verification.</p>
+
+    <h2>10. Jurisdiction-Specific Review</h2>
+    <p class="warning">Approval needed: privacy rights, notice language, retention periods, international transfers, subprocessor disclosures, cookie/analytics notices, and state-specific US privacy obligations should be reviewed by counsel before broad commercial launch.</p>
+
+    <h2>11. Contact</h2>
     <p>Privacy questions: <a href="mailto:hello@kspdominion.group?subject=RoughBid%20Privacy">hello@kspdominion.group</a></p>
   </main>
 </body>

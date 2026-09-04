@@ -57,3 +57,17 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 ## Tavily Status
 
 Tavily is intended for current market/context research around construction terminology and estimating best practices, not for reading private customer plans. The connector still returned a reauthentication error on 2026-09-04, so this pipeline document is implementation-driven and not represented as Tavily-verified research.
+
+## New England ML Method
+
+Do not start by fine-tuning on uncontrolled plan files. The safer production path is:
+
+- Build a licensed source library for CT, MA, ME, NH, RI, and VT codes, amendments, public guidance, and approved price references.
+- Store source snapshots with jurisdiction, date, URL/license basis, and effective period.
+- Use retrieval-augmented generation for code and specification lookups.
+- Use cheap extraction models for page reading and object detection.
+- Use stronger models only for ambiguous plan sections, code reasoning, and final review.
+- Save reviewed estimator corrections as training examples inside the originating workspace.
+- Use cross-workspace learning only after explicit opt-in, anonymization, and legal approval.
+
+RoughBid should first learn from reviewed outcomes: accepted quantities, rejected findings, user corrections, final winning price, and proposal acceptance. That creates a high-quality dataset without pretending that public internet plans are enough for reliable construction estimation.
