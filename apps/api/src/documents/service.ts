@@ -5,7 +5,14 @@ export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
 export interface PdfJob { fileId: string; workspaceId: string; projectId: string; sourceKey: string; }
 export interface JobQueue { add(name: 'process-pdf', data: PdfJob, options: { jobId: string; attempts: number; backoff: { type: 'exponential'; delay: number }; removeOnComplete: number }): Promise<unknown>; }
+export interface BullMqQueueModule { Queue: new (name: string, options: unknown) => JobQueue; }
 export interface DocumentDb { from(table: string): any; }
+
+export async function createDocumentQueue(redisUrl: string, loader: () => Promise<BullMqQueueModule> = () => import('bullmq') as Promise<unknown> as Promise<BullMqQueueModule>) {
+  if (!redisUrl) throw new Error('REDIS_URL is required');
+  const bull = await loader();
+  return new bull.Queue(PDF_PROCESS_QUEUE, { connection: { url: redisUrl, maxRetriesPerRequest: null } });
+}
 
 const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 255);
 

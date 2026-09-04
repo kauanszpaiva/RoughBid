@@ -13,6 +13,10 @@ export interface PlanRevision {
   isCurrent: boolean;
   notes?: string;
   fileUrl?: string; // object URL or base64
+  remoteFileId?: string;
+  processingStatus?: "uploading" | "queued" | "processing" | "ready" | "failed";
+  aiPlanJobId?: string;
+  aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed";
 }
 
 export interface QuantityItem {
@@ -50,6 +54,7 @@ export interface FinancialCalculation {
 
 export interface Project {
   id: string;
+  remoteId?: string;
   name: string;
   clientName: string;
   address: string;

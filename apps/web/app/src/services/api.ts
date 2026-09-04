@@ -12,7 +12,10 @@
  *   GET  /api/projects             POST /api/projects
  *   GET  /api/projects/:id         PATCH /api/projects/:id
  *   POST /api/estimates/recalculate
- *   upload/download protegido de documentos/PDF (TODO, see below)
+ *   POST /api/projects/:id/documents/upload-url
+ *   POST /api/documents/:id/complete
+ *   POST /api/documents/:id/download-url
+ *   POST /api/projects/:id/ai-plan-readings
  *
  * Requests default to same-origin relative paths, since /api and /app are
  * built and deployed together (see scripts/build.mjs, vercel.json). Set
@@ -146,7 +149,39 @@ export function recalculateEstimate(input: unknown) {
   return request<unknown>("/api/estimates/recalculate", { method: "POST", body: input });
 }
 
-// TODO(joshua-backend): wire document upload/download once this app can reach
-// POST /api/projects/:id/files and POST /api/project-files/:id/download (see
-// apps/api/src/projects/routes.ts). The Plans step currently keeps uploaded
-// plan PDFs as in-memory object URLs via StorageService — no server round trip.
+export type RemoteProject = { id: string; name: string };
+export type RemoteProjectFile = {
+  id: string;
+  original_name: string;
+  byte_size: number;
+  processing_status: "uploading" | "queued" | "processing" | "ready" | "failed";
+  page_count?: number | null;
+};
+export type PresignedUpload = { url: string; method: "PUT"; headers: Record<string, string>; expiresAt: string };
+
+export function beginDocumentUpload(workspaceId: string, projectId: string, input: { name: string; contentType: string; byteSize: number }) {
+  return request<{ file: RemoteProjectFile; upload: PresignedUpload }>(`/api/projects/${projectId}/documents/upload-url`, {
+    method: "POST",
+    workspaceId,
+    body: input,
+  });
+}
+
+export function completeDocumentUpload(workspaceId: string, fileId: string) {
+  return request<RemoteProjectFile>(`/api/documents/${fileId}/complete`, { method: "POST", workspaceId });
+}
+
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; scope?: string }) {
+  return request<{ id: string; status: "queued" | "processing" | "needs_review" | "ready" | "failed" }>(`/api/projects/${projectId}/ai-plan-readings`, {
+    method: "POST",
+    workspaceId,
+    body: input,
+  });
+}
+
+export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
+  return request<{ url: string; method: "GET"; headers: Record<string, string>; expiresAt: string }>(`/api/documents/${fileId}/download-url`, {
+    method: "POST",
+    workspaceId,
+  });
+}

@@ -10,9 +10,11 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
+import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
+  workspaceId: string | null;
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onOpenAIAssistant: () => void;
@@ -20,12 +22,15 @@ interface PlansPageProps {
 
 export const PlansPage: React.FC<PlansPageProps> = ({
   project,
+  workspaceId,
   onUpdateProject,
   onContinue,
   onOpenAIAssistant,
 }) => {
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isStartingAi, setIsStartingAi] = useState<boolean>(false);
+  const [planNotice, setPlanNotice] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
 
@@ -33,13 +38,70 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
 
   // Handle uploading a new plan revision
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const readableApiError = (error: unknown) => {
+    if (error instanceof ApiError) {
+      try {
+        const parsed = JSON.parse(error.message);
+        return typeof parsed.error === "string" ? parsed.error : error.message;
+      } catch {
+        return error.message;
+      }
+    }
+    return error instanceof Error ? error.message : "Action failed.";
+  };
+
+  const applyNewRevision = (newRev: PlanRevision) => {
+    const updatedRevisions = project.revisions.map((r) => ({
+      ...r,
+      isCurrent: false,
+    }));
+
+    const updatedProject: Project = {
+      ...project,
+      revisions: [...updatedRevisions, newRev],
+    };
+
+    onUpdateProject(updatedProject);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
+      setPlanNotice("Upload a PDF plan file. Images can be attached later as support files.");
+      e.target.value = "";
+      return;
+    }
 
     setIsUploading(true);
-    setTimeout(() => {
+    setPlanNotice(null);
+    try {
       const nextRevNum = String(project.revisions.length + 1).padStart(2, "0");
+      const canUseBackend = Boolean(workspaceId && project.remoteId);
+      let remoteFileId: string | undefined;
+      let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
+      let notes = canUseBackend
+        ? `Revision ${nextRevNum} uploading to private storage.`
+        : `Revision ${nextRevNum} stored locally. Sign in and create a synced project for server AI processing.`;
+
+      if (canUseBackend && workspaceId && project.remoteId) {
+        const remote = await beginDocumentUpload(workspaceId, project.remoteId, {
+          name: file.name,
+          contentType: file.type,
+          byteSize: file.size,
+        });
+        const uploaded = await fetch(remote.upload.url, {
+          method: remote.upload.method,
+          headers: remote.upload.headers,
+          body: file,
+        });
+        if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
+        const completed = await completeDocumentUpload(workspaceId, remote.file.id);
+        remoteFileId = completed.id;
+        processingStatus = completed.processing_status;
+        notes = `Revision ${nextRevNum} uploaded to private storage and queued for PDF page processing.`;
+      }
+
       const newRev: PlanRevision = {
         id: `rev-${Date.now()}`,
         revisionNumber: nextRevNum,
@@ -49,23 +111,58 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         uploadedBy: "Estimator",
         isCurrent: true,
-        notes: `Revision ${nextRevNum} uploaded. Page count and AI takeoff require processing.`,
+        notes,
+        remoteFileId,
+        processingStatus,
       };
 
-      // Mark all existing revisions as not current
-      const updatedRevisions = project.revisions.map((r) => ({
-        ...r,
-        isCurrent: false,
-      }));
-
-      const updatedProject: Project = {
-        ...project,
-        revisions: [...updatedRevisions, newRev],
-      };
-
-      onUpdateProject(updatedProject);
+      applyNewRevision(newRev);
+      setPlanNotice(notes);
+    } catch (error) {
+      setPlanNotice(readableApiError(error));
+    } finally {
       setIsUploading(false);
-    }, 600);
+      e.target.value = "";
+    }
+  };
+
+  const handleStartAiReading = async () => {
+    if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
+      setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
+      return;
+    }
+    setIsStartingAi(true);
+    setPlanNotice(null);
+    try {
+      const job = await createAiPlanReading(workspaceId, project.remoteId, {
+        file_id: currentRevision.remoteFileId,
+        mode: "quick",
+        scope: project.projectType,
+      });
+      const updatedRevisions = project.revisions.map((revision) =>
+        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading queued. Findings will require estimator review." } : revision
+      );
+      onUpdateProject({ ...project, revisions: updatedRevisions });
+      setPlanNotice("AI plan reading queued. Findings will require estimator review.");
+    } catch (error) {
+      setPlanNotice(readableApiError(error));
+    } finally {
+      setIsStartingAi(false);
+    }
+  };
+
+  const handleDownloadOriginal = async () => {
+    if (!currentRevision) return;
+    if (!workspaceId || !currentRevision.remoteFileId) {
+      alert(`Downloading original plan file: ${currentRevision.fileName}`);
+      return;
+    }
+    try {
+      const download = await createDocumentDownloadUrl(workspaceId, currentRevision.remoteFileId);
+      window.open(download.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setPlanNotice(readableApiError(error));
+    }
   };
 
   const handleSetCurrentRevision = (revisionId: string) => {
@@ -103,6 +200,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           <p className="text-xs text-[#6b7280] mt-0.5">
             Upload and manage your architectural blueprints and plan revisions.
           </p>
+          {planNotice && (
+            <p className="text-xs text-[#2563eb] mt-2 max-w-2xl">
+              {planNotice}
+            </p>
+          )}
         </div>
 
         {/* AI Assistant Quick Trigger */}
@@ -136,7 +238,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 <span>Upload PDF Plan</span>
                 <input
                   type="file"
-                  accept=".pdf,image/*"
+                  accept=".pdf,application/pdf"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -214,6 +316,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                   {currentRevision?.fileSize || "0 MB"}
                 </span>
               </div>
+
+              <div className="flex justify-between items-center py-1 border-t border-[#f3f4f6]">
+                <span className="text-[#6b7280]">Processing</span>
+                <span className="font-semibold text-[#111827] capitalize">
+                  {currentRevision?.processingStatus?.replace("_", " ") || (project.remoteId ? "not uploaded" : "local only")}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -234,12 +343,26 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               </span>
               <input
                 type="file"
-                accept=".pdf,image/*"
+                accept=".pdf,application/pdf"
                 onChange={handleFileUpload}
                 className="hidden"
                 disabled={isUploading}
               />
             </label>
+
+            <button
+              onClick={handleStartAiReading}
+              disabled={!currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+                <span>Start AI Plan Reading</span>
+              </div>
+              <span className="text-[10px] font-mono text-[#2563eb]">
+                {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}
+              </span>
+            </button>
 
             {/* View Revisions */}
             <button
@@ -272,7 +395,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             {/* Download Original */}
             <button
-              onClick={() => currentRevision && alert(`Downloading original plan file: ${currentRevision.fileName}`)}
+              onClick={handleDownloadOriginal}
               disabled={!currentRevision}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition text-left"
             >

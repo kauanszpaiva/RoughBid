@@ -20,7 +20,7 @@ import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
 import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
-import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type Workspace } from "./services/api";
+import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type RemoteProject, type Workspace } from "./services/api";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -127,7 +127,16 @@ export default function App() {
     // effect above and api.ts for why this app doesn't yet read projects
     // back from the backend.
     if (workspace) {
-      createRemoteProject(workspace.id, { name: newProject.name, address: newProject.address }).catch((error) => {
+      createRemoteProject(workspace.id, { name: newProject.name, address: newProject.address }).then((remote) => {
+        const remoteProject = remote as RemoteProject;
+        const synced = { ...newProject, remoteId: remoteProject.id };
+        setActiveProject((current) => current?.id === newProject.id ? synced : current);
+        setProjects((current) => {
+          const next = current.map((project) => project.id === newProject.id ? synced : project);
+          StorageService.saveProjects(next);
+          return next;
+        });
+      }).catch((error) => {
         console.error("Could not sync this project to the backend.", error);
       });
     }
@@ -286,6 +295,7 @@ export default function App() {
                   {activeStep === "plans" && (
                     <PlansPage
                       project={activeProject}
+                      workspaceId={workspace?.id ?? null}
                       onUpdateProject={handleUpdateProject}
                       onContinue={() => setActiveStep("quantities")}
                       onOpenAIAssistant={() => setShowAIModal(true)}

@@ -2,12 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import { handleAuthBootstrapRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
+import { handleDocumentRequest } from '../documents/routes.ts';
+import { createDocumentQueue } from '../documents/service.ts';
 import { createEstimateCalculationHandler } from '../estimates/routes.ts';
 import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest } from '../ai-plan/routes.ts';
 import { createAiPlanQueue } from '../ai-plan/service.ts';
+import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 
@@ -84,6 +87,15 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       },
     });
     return recalculate(request);
+  }
+  if (/^\/api\/projects\/[^/]+\/documents\/upload-url$/.test(pathname) || /^\/api\/documents\/[^/]+\/(complete|download-url)$/.test(pathname)) {
+    if (!process.env.REDIS_URL) return json({ error: 'Document processing is not configured.' }, 503);
+    try {
+      const storage = new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      return handleDocumentRequest(request, client as unknown as SupabaseLike, storage, await createDocumentQueue(process.env.REDIS_URL));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
+    }
   }
   if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname)) {
     if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL) {

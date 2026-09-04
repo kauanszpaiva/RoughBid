@@ -93,3 +93,32 @@ test('AI plan reading route is mounted but disabled until AI runtime credentials
     }
   }
 });
+
+test('document upload routes are mounted but disabled until storage runtime credentials exist', async () => {
+  const previous = {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+    REDIS_URL: process.env.REDIS_URL,
+    OBJECT_STORAGE_ENDPOINT: process.env.OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_BUCKET: process.env.OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ACCESS_KEY_ID: process.env.OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+  };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+  process.env.REDIS_URL = 'redis://localhost:6379';
+  delete process.env.OBJECT_STORAGE_ENDPOINT;
+  delete process.env.OBJECT_STORAGE_BUCKET;
+  delete process.env.OBJECT_STORAGE_ACCESS_KEY_ID;
+  delete process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY;
+  try {
+    const response = await handleApiRequest(new Request('https://roughbid.test/api/projects/project-1/documents/upload-url', { method: 'POST' }));
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'OBJECT_STORAGE_ENDPOINT is required' });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
