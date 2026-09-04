@@ -221,6 +221,13 @@ export function createAiPlanReading(workspaceId: string, projectId: string, inpu
   });
 }
 
+export function processAiPlanReading(workspaceId: string, jobId: string) {
+  return request<{ id: string; status: "needs_review" | "ready" | "failed"; findingsStored: number }>(`/api/ai-plan-readings/${jobId}/process`, {
+    method: "POST",
+    workspaceId,
+  });
+}
+
 export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
   return request<{ url: string; method: "GET"; headers: Record<string, string>; expiresAt: string }>(`/api/documents/${fileId}/download-url`, {
     method: "POST",

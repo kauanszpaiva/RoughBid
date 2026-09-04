@@ -11,6 +11,7 @@ import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createAiPlanQueue } from '../ai-plan/service.ts';
+import { createOpenAiPlanReadingProcessor } from '../ai-plan/processor.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
 import { loadResendServerConfig, sendProposalOpenedEmail, sendProposalSignedEmail, sendWorkspaceInviteEmail } from '../email/resend.ts';
@@ -112,11 +113,26 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname)) {
-    if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL) {
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+(\/process)?$/.test(pathname)) {
+    if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
-    return handleAiPlanRequest(request, client as unknown as SupabaseLike, await createAiPlanQueue(process.env.REDIS_URL));
+    try {
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      const serviceClient = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      return handleAiPlanRequest(
+        request,
+        client as unknown as SupabaseLike,
+        await createAiPlanQueue(process.env.REDIS_URL),
+        (workspaceId) => createOpenAiPlanReadingProcessor(serviceClient as unknown as SupabaseLike, storage, workspaceId),
+      );
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);
+    }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {
     const resend = process.env.RESEND_API_KEY ? loadResendServerConfig(process.env) : null;

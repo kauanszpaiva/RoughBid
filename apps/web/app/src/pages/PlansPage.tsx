@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, type AiPlanReadingTrade } from "../services/api";
+import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, processAiPlanReading, type AiPlanReadingTrade } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -163,11 +163,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         requestedAreas,
         trades: selectedTrades,
       });
+      const processed = await processAiPlanReading(workspaceId, job.id);
       const updatedRevisions = project.revisions.map((revision) =>
-        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading queued with page coverage, evidence, confidence, and estimator review required." } : revision
+        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: processed.status, notes: "AI plan reading finished with page coverage, evidence, confidence, and estimator review required." } : revision
       );
       onUpdateProject({ ...project, revisions: updatedRevisions });
-      setPlanNotice("AI plan reading queued for up to 60 pages. RoughBid will report coverage, evidence, confidence, and any unreadable pages.");
+      setPlanNotice(`AI plan reading finished for review. Findings stored: ${processed.findingsStored}. RoughBid reports coverage, evidence, confidence, and unreadable pages.`);
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {

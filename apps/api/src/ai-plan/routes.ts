@@ -1,9 +1,15 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import { AiPlanReadingService, type AiPlanQueue } from './service.ts';
+import type { AiPlanReadingProcessor } from './processor.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
-export async function handleAiPlanRequest(request: Request, db: SupabaseLike, queue: AiPlanQueue): Promise<Response> {
+export async function handleAiPlanRequest(
+  request: Request,
+  db: SupabaseLike,
+  queue: AiPlanQueue,
+  processorFactory?: (workspaceId: string) => AiPlanReadingProcessor,
+): Promise<Response> {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');
@@ -20,6 +26,10 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, qu
     }
     if (request.method === 'GET' && parts[0] === 'ai-plan-readings' && parts[1]) {
       return json(await service.get(parts[1]));
+    }
+    if (request.method === 'POST' && parts[0] === 'ai-plan-readings' && parts[1] && parts[2] === 'process') {
+      if (!processorFactory) return json({ error: 'AI plan reading processor is not configured.' }, 503);
+      return json(await processorFactory(workspaceId).process(parts[1]), 202);
     }
     return json({ error: 'Not found' }, 404);
   } catch (error) {

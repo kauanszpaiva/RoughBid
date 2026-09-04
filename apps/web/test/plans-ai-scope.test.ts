@@ -19,7 +19,9 @@ test('plans page sends structured scope to the backend AI reading endpoint', () 
   assert.match(api, /scopeMode\?: "all_trades" \| "selected_scope"/);
   assert.match(api, /requestedAreas\?: string\[\]/);
   assert.match(api, /trades\?: AiPlanReadingTrade\[\]/);
+  assert.match(api, /processAiPlanReading/);
   assert.match(plansPage, /scopeMode: aiScopeMode/);
   assert.match(plansPage, /requestedAreas/);
   assert.match(plansPage, /trades: selectedTrades/);
+  assert.match(plansPage, /processAiPlanReading\(workspaceId, job\.id\)/);
 });
