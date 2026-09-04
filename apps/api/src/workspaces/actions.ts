@@ -116,22 +116,28 @@ export async function createWorkspaceInviteWithEmail(
   client: AuthenticatedSupabaseClient,
   workspaceId: string,
   input: CreateWorkspaceInviteInput & { appUrl?: string },
-  sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => Promise<unknown>,
-): Promise<WorkspaceInvite & { token: string; emailSent: boolean }> {
+  sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => Promise<unknown>,
+): Promise<WorkspaceInvite & { token: string; emailSent: boolean; emailError?: string }> {
   const created = await createWorkspaceInvite(client, workspaceId, input);
   let emailSent = false;
+  let emailError: string | undefined;
   if (sendInviteEmail && input.appUrl) {
     const workspaceRecord = await getWorkspace(client, workspaceId);
     if (!workspaceRecord) throw new Error('Workspace not found.');
-    await sendInviteEmail({
-      to: created.email,
-      workspaceName: workspaceRecord.name,
-      inviteUrl: `${input.appUrl.replace(/\/$/, '')}/?invite=${encodeURIComponent(created.token)}`,
-      role: created.role === 'admin' ? 'estimator' : created.role,
-    });
-    emailSent = true;
+    try {
+      await sendInviteEmail({
+        to: created.email,
+        workspaceName: workspaceRecord.name,
+        inviteUrl: `${input.appUrl.replace(/\/$/, '')}/?invite=${encodeURIComponent(created.token)}`,
+        role: created.role === 'admin' ? 'estimator' : created.role,
+        inviteId: created.id,
+      });
+      emailSent = true;
+    } catch (error) {
+      emailError = error instanceof Error ? error.message : 'Invite email could not be sent.';
+    }
   }
-  return { ...created, emailSent };
+  return { ...created, emailSent, ...(emailError ? { emailError } : {}) };
 }
 
 export async function acceptWorkspaceInvite(client: AuthenticatedSupabaseClient, token: string): Promise<{ workspaceId: string; role: WorkspaceRole }> {

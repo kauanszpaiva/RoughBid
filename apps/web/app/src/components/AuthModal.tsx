@@ -65,6 +65,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
       setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(invite.token)}`);
       setInviteState("ready");
       setInviteEmailSent(invite.emailSent === true);
+      if (invite.emailError) {
+        setInviteError("Invite link created, but the email was not sent. Copy the backup link below.");
+      }
     } catch (error) {
       setInviteState("error");
       setInviteError(error instanceof Error ? error.message : "Could not create invite.");
@@ -157,7 +160,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
                     <option value="viewer">Viewer - read only</option>
                   </select>
                 </label>
-                {inviteState === "error" && inviteError && <p className="text-red-600 text-xs">{inviteError}</p>}
+                {inviteError && (
+                  <p className={`${inviteState === "error" ? "text-red-600" : "text-amber-700"} text-xs`}>
+                    {inviteError}
+                  </p>
+                )}
                 {inviteEmailSent && <p className="text-emerald-700 text-xs">Invite email sent through Resend. The link is still shown below as backup.</p>}
                 {inviteLink && (
                   <div className="p-2.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-md">

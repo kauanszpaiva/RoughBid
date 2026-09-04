@@ -63,7 +63,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new ApiError(response.status, detail || `${method} ${path} failed with ${response.status}`);
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { error?: unknown };
+      if (typeof parsed.error === "string") message = parsed.error;
+    } catch {
+      // Keep the raw text for non-JSON errors.
+    }
+    throw new ApiError(response.status, message || `${method} ${path} failed with ${response.status}`);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -97,6 +104,7 @@ export type WorkspaceInvite = {
   createdAt: string;
   token: string;
   emailSent?: boolean;
+  emailError?: string;
 };
 
 /** GET /api/workspaces */
@@ -185,4 +193,66 @@ export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
     method: "POST",
     workspaceId,
   });
+}
+
+export type ClientProposalPayload = {
+  projectName: string;
+  projectAddress?: string;
+  projectType?: string;
+  clientName: string;
+  totalAmount: number;
+  validForDays: number;
+  lineItems: Array<{ name: string; quantity: number; unit: string; price: number }>;
+  terms: string[];
+};
+
+export type CreatedClientProposal = {
+  id: string;
+  token: string;
+  title: string;
+  client_name: string;
+  total_amount: number;
+  status: string;
+  expires_at: string;
+};
+
+export type PublicClientProposal = {
+  proposal_id: string;
+  title: string;
+  client_name: string;
+  client_email: string | null;
+  total_amount: number;
+  status: "sent" | "viewed" | "signed";
+  expires_at: string;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  signed_at: string | null;
+  signature_name: string | null;
+  public_payload: ClientProposalPayload;
+};
+
+export function createClientProposal(workspaceId: string, projectId: string, input: {
+  title: string;
+  clientName: string;
+  clientEmail?: string | null;
+  totalAmount: number;
+  publicPayload: ClientProposalPayload;
+  expiresInDays?: number;
+}) {
+  return request<CreatedClientProposal>(`/api/projects/${projectId}/client-proposals`, {
+    method: "POST",
+    workspaceId,
+    body: input,
+  });
+}
+
+export function getClientProposal(token: string) {
+  return request<PublicClientProposal>(`/api/client-proposals/${encodeURIComponent(token)}`);
+}
+
+export function signClientProposal(token: string, signerName: string) {
+  return request<{ proposal_id: string; proposal_status: "signed"; signed_at: string; signature_name: string }>(
+    `/api/client-proposals/${encodeURIComponent(token)}/sign`,
+    { method: "POST", body: { signerName } },
+  );
 }

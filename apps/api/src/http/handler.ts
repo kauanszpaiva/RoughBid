@@ -9,10 +9,11 @@ import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapter
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest } from '../ai-plan/routes.ts';
+import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createAiPlanQueue } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
-import { loadResendServerConfig, sendWorkspaceInviteEmail } from '../email/resend.ts';
+import { loadResendServerConfig, sendProposalOpenedEmail, sendProposalSignedEmail, sendWorkspaceInviteEmail } from '../email/resend.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 
@@ -61,7 +62,10 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
     const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
     const inviteMailer = process.env.RESEND_API_KEY
-      ? (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => sendWorkspaceInviteEmail(loadResendServerConfig(process.env), input)
+      ? (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => sendWorkspaceInviteEmail(loadResendServerConfig(process.env), {
+        ...input,
+        idempotencyKey: `workspace-invite/${input.inviteId}`,
+      })
       : undefined;
     return handleWorkspacesRequest(request, client as unknown as AuthenticatedSupabaseClient, {
       appUrl,
@@ -113,6 +117,15 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     return handleAiPlanRequest(request, client as unknown as SupabaseLike, await createAiPlanQueue(process.env.REDIS_URL));
+  }
+  if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {
+    const resend = process.env.RESEND_API_KEY ? loadResendServerConfig(process.env) : null;
+    return handleClientProposalRequest(request, client as never, {
+      ...(resend ? {
+        sendProposalOpenedEmail: (input) => sendProposalOpenedEmail(resend, input),
+        sendProposalSignedEmail: (input) => sendProposalSignedEmail(resend, input),
+      } : {}),
+    });
   }
   if (pathname.startsWith('/api/projects') || pathname.startsWith('/api/project-files')) {
     return handleProjectRequest(request, client as unknown as SupabaseLike);

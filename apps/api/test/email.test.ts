@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createProposalOpenedEmail,
+  createProposalSignedEmail,
   createWorkspaceInviteEmail,
   createWorkspaceWelcomeEmail,
   loadResendServerConfig,
+  sendProposalOpenedEmail,
+  sendProposalSignedEmail,
   sendWorkspaceInviteEmail,
   sendWorkspaceWelcomeEmail,
 } from '../src/email/resend.ts';
@@ -77,10 +81,11 @@ test('Resend client sends organization invites without exposing the API key', as
   };
   const result = await sendWorkspaceInviteEmail(
     loadResendServerConfig({ RESEND_API_KEY: 're_secret' }),
-    { to: 'builder@example.com', workspaceName: 'Main Shop', inviteUrl: 'https://roughbid.vercel.app/?invite=token_123', role: 'viewer' },
+    { to: 'builder@example.com', workspaceName: 'Main Shop', inviteUrl: 'https://roughbid.vercel.app/?invite=token_123', role: 'viewer', idempotencyKey: 'workspace-invite/invite-1' },
     fetchMock,
   );
   assert.deepEqual(result, { id: 'email_invite_123' });
+  assert.equal(new Headers(request?.init?.headers).get('Idempotency-Key'), 'workspace-invite/invite-1');
   const body = JSON.parse(String(request?.init?.body));
   assert.deepEqual(body, {
     from: 'RoughBid <hello@mail.kspdominion.group>',
@@ -95,6 +100,54 @@ test('Resend client sends organization invites without exposing the API key', as
     },
   });
   assert.equal(JSON.stringify(body).includes('re_secret'), false);
+});
+
+test('proposal notification emails use published Resend templates', () => {
+  const input = {
+    to: 'estimator@example.com',
+    proposalTitle: 'Kitchen Remodel Proposal',
+    clientName: 'Jane Client',
+    projectName: 'Newton Kitchen',
+    proposalUrl: 'https://roughbid.vercel.app/client-proposals/token_123',
+  };
+  assert.deepEqual(createProposalOpenedEmail(input), {
+    from: 'RoughBid <hello@mail.kspdominion.group>',
+    to: 'estimator@example.com',
+    templateAlias: 'roughbid-proposal-opened',
+    variables: {
+      PROPOSAL_TITLE: 'Kitchen Remodel Proposal',
+      CLIENT_NAME: 'Jane Client',
+      PROJECT_NAME: 'Newton Kitchen',
+      PROPOSAL_URL: 'https://roughbid.vercel.app/client-proposals/token_123',
+    },
+  });
+  assert.equal(createProposalSignedEmail(input).templateAlias, 'roughbid-proposal-signed');
+});
+
+test('Resend client sends proposal open and signature notifications without exposing the API key', async () => {
+  const bodies: unknown[] = [];
+  const fetchMock = async (_url: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ id: `email_${bodies.length}` }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const config = loadResendServerConfig({ RESEND_API_KEY: 're_secret' });
+  const input = {
+    to: 'estimator@example.com',
+    proposalTitle: 'Kitchen Remodel Proposal',
+    clientName: 'Jane Client',
+    projectName: 'Newton Kitchen',
+    proposalUrl: 'https://roughbid.vercel.app/client-proposals/token_123',
+  };
+  assert.deepEqual(await sendProposalOpenedEmail(config, input, fetchMock), { id: 'email_1' });
+  assert.deepEqual(await sendProposalSignedEmail(config, input, fetchMock), { id: 'email_2' });
+  assert.deepEqual(bodies.map((body) => (body as { template: { id: string } }).template.id), [
+    'roughbid-proposal-opened',
+    'roughbid-proposal-signed',
+  ]);
+  assert.equal(JSON.stringify(bodies).includes('re_secret'), false);
 });
 
 test('Resend config rejects missing server-only API key', () => {

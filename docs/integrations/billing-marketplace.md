@@ -2,6 +2,13 @@
 
 Status: owner approval required before creating new Stripe prices.
 
+## Current Implementation Snapshot
+
+- Implemented as domain rules: trial credits, trial COGS caps, proposed plan catalog, subscription overage discounts, and 50%+ unit-margin guardrail live in `packages/domain/src/billing.ts`.
+- Implemented in API: Stripe hosted subscription checkout supports one configured `STRIPE_PRICE_ID`; signed subscription webhooks mirror subscription status idempotently.
+- Implemented in UI: Price Marketplace is an informational workspace screen with active/draft/licensed feed states.
+- Not implemented yet: multi-plan checkout selection, project-credit packs, atomic credit ledger, per-project reservation/capture/release, API usage cost ledger, paid marketplace feed purchases, and Stripe price mapping by plan.
+
 ## Model
 
 Use RoughBid internal project credits. Stripe sells plans and credit packs; RoughBid's ledger decides when a workspace can run AI, create client views, or consume paid price data.

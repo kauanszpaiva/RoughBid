@@ -13,7 +13,7 @@ export async function handleWorkspacesRequest(
   client: AuthenticatedSupabaseClient,
   options: {
     appUrl?: string;
-    sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => Promise<unknown>;
+    sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => Promise<unknown>;
   } = {},
 ): Promise<Response> {
   try {

@@ -8,6 +8,9 @@
     { "source": "/app", "destination": "/", "permanent": false },
     { "source": "/app/:path*", "destination": "/", "permanent": false }
   ],
+  "rewrites": [
+    { "source": "/proposal/:token", "destination": "/" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

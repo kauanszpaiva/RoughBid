@@ -20,3 +20,20 @@ test('client proposal migration supports public open tracking without anonymous 
     assert.ok(sql.includes(required), `missing client proposal primitive: ${required}`);
   }
 });
+
+test('public client proposal links expose only a snapshot and support signing through RPC', async () => {
+  const sql = (await readFile(new URL('../migrations/0009_public_client_proposal_links.sql', import.meta.url), 'utf8')).toLowerCase();
+  for (const required of [
+    'add column if not exists public_payload jsonb',
+    'create or replace function public.get_client_proposal',
+    'create or replace function public.sign_client_proposal',
+    'returns table(',
+    'public_payload jsonb',
+    "set status = 'signed'",
+    'signature_name = normalized_name',
+    'grant execute on function public.get_client_proposal(text, jsonb) to anon, authenticated',
+    'grant execute on function public.sign_client_proposal(text, text, jsonb) to anon, authenticated',
+  ]) {
+    assert.ok(sql.includes(required), `missing public client proposal primitive: ${required}`);
+  }
+});

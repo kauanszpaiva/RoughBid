@@ -15,6 +15,7 @@ import { PriceListsPage } from "./pages/PriceListsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { HelpPage } from "./pages/HelpPage";
+import { ClientProposalPage } from "./pages/ClientProposalPage";
 import { NewProjectModal } from "./components/NewProjectModal";
 import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
@@ -23,6 +24,11 @@ import { useSession } from "./services/useSession";
 import { acceptWorkspaceInvite, bootstrapAuth, createProject as createRemoteProject, createWorkspace, listWorkspaces, type RemoteProject, type Workspace } from "./services/api";
 
 export default function App() {
+  const publicProposalMatch = window.location.pathname.match(/^\/proposal\/([A-Za-z0-9_-]+)$/);
+  if (publicProposalMatch?.[1]) {
+    return <ClientProposalPage token={publicProposalMatch[1]} />;
+  }
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>("projects");
@@ -347,6 +353,7 @@ export default function App() {
                   {activeStep === "export" && (
                     <ExportPage
                       project={activeProject}
+                      workspaceId={workspace?.id ?? null}
                       onSelectStep={(step) => setActiveStep(step)}
                     />
                   )}
