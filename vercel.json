@@ -24,9 +24,6 @@
   "functions": {
     "api/**/*.ts": {
       "includeFiles": "{apps/api/src,packages/domain/src}/**"
-    },
-    "api/[...path].ts": {
-      "includeFiles": "{apps/api/src,packages/domain/src}/**"
     }
   }
 }
