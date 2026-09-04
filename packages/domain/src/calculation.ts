@@ -66,17 +66,18 @@ export function calculateProject(input: ProjectCalculationInput): ProjectCalcula
     material: 0n, labor: 0n, equipment: 0n, other: 0n,
   };
   const ids = new Set<string>();
-  const lineItems = input.lineItems.map((line, index) => {
+  const lineItems = input.lineItems.map((line: CalculationLineItem, index) => {
     if (!line || typeof line.id !== 'string' || !line.id || ids.has(line.id)) {
       throw new RangeError(`lineItems[${index}].id must be a unique, non-empty string.`);
     }
     ids.add(line.id);
-    if (!Object.hasOwn(rawTotals, line.category)) throw new RangeError(`lineItems[${index}].category is invalid.`);
+    const category = line.category;
+    if (!Object.hasOwn(rawTotals, category)) throw new RangeError(`lineItems[${index}].category is invalid.`);
     const total = multiply(
       decimal(line.quantity, `lineItems[${index}].quantity`),
       decimal(line.unitRate, `lineItems[${index}].unitRate`),
     );
-    rawTotals[line.category] += total;
+    rawTotals[category] += total;
     return { ...line, unitCost: money(total) };
   });
   const direct = Object.values(rawTotals).reduce((sum, value) => sum + value, 0n);

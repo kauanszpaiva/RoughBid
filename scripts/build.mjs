@@ -10,8 +10,13 @@ await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/st
 // Builds the RoughBid product app (apps/web/app) into dist/app/, alongside
 // the static landing page copied above. See apps/web/app/vite.config.ts.
 execFileSync(
-  fileURLToPath(new URL('../node_modules/.bin/vite', import.meta.url)),
-  ['build', '--config', fileURLToPath(new URL('../apps/web/app/vite.config.ts', import.meta.url))],
+  process.execPath,
+  [
+    fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url)),
+    'build',
+    '--config',
+    fileURLToPath(new URL('../apps/web/app/vite.config.ts', import.meta.url)),
+  ],
   { stdio: 'inherit' },
 );
 
