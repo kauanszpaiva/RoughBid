@@ -5,7 +5,9 @@ export type StripeEvent = { id: string; type: string; data: unknown };
 function signatureParts(header: string): { timestamp: number; signatures: string[] } {
   const fields = header.split(',').map((part) => part.split('=', 2));
   const timestamp = Number(fields.find(([key]) => key === 't')?.[1]);
-  const signatures = fields.filter(([key]) => key === 'v1').map(([, value]) => value);
+  const signatures = fields
+    .filter((field): field is [string, string] => field[0] === 'v1' && field[1] !== undefined)
+    .map(([, value]) => value);
   if (!Number.isFinite(timestamp) || signatures.length === 0) throw new Error('Invalid Stripe signature.');
   return { timestamp, signatures };
 }

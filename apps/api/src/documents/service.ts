@@ -39,7 +39,7 @@ export class DocumentService {
     const head = this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
     const object = await this.fetcher(head.url, { method: 'HEAD' });
     const storedBytes = Number(object.headers.get('content-length'));
-    const storedType = object.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    const storedType = object.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
     if (!object.ok) throw new ProjectApiError(409, 'Upload is not present in object storage');
     if (storedBytes !== result.data.byte_size || storedType !== 'application/pdf') throw new ProjectApiError(422, 'Uploaded object does not match the declared PDF');
     let file = result.data;

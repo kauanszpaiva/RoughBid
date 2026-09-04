@@ -1,9 +1,40 @@
 import { handleApiRequest } from '../apps/api/src/http/handler.ts';
 
-// Runs on Vercel's Edge Runtime: handleApiRequest already speaks the Web
-// standard Request/Response API apps/api's route handlers are built on.
-export const config = { runtime: 'edge' };
+function headerEntries(headers: Record<string, string | string[] | undefined>) {
+  return Object.entries(headers).flatMap(([name, value]) => {
+    if (value === undefined) return [];
+    return Array.isArray(value) ? value.map((entry): [string, string] => [name, entry]) : [[name, value] as [string, string]];
+  });
+}
 
-export default function handler(request: Request): Promise<Response> {
-  return handleApiRequest(request);
+function requestBody(req: { body?: unknown }) {
+  if (req.body === undefined || req.body === null) return undefined;
+  if (typeof req.body === 'string' || req.body instanceof Uint8Array) return req.body;
+  return JSON.stringify(req.body);
+}
+
+export default async function handler(req: any, res: any) {
+  const protocol = req.headers['x-forwarded-proto'] ?? 'https';
+  const host = req.headers.host ?? 'localhost';
+  const url = `${protocol}://${host}${req.url ?? '/api'}`;
+  const init: RequestInit = {
+    method: req.method,
+    headers: headerEntries(req.headers),
+  };
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const body = requestBody(req);
+    if (body !== undefined) {
+      init.body = body;
+    }
+  }
+
+  const request = new Request(url, init);
+
+  const response = await handleApiRequest(request);
+  res.status(response.status);
+  response.headers.forEach((value, name) => res.setHeader(name, value));
+
+  const body = Buffer.from(await response.arrayBuffer());
+  res.send(body);
 }
