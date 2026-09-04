@@ -194,7 +194,26 @@ export function completeDocumentUpload(workspaceId: string, fileId: string) {
   return request<RemoteProjectFile>(`/api/documents/${fileId}/complete`, { method: "POST", workspaceId });
 }
 
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; scope?: string }) {
+export type AiPlanReadingTrade =
+  | "architectural"
+  | "structural"
+  | "mep"
+  | "electrical"
+  | "plumbing"
+  | "hvac"
+  | "fire_protection"
+  | "sitework"
+  | "finishes"
+  | "general";
+
+export function createAiPlanReading(workspaceId: string, projectId: string, input: {
+  file_id: string;
+  mode?: "quick" | "detailed";
+  scope?: string;
+  scopeMode?: "all_trades" | "selected_scope";
+  requestedAreas?: string[];
+  trades?: AiPlanReadingTrade[];
+}) {
   return request<{ id: string; status: "queued" | "processing" | "needs_review" | "ready" | "failed" }>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,

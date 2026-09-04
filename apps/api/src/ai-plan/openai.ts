@@ -3,6 +3,26 @@ export interface PlanPageInput {
   imageUrl: string;
 }
 
+export type PlanReadingScopeMode = 'all_trades' | 'selected_scope';
+export type PlanReadingTrade =
+  | 'architectural'
+  | 'structural'
+  | 'mep'
+  | 'electrical'
+  | 'plumbing'
+  | 'hvac'
+  | 'fire_protection'
+  | 'sitework'
+  | 'finishes'
+  | 'general';
+
+export interface PlanReadingScopeInput {
+  mode: PlanReadingScopeMode;
+  requestedAreas: string[];
+  trades: PlanReadingTrade[];
+  legacyScope: string | null;
+}
+
 export interface PlanReadingFinding {
   page_number: number | null;
   finding_type: 'measurement' | 'symbol' | 'room' | 'scope_note' | 'risk' | 'question' | 'material';
@@ -20,6 +40,16 @@ export interface PlanReadingResult {
     sheet_count: number;
     detected_trade_scope: string[];
     scale_status: 'detected' | 'missing' | 'conflicting';
+    coverage: {
+      pages_requested: number;
+      pages_analyzed: number;
+      requested_scope_mode: PlanReadingScopeMode;
+      requested_areas: string[];
+      requested_trades: string[];
+      missing_or_unreadable_pages: number[];
+      limitations: string[];
+      completeness_status: 'complete' | 'partial' | 'blocked';
+    };
     human_review_required: true;
   };
   findings: PlanReadingFinding[];
@@ -53,9 +83,24 @@ const outputSchema = {
         sheet_count: { type: 'integer' },
         detected_trade_scope: { type: 'array', items: { type: 'string' } },
         scale_status: { type: 'string', enum: ['detected', 'missing', 'conflicting'] },
+        coverage: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            pages_requested: { type: 'integer' },
+            pages_analyzed: { type: 'integer' },
+            requested_scope_mode: { type: 'string', enum: ['all_trades', 'selected_scope'] },
+            requested_areas: { type: 'array', items: { type: 'string' } },
+            requested_trades: { type: 'array', items: { type: 'string' } },
+            missing_or_unreadable_pages: { type: 'array', items: { type: 'integer' } },
+            limitations: { type: 'array', items: { type: 'string' } },
+            completeness_status: { type: 'string', enum: ['complete', 'partial', 'blocked'] },
+          },
+          required: ['pages_requested', 'pages_analyzed', 'requested_scope_mode', 'requested_areas', 'requested_trades', 'missing_or_unreadable_pages', 'limitations', 'completeness_status'],
+        },
         human_review_required: { type: 'boolean', const: true },
       },
-      required: ['sheet_count', 'detected_trade_scope', 'scale_status', 'human_review_required'],
+      required: ['sheet_count', 'detected_trade_scope', 'scale_status', 'coverage', 'human_review_required'],
     },
     findings: { type: 'array', items: findingSchema },
   },
@@ -72,6 +117,49 @@ function extractOutputText(payload: any): string {
   throw new Error('OpenAI response did not contain output text');
 }
 
+export const MAX_COMMERCIAL_PLAN_PAGES = 60;
+
+const planReadingTrades: PlanReadingTrade[] = ['architectural', 'structural', 'mep', 'electrical', 'plumbing', 'hvac', 'fire_protection', 'sitework', 'finishes', 'general'];
+
+export function normalizePlanReadingScope(input: unknown): PlanReadingScopeInput {
+  const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const mode = record.scopeMode === 'selected_scope' ? 'selected_scope' : 'all_trades';
+  const requestedAreas = Array.isArray(record.requestedAreas)
+    ? record.requestedAreas.filter((area): area is string => typeof area === 'string').map((area) => area.trim()).filter(Boolean).slice(0, 20)
+    : [];
+  const requestedTrades = Array.isArray(record.trades)
+    ? record.trades.filter((trade): trade is PlanReadingTrade => typeof trade === 'string' && planReadingTrades.includes(trade as PlanReadingTrade)).slice(0, 10)
+    : [];
+  const legacyScope = typeof record.scope === 'string' && record.scope.trim() ? record.scope.trim().slice(0, 500) : null;
+  return {
+    mode,
+    requestedAreas: mode === 'selected_scope' ? requestedAreas : [],
+    trades: requestedTrades.length ? requestedTrades : planReadingTrades,
+    legacyScope,
+  };
+}
+
+export function assertCommercialPlanPageLimit(pages: PlanPageInput[]) {
+  if (!pages.length) throw new Error('At least one rendered plan page is required');
+  if (pages.length > MAX_COMMERCIAL_PLAN_PAGES) throw new Error(`RoughBid currently supports up to ${MAX_COMMERCIAL_PLAN_PAGES} rendered plan pages per AI reading job`);
+}
+
+export function buildPlanReadingRequestText(pages: PlanPageInput[], scope: PlanReadingScopeInput): string {
+  const requestedPages = pages.map((page) => page.pageNumber).join(', ');
+  const areaText = scope.mode === 'selected_scope' && scope.requestedAreas.length
+    ? `Focus areas/rooms/zones: ${scope.requestedAreas.join('; ')}.`
+    : 'Analyze all visible areas, rooms, sheets, schedules, notes, symbols, and construction scopes.';
+  return [
+    `Read this commercial construction plan set for takeoff preparation. Pages requested: ${pages.length} (${requestedPages}).`,
+    `Scope mode: ${scope.mode}. ${areaText}`,
+    `Trades requested: ${scope.trades.join(', ')}.`,
+    scope.legacyScope ? `Legacy project context: ${scope.legacyScope}.` : '',
+    'Return every material, room, schedule, measurement, symbol, scope note, risk, and question that is visible and relevant to the requested scope.',
+    'For a 60-page plan set, maintain page-level coverage. If any page is unreadable, missing, low confidence, lacks scale, or has conflicting evidence, list it in coverage.missing_or_unreadable_pages and coverage.limitations.',
+    'Do not claim completeness unless each requested page was inspected and every requested trade or selected area has evidence or an explicit no-visible-evidence note.',
+  ].filter(Boolean).join('\n');
+}
+
 export class OpenAiPlanReader {
   private readonly apiKey: string;
   private readonly model: string;
@@ -84,8 +172,9 @@ export class OpenAiPlanReader {
     this.fetcher = fetcher;
   }
 
-  async read(pages: PlanPageInput[], scope: string | null = null): Promise<PlanReadingResult> {
-    if (!pages.length) throw new Error('At least one rendered plan page is required');
+  async read(pages: PlanPageInput[], scopeInput: unknown = null): Promise<PlanReadingResult> {
+    assertCommercialPlanPageLimit(pages);
+    const scope = normalizePlanReadingScope(scopeInput);
     const response = await this.fetcher('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -99,7 +188,7 @@ export class OpenAiPlanReader {
             role: 'system',
             content: [{
               type: 'input_text',
-              text: 'You are RoughBid, an estimating assistant for construction plans. Extract only evidence visible on the provided plan pages. Do not invent quantities. Mark ambiguity as questions or risks. Every finding must include page evidence, confidence, and human review should remain required.',
+              text: 'You are RoughBid, an estimating assistant for US commercial construction plans. Extract only evidence visible on the provided plan pages. Do not invent quantities, prices, code requirements, or hidden dimensions. Mark ambiguity as questions or risks. Every finding must include page evidence, confidence, geometry when possible, and human review should remain required.',
             }],
           },
           {
@@ -107,7 +196,7 @@ export class OpenAiPlanReader {
             content: [
               {
                 type: 'input_text',
-                text: `Read these rendered plan pages for takeoff preparation.${scope ? ` Requested scope: ${scope}` : ''}`,
+                text: buildPlanReadingRequestText(pages, scope),
               },
               ...pages.map((page) => ({
                 type: 'input_image',

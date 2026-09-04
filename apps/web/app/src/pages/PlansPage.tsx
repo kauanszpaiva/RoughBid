@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl } from "../services/api";
+import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, type AiPlanReadingTrade } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -33,9 +33,25 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [planNotice, setPlanNotice] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
+  const [aiScopeMode, setAiScopeMode] = useState<"all_trades" | "selected_scope">("all_trades");
+  const [aiAreaText, setAiAreaText] = useState<string>("");
+  const [selectedTrades, setSelectedTrades] = useState<AiPlanReadingTrade[]>(["architectural", "structural", "mep"]);
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
+
+  const tradeOptions: Array<{ value: AiPlanReadingTrade; label: string }> = [
+    { value: "architectural", label: "Architectural" },
+    { value: "structural", label: "Structural" },
+    { value: "mep", label: "MEP" },
+    { value: "electrical", label: "Electrical" },
+    { value: "plumbing", label: "Plumbing" },
+    { value: "hvac", label: "HVAC" },
+    { value: "fire_protection", label: "Fire" },
+    { value: "sitework", label: "Sitework" },
+    { value: "finishes", label: "Finishes" },
+    { value: "general", label: "General" },
+  ];
 
   // Handle uploading a new plan revision
   const readableApiError = (error: unknown) => {
@@ -131,6 +147,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
     }
+    const requestedAreas = aiAreaText.split(",").map((area) => area.trim()).filter(Boolean);
+    if (aiScopeMode === "selected_scope" && requestedAreas.length === 0) {
+      setPlanNotice("Add at least one area, room, sheet, or zone for selected-scope AI reading.");
+      return;
+    }
     setIsStartingAi(true);
     setPlanNotice(null);
     try {
@@ -138,12 +159,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         file_id: currentRevision.remoteFileId,
         mode: "quick",
         scope: project.projectType,
+        scopeMode: aiScopeMode,
+        requestedAreas,
+        trades: selectedTrades,
       });
       const updatedRevisions = project.revisions.map((revision) =>
-        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading queued. Findings will require estimator review." } : revision
+        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading queued with page coverage, evidence, confidence, and estimator review required." } : revision
       );
       onUpdateProject({ ...project, revisions: updatedRevisions });
-      setPlanNotice("AI plan reading queued. Findings will require estimator review.");
+      setPlanNotice("AI plan reading queued for up to 60 pages. RoughBid will report coverage, evidence, confidence, and any unreadable pages.");
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -349,6 +373,72 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 disabled={isUploading}
               />
             </label>
+
+            <div className="rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-3 space-y-3">
+              <div>
+                <div className="text-xs font-bold text-[#111827]">AI Reading Scope</div>
+                <p className="mt-0.5 text-[11px] text-[#6b7280]">
+                  Built for commercial plan sets up to 60 rendered pages.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1 rounded-md bg-white p-1 border border-[#e5e7eb]">
+                <button
+                  type="button"
+                  onClick={() => setAiScopeMode("all_trades")}
+                  className={`rounded px-2 py-1.5 text-[11px] font-semibold transition ${aiScopeMode === "all_trades" ? "bg-[#111827] text-white" : "text-[#4b5563] hover:bg-[#f3f4f6]"}`}
+                >
+                  All areas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAiScopeMode("selected_scope")}
+                  className={`rounded px-2 py-1.5 text-[11px] font-semibold transition ${aiScopeMode === "selected_scope" ? "bg-[#111827] text-white" : "text-[#4b5563] hover:bg-[#f3f4f6]"}`}
+                >
+                  Pick area
+                </button>
+              </div>
+
+              {aiScopeMode === "selected_scope" && (
+                <label className="block">
+                  <span className="text-[11px] font-semibold text-[#374151]">Area, room, sheet, or zone</span>
+                  <input
+                    value={aiAreaText}
+                    onChange={(event) => setAiAreaText(event.target.value)}
+                    placeholder="Lobby, bathrooms, A-201, second floor"
+                    className="mt-1 w-full rounded-md border border-[#d1d5db] bg-white px-2.5 py-2 text-xs text-[#111827] outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+              )}
+
+              <div>
+                <div className="text-[11px] font-semibold text-[#374151] mb-1.5">Trades to inspect</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {tradeOptions.map((trade) => {
+                    const checked = selectedTrades.includes(trade.value);
+                    return (
+                      <label key={trade.value} className={`flex items-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium ${checked ? "border-blue-200 bg-[#eff6ff] text-[#1d4ed8]" : "border-[#e5e7eb] bg-white text-[#4b5563]"}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            setSelectedTrades((current) => event.target.checked
+                              ? Array.from(new Set([...current, trade.value]))
+                              : current.filter((item) => item !== trade.value));
+                          }}
+                          className="h-3 w-3"
+                        />
+                        <span>{trade.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-[#6b7280]">
+                Results include source page, confidence, takeoff notes, risks, and missing evidence for human review.
+              </p>
+            </div>
 
             <button
               onClick={handleStartAiReading}

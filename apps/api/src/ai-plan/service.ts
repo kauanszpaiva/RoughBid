@@ -1,4 +1,5 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
+import { normalizePlanReadingScope } from './openai.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
 
@@ -57,6 +58,7 @@ export class AiPlanReadingService {
       true,
     );
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'Plan file must finish PDF processing before AI reading can start');
+    const scope = normalizePlanReadingScope(input);
 
     const job = dbResult<any>(await this.db.from('plan_reading_jobs').insert({
       workspace_id: this.workspaceId,
@@ -67,7 +69,11 @@ export class AiPlanReadingService {
       mode: optionalMode(input.mode),
       model: process.env.OPENAI_MODEL || 'gpt-4.1',
       input_summary: {
-        requested_scope: typeof input.scope === 'string' ? input.scope.slice(0, 500) : null,
+        requested_scope: scope.legacyScope,
+        scope_mode: scope.mode,
+        requested_areas: scope.requestedAreas,
+        requested_trades: scope.trades,
+        commercial_plan_page_limit: 60,
         human_review_required: true,
       },
     }).select('*').single());
