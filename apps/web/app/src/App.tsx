@@ -13,6 +13,7 @@ import { ExportPage } from "./pages/ExportPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
 import { AssembliesPage } from "./pages/AssembliesPage";
 import { PriceListsPage } from "./pages/PriceListsPage";
+import { BillingPage } from "./pages/BillingPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { HelpPage } from "./pages/HelpPage";
@@ -466,6 +467,7 @@ export default function App() {
           {activeTab === "materials" && <MaterialsPage />}
           {activeTab === "assemblies" && <AssembliesPage />}
           {activeTab === "pricelists" && <PriceListsPage />}
+          {activeTab === "billing" && <BillingPage />}
           {activeTab === "templates" && (
             <TemplatesPage onUseTemplate={handleUseTemplate} />
           )}

@@ -6,6 +6,7 @@ import {
   Layers,
   Boxes,
   Receipt,
+  CreditCard,
   Settings,
   HelpCircle,
   Sparkles,
@@ -22,6 +23,7 @@ export type NavTab =
   | "materials"
   | "assemblies"
   | "pricelists"
+  | "billing"
   | "settings"
   | "help";
 
@@ -78,6 +80,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: "pricelists",
       label: "Price Lists",
       icon: <Receipt className="w-4 h-4" />,
+    },
+    {
+      id: "billing",
+      label: "Billing",
+      icon: <CreditCard className="w-4 h-4" />,
     },
   ];
 

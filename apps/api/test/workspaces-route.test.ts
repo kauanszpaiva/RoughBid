@@ -130,7 +130,7 @@ test('POST /api/workspaces/:id/invites can send the organization invite email', 
   assert.equal(emailed?.workspaceName, 'Main Shop');
   assert.equal(emailed?.role, 'estimator');
   assert.equal(emailed?.inviteId, 'invite-1');
-  assert.match(String(emailed?.inviteUrl), /^https:\/\/roughbid\.vercel\.app\/\?invite=/);
+  assert.match(String(emailed?.inviteUrl), /^https:\/\/roughbid\.vercel\.app\/app\/\?invite=/);
 });
 
 test('POST /api/workspaces/:id/invites still returns the backup link when Resend fails', async () => {

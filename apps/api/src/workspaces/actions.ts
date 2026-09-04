@@ -29,6 +29,16 @@ const invite = (row: Record<string, unknown>): WorkspaceInvite => ({
 });
 const hashToken = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');
 
+function appInviteUrl(appUrl: string, token: string): string {
+  const url = new URL(appUrl);
+  const basePath = url.pathname.replace(/\/$/, '');
+  url.pathname = `${basePath}/app/`.replace(/\/{2,}/g, '/');
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('invite', token);
+  return url.toString();
+}
+
 export async function listWorkspaces(client: AuthenticatedSupabaseClient): Promise<Workspace[]> {
   await requireUser(client);
   const { data, error } = await client.from('workspaces').select('*').order('created_at');
@@ -128,7 +138,7 @@ export async function createWorkspaceInviteWithEmail(
       await sendInviteEmail({
         to: created.email,
         workspaceName: workspaceRecord.name,
-        inviteUrl: `${input.appUrl.replace(/\/$/, '')}/?invite=${encodeURIComponent(created.token)}`,
+        inviteUrl: appInviteUrl(input.appUrl, created.token),
         role: created.role === 'admin' ? 'estimator' : created.role,
         inviteId: created.id,
       });
