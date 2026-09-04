@@ -4,12 +4,9 @@
   "outputDirectory": "dist",
   "framework": null,
   "cleanUrls": true,
-  "redirects": [
-    { "source": "/app", "destination": "/", "permanent": false },
-    { "source": "/app/:path*", "destination": "/", "permanent": false }
-  ],
   "rewrites": [
-    { "source": "/proposal/:token", "destination": "/" }
+    { "source": "/proposal/:token", "destination": "/app" },
+    { "source": "/app/:path*", "destination": "/app" }
   ],
   "headers": [
     {

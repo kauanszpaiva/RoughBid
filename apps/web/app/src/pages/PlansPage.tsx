@@ -112,8 +112,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         uploadedBy: "Estimator",
         isCurrent: true,
         notes,
-        remoteFileId,
-        processingStatus,
+        ...(remoteFileId ? { remoteFileId } : {}),
+        ...(processingStatus ? { processingStatus } : {}),
       };
 
       applyNewRevision(newRev);

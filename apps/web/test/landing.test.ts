@@ -8,6 +8,7 @@ test('landing page explains RoughBid as an independent SaaS product', async () =
   assert.match(html, /Plans → Quantities → Estimate → Export/i);
   assert.match(html, /Independent SaaS platform/i);
   assert.match(html, /standalone construction estimating SaaS/i);
+  assert.match(html, /href="\/app\/"/i);
   assert.match(html, /KSP Ventures/i);
   assert.match(html, /name="viewport"/i);
   assert.doesNotMatch(html, /AI-powered estimating available now/i);

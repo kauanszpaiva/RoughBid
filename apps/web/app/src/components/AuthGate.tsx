@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ArrowRight, Eye, EyeOff, Loader2, Mail, ShieldCheck } from "lucide-react";
-import { supabase } from "../services/supabaseClient";
+import { isAuthConfigured, supabase } from "../services/supabaseClient";
 
 type AuthMode = "sign-in" | "create-account";
 type SendState = "idle" | "sending" | "sent" | "error";
@@ -14,14 +14,18 @@ export const AuthGate: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supabase) {
+      setState("error");
+      setError("Sign-in is not configured in this environment. Production needs Supabase Auth variables before app access.");
+      return;
+    }
 
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
     const emailRedirectTo = inviteToken
-      ? `${window.location.origin}/?invite=${encodeURIComponent(inviteToken)}`
-      : window.location.origin;
+      ? `${window.location.origin}/app/?invite=${encodeURIComponent(inviteToken)}`
+      : `${window.location.origin}/app/`;
 
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
@@ -96,6 +100,12 @@ export const AuthGate: React.FC = () => {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
+              {!isAuthConfigured && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  App access is locked until Supabase Auth is configured for this environment.
+                </div>
+              )}
+
               <label className="block">
                 <span className="text-[11px] font-bold text-slate-700">Email Address</span>
                 <div className="mt-1.5 relative">
@@ -137,7 +147,7 @@ export const AuthGate: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={state === "sending"}
+                disabled={state === "sending" || !isAuthConfigured}
                 className="w-full h-10 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white text-sm font-bold flex items-center justify-center gap-2 transition"
               >
                 {state === "sending" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}

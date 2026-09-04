@@ -4,6 +4,7 @@ import { StorageService } from "./utils/storage";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { Header, ProjectStep } from "./components/Header";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { PlansPage } from "./pages/PlansPage";
 import { QuantitiesPage } from "./pages/QuantitiesPage";
 import { EstimatePage } from "./pages/EstimatePage";
@@ -39,10 +40,8 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("roughbid-sidebar-collapsed") === "true");
 
-  // Real Supabase Auth session (null when signed out or when auth isn't
-  // configured in this environment — see services/supabaseClient.ts). The
-  // rest of the app keeps working on local mock data either way; signing in
-  // only additionally provisions/reads a real backend workspace, below.
+  // Real Supabase Auth session. The product app is gated behind this session;
+  // public access stays limited to the landing page and client proposal links.
   const { session, loading: sessionLoading } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
@@ -273,7 +272,7 @@ export default function App() {
     );
   }
 
-  if (isAuthConfigured && !session) {
+  if (!session) {
     return <AuthGate />;
   }
 
@@ -311,11 +310,18 @@ export default function App() {
 
         {/* Dynamic Page Views */}
         <main className="flex-1 overflow-y-auto">
-          {/* Projects or Dashboard Main Workflow */}
-          {(activeTab === "dashboard" || activeTab === "projects") && (
+          {activeTab === "dashboard" && (
+            <DashboardPage
+              projects={projects}
+              onOpenProject={handleOpenProject}
+              onNewProject={() => setShowNewProjectModal(true)}
+            />
+          )}
+
+          {activeTab === "projects" && (
             <>
               {!activeProject ? (
-                <DashboardPage
+                <ProjectsPage
                   projects={projects}
                   onOpenProject={handleOpenProject}
                   onNewProject={() => setShowNewProjectModal(true)}
