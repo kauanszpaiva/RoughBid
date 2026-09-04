@@ -8,6 +8,12 @@ Last reviewed: 2026-09-04.
 
 RoughBid is an independent construction estimating SaaS. It is built for contractors, estimators, and small construction teams who need a simple way to understand plans, produce quantities, price work, send proposals, and track client acceptance.
 
+Product inspiration:
+
+- AI tools that read construction plans and explain drawings to people without blueprint experience.
+- Estimating apps that keep the contractor workflow simple.
+- Joist-style client proposal delivery: send estimate, let the client open without an account, track activity, and collect acceptance.
+
 The first product screen after login should be the app, not marketing content. The user should see projects, plans, estimates, proposal status, and the next action.
 
 ## Separation Model
@@ -121,6 +127,29 @@ Pipeline:
 9. Deterministic RoughBid math calculates totals, margin, markup, overhead, taxes, and proposal output.
 
 The viewer must stay simple: zoom, fit, pan, beginner labels, clickable dots, and plain-language balloons.
+
+## Future Remodel Intake
+
+Keep the architecture ready for a future "soon" tool focused on remodels and small jobs where the contractor does not have a full plan set.
+
+Inputs:
+
+- Site photos.
+- Walkthrough videos.
+- Voice notes.
+- Short text notes.
+- Existing estimate PDFs or supplier quotes.
+
+Output should be a reviewable draft, not an automatic final bid:
+
+1. Extract visible scope and unclear conditions.
+2. Transcribe and summarize audio/video.
+3. Ask missing questions in plain language.
+4. Draft rooms, tasks, materials, exclusions, and assumptions.
+5. Convert approved scope into a RoughBid estimate.
+6. Let the estimator send a client proposal through the same client-view flow.
+
+This should stay visually marked as "Soon" until upload, processing, cost caps, storage, privacy, and user-review gates are implemented.
 
 ## AI Provider Routing
 

@@ -71,3 +71,19 @@ Do not start by fine-tuning on uncontrolled plan files. The safer production pat
 - Use cross-workspace learning only after explicit opt-in, anonymization, and legal approval.
 
 RoughBid should first learn from reviewed outcomes: accepted quantities, rejected findings, user corrections, final winning price, and proposal acceptance. That creates a high-quality dataset without pretending that public internet plans are enough for reliable construction estimation.
+
+## Future Photo, Video, And Audio Intake
+
+RoughBid should leave the pipeline ready for remodel jobs where the contractor has media instead of a clean plan set.
+
+Planned sequence:
+
+1. Accept site photos, walkthrough videos, audio notes, and typed notes.
+2. Store media privately under the same workspace/project boundary as plan PDFs.
+3. Transcribe audio and video.
+4. Detect visible rooms, fixtures, damage, finishes, measurements, and uncertainty.
+5. Ask the estimator simple follow-up questions instead of inventing missing scope.
+6. Convert approved observations into scope lines, quantity placeholders, and estimate assumptions.
+7. Use the same cost ledger and AI provider caps as plan reading.
+
+This feature remains "soon" until media storage, consent, retention, provider processing, and cost limits are fully implemented.

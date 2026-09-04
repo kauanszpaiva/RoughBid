@@ -1,5 +1,5 @@
 import React from "react";
-import { Calculator, ShieldCheck, Mail } from "lucide-react";
+import { Calculator, ShieldCheck, Mail, Camera, FileSearch } from "lucide-react";
 
 export const HelpPage: React.FC = () => {
   return (
@@ -44,6 +44,26 @@ export const HelpPage: React.FC = () => {
           <p className="text-[13px] text-slate-600 leading-relaxed">
             ROUGHbid is an independent SaaS product from KSP Ventures for construction takeoff, estimating, review, and export workflows.
           </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div className="border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-slate-900">
+                <FileSearch className="w-4 h-4 text-blue-600" />
+                <span>Plan reading first</span>
+              </div>
+              <p className="text-[12px] text-slate-500 mt-1">
+                The core workflow is built around making blueprints easier to understand before quantities and estimates are created.
+              </p>
+            </div>
+            <div className="border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-slate-900">
+                <Camera className="w-4 h-4 text-blue-600" />
+                <span>Photo, video, audio soon</span>
+              </div>
+              <p className="text-[12px] text-slate-500 mt-1">
+                Remodel intake is prepared as a future tool for site photos, walkthrough videos, and voice notes.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">

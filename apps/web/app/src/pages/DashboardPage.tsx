@@ -14,6 +14,9 @@ import {
   DollarSign,
   AlertTriangle,
   Sparkles,
+  Camera,
+  Video,
+  Mic,
 } from "lucide-react";
 import { Project, ProjectStatus } from "../types";
 import { calculateProjectFinancials, formatRoundedCurrency } from "../utils/calculations";
@@ -198,6 +201,35 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <span>Margin guardrail</span>
               <strong className="text-[#111827]">50%+</strong>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-[#e5e7eb] rounded-lg p-5 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#2563eb]" />
+              <h3 className="text-sm font-bold text-[#111827]">Remodel Intake</h3>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5">
+                Soon
+              </span>
+            </div>
+            <p className="text-xs text-[#6b7280] mt-1 max-w-2xl">
+              Future budget intake for remodels: upload a site photo, short walkthrough video, or voice note and RoughBid will turn it into a reviewable scope draft.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 shrink-0">
+            {[
+              { label: "Photo", icon: <Camera className="w-4 h-4" /> },
+              { label: "Video", icon: <Video className="w-4 h-4" /> },
+              { label: "Audio", icon: <Mic className="w-4 h-4" /> },
+            ].map((item) => (
+              <div key={item.label} className="min-w-[78px] border border-[#e5e7eb] rounded-md px-3 py-2 text-center text-[#6b7280] bg-[#f9fafb]">
+                <div className="flex justify-center text-[#2563eb]">{item.icon}</div>
+                <div className="text-[11px] font-semibold mt-1">{item.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
