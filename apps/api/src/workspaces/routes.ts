@@ -1,4 +1,4 @@
-import { acceptWorkspaceInvite, createWorkspace, createWorkspaceInvite, listWorkspaces } from './actions.ts';
+import { acceptWorkspaceInvite, createWorkspace, createWorkspaceInviteWithEmail, listWorkspaces } from './actions.ts';
 import { ApiActionError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -8,7 +8,14 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
  * POST /api/workspaces — create one; the frontend calls this once, the first
  * time a signed-in user has zero workspaces (see apps/web/app/src/App.tsx).
  */
-export async function handleWorkspacesRequest(request: Request, client: AuthenticatedSupabaseClient): Promise<Response> {
+export async function handleWorkspacesRequest(
+  request: Request,
+  client: AuthenticatedSupabaseClient,
+  options: {
+    appUrl?: string;
+    sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => Promise<unknown>;
+  } = {},
+): Promise<Response> {
   try {
     const { pathname } = new URL(request.url);
 
@@ -21,7 +28,12 @@ export async function handleWorkspacesRequest(request: Request, client: Authenti
     const inviteMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/invites$/);
     if (inviteMatch && request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
-      return json(await createWorkspaceInvite(client, inviteMatch[1] ?? '', body as never), 201);
+      return json(await createWorkspaceInviteWithEmail(
+        client,
+        inviteMatch[1] ?? '',
+        { ...(body as Record<string, unknown>), appUrl: options.appUrl } as never,
+        options.sendInviteEmail,
+      ), 201);
     }
     if (pathname === '/api/workspace-invites/accept' && request.method === 'POST') {
       const body = await request.json().catch(() => ({}));

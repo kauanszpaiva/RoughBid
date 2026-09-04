@@ -96,6 +96,7 @@ export type WorkspaceInvite = {
   acceptedAt: string | null;
   createdAt: string;
   token: string;
+  emailSent?: boolean;
 };
 
 /** GET /api/workspaces */

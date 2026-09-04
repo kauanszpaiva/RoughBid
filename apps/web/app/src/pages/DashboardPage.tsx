@@ -9,6 +9,11 @@ import {
   Trash2,
   Copy,
   ExternalLink,
+  FileSearch,
+  Send,
+  DollarSign,
+  AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { Project, ProjectStatus } from "../types";
 import { calculateProjectFinancials, formatRoundedCurrency } from "../utils/calculations";
@@ -38,6 +43,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   // Calculate recent activity metrics
   const activeBidsCount = projects.filter((p) => p.status === "In Progress").length;
+  const readyToSendCount = projects.filter((p) => p.estimateItems.length > 0 && p.revisions.length > 0).length;
+  const plansInAiQueue = projects.reduce((sum, p) => sum + p.revisions.filter((r) => r.processingStatus === "queued" || r.processingStatus === "processing" || r.aiPlanStatus === "queued" || r.aiPlanStatus === "processing").length, 0);
+  const missingEstimateCount = projects.filter((p) => p.revisions.length > 0 && p.estimateItems.length === 0).length;
   const totalPipeline = projects.reduce((sum, p) => {
     const fin = calculateProjectFinancials(p.estimateItems, p.overheadPercentage, p.markupPercentage);
     return sum + fin.finalPrice;
@@ -48,6 +56,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     if (amount >= 1000) return `$${Math.round(amount / 1000)}k`;
     return `$${Math.round(amount)}`;
   };
+
+  const averageMargin = projects.length
+    ? projects.reduce((sum, p) => {
+        const fin = calculateProjectFinancials(p.estimateItems, p.overheadPercentage, p.markupPercentage);
+        return sum + fin.marginPercentage;
+      }, 0) / projects.length
+    : 0;
+
+  const upcomingActions = [
+    { label: "Review uploaded plans", value: missingEstimateCount, icon: <FileSearch className="w-4 h-4" />, tone: "text-blue-700 bg-blue-50" },
+    { label: "Client-ready estimates", value: readyToSendCount, icon: <Send className="w-4 h-4" />, tone: "text-emerald-700 bg-emerald-50" },
+    { label: "AI processing jobs", value: plansInAiQueue, icon: <Sparkles className="w-4 h-4" />, tone: "text-indigo-700 bg-indigo-50" },
+  ];
 
   const getStatusBadge = (status: ProjectStatus) => {
     switch (status) {
@@ -75,15 +96,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 md:space-y-8 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 select-none font-sans">
       {/* Title & Top Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
             Your Projects
           </h2>
-          <p className="text-xs text-[#6b7280] mt-0.5">
-            Manage and track your construction estimates and takeoffs.
+          <p className="text-xs text-[#6b7280] mt-0.5 max-w-2xl">
+            Track active bids, plan reading, pricing coverage, and client-ready estimates from one workspace.
           </p>
         </div>
 
@@ -111,6 +132,73 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <Plus className="w-3.5 h-3.5" />
             <span>New Project</span>
           </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">Pipeline</span>
+            <DollarSign className="w-4 h-4 text-[#2563eb]" />
+          </div>
+          <div className="text-2xl font-bold text-[#111827] mt-1 font-mono">{formatPipelineShort(totalPipeline)}</div>
+          <p className="text-[11px] text-[#6b7280] mt-1">Gross proposal value across local projects.</p>
+        </div>
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
+          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">Avg Margin</span>
+          <div className="text-2xl font-bold text-[#111827] mt-1 font-mono">{averageMargin.toFixed(1)}%</div>
+          <p className="text-[11px] text-[#6b7280] mt-1">Target stays at 50%+ gross margin for RoughBid pricing.</p>
+        </div>
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
+          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">AI Queue</span>
+          <div className="text-2xl font-bold text-[#111827] mt-1">{plansInAiQueue}</div>
+          <p className="text-[11px] text-[#6b7280] mt-1">Plan reading jobs waiting or processing.</p>
+        </div>
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
+          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">Ready To Send</span>
+          <div className="text-2xl font-bold text-[#111827] mt-1">{readyToSendCount}</div>
+          <p className="text-[11px] text-[#6b7280] mt-1">Projects with plans and estimate lines.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-4">
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-5 shadow-xs">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-[#111827]">Next Work</h3>
+              <p className="text-xs text-[#6b7280] mt-0.5">Operational actions a nontechnical estimator can follow.</p>
+            </div>
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {upcomingActions.map((action) => (
+              <div key={action.label} className="border border-[#e5e7eb] rounded-lg p-3">
+                <div className={`w-8 h-8 rounded-md flex items-center justify-center ${action.tone}`}>{action.icon}</div>
+                <div className="text-xl font-bold text-[#111827] mt-2">{action.value}</div>
+                <div className="text-xs text-[#6b7280]">{action.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white border border-[#e5e7eb] rounded-lg p-5 shadow-xs">
+          <h3 className="text-sm font-bold text-[#111827]">Marketplace Status</h3>
+          <p className="text-xs text-[#6b7280] mt-1">
+            New England price books, public bid indexes, and licensed cost feeds will be separate paid add-ons.
+          </p>
+          <div className="mt-4 space-y-2 text-xs">
+            <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
+              <span>Free trial AI budget</span>
+              <strong className="text-[#111827]">max $0.80/user</strong>
+            </div>
+            <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
+              <span>Default project COGS cap</span>
+              <strong className="text-[#111827]">max $0.75/project</strong>
+            </div>
+            <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
+              <span>Margin guardrail</span>
+              <strong className="text-[#111827]">50%+</strong>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -235,7 +323,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </h3>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs">
+          <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
             <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
               ACTIVE BIDS
             </span>
@@ -244,7 +332,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs">
+          <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
             <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
               TOTAL PIPELINE
             </span>
@@ -253,7 +341,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs">
+          <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
             <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
               COMPLETED PROJECTS
             </span>
@@ -262,7 +350,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs">
+          <div className="bg-white border border-[#e5e7eb] rounded-lg p-4 shadow-xs">
             <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
               PLAN REVISIONS
             </span>

@@ -23,6 +23,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
   const [inviteState, setInviteState] = useState<InviteState>("idle");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteEmailSent, setInviteEmailSent] = useState(false);
 
   if (!isOpen) return null;
 
@@ -57,11 +58,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
     if (!workspace) return;
     setInviteState("creating");
     setInviteError(null);
+    setInviteEmailSent(false);
     setInviteLink(null);
     try {
       const invite = await createWorkspaceInvite(workspace.id, { email: inviteEmail, role: inviteRole });
       setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(invite.token)}`);
       setInviteState("ready");
+      setInviteEmailSent(invite.emailSent === true);
     } catch (error) {
       setInviteState("error");
       setInviteError(error instanceof Error ? error.message : "Could not create invite.");
@@ -82,9 +85,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
       <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md overflow-hidden">
         <div className="px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-[#e5e7eb] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center text-white font-bold text-xs">
-              R
-            </div>
+            <img src="/favicon.svg" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
             <div>
               <h3 className="text-sm font-bold text-[#111827]">Account</h3>
               <p className="text-xs text-[#6b7280]">Sign in with a magic link — no password.</p>
@@ -157,6 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
                   </select>
                 </label>
                 {inviteState === "error" && inviteError && <p className="text-red-600 text-xs">{inviteError}</p>}
+                {inviteEmailSent && <p className="text-emerald-700 text-xs">Invite email sent through Resend. The link is still shown below as backup.</p>}
                 {inviteLink && (
                   <div className="p-2.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-md">
                     <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Invite link</p>

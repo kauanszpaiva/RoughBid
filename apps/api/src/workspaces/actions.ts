@@ -112,6 +112,28 @@ export async function createWorkspaceInvite(client: AuthenticatedSupabaseClient,
   return { ...invite(data), token };
 }
 
+export async function createWorkspaceInviteWithEmail(
+  client: AuthenticatedSupabaseClient,
+  workspaceId: string,
+  input: CreateWorkspaceInviteInput & { appUrl?: string },
+  sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => Promise<unknown>,
+): Promise<WorkspaceInvite & { token: string; emailSent: boolean }> {
+  const created = await createWorkspaceInvite(client, workspaceId, input);
+  let emailSent = false;
+  if (sendInviteEmail && input.appUrl) {
+    const workspaceRecord = await getWorkspace(client, workspaceId);
+    if (!workspaceRecord) throw new Error('Workspace not found.');
+    await sendInviteEmail({
+      to: created.email,
+      workspaceName: workspaceRecord.name,
+      inviteUrl: `${input.appUrl.replace(/\/$/, '')}/?invite=${encodeURIComponent(created.token)}`,
+      role: created.role === 'admin' ? 'estimator' : created.role,
+    });
+    emailSent = true;
+  }
+  return { ...created, emailSent };
+}
+
 export async function acceptWorkspaceInvite(client: AuthenticatedSupabaseClient, token: string): Promise<{ workspaceId: string; role: WorkspaceRole }> {
   await requireUser(client);
   if (!/^[A-Za-z0-9_-]{32,}$/.test(token)) throw new TypeError('Invalid invite token.');

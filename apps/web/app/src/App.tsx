@@ -29,6 +29,7 @@ export default function App() {
   const [activeStep, setActiveStep] = useState<ProjectStep>("plans");
   const [user, setUser] = useState<UserProfile>(StorageService.getUserProfile());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("roughbid-sidebar-collapsed") === "true");
 
   // Real Supabase Auth session (null when signed out or when auth isn't
   // configured in this environment — see services/supabaseClient.ts). The
@@ -92,6 +93,13 @@ export default function App() {
     if (tab === "dashboard" || tab === "projects") {
       // Keep active project or allow opening
     }
+  };
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed((current) => {
+      localStorage.setItem("roughbid-sidebar-collapsed", String(!current));
+      return !current;
+    });
   };
 
   const handleOpenProject = (project: Project) => {
@@ -259,6 +267,8 @@ export default function App() {
         onOpenAuth={() => setShowAuthModal(true)}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapsed={handleToggleSidebar}
       />
 
       {/* Main Content Area */}

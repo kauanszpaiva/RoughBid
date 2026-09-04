@@ -3,12 +3,30 @@ export type WorkspaceWelcomeInput = {
   appUrl: string;
 };
 
+export type WorkspaceInviteEmailInput = {
+  to: string;
+  workspaceName: string;
+  inviteUrl: string;
+  role: string;
+};
+
 export type WorkspaceWelcomeEmail = {
   from: 'RoughBid <hello@mail.kspdominion.group>';
   to: string;
   templateAlias: 'roughbid-workspace-welcome';
   variables: {
     APP_URL: string;
+  };
+};
+
+export type WorkspaceInviteEmail = {
+  from: 'RoughBid <hello@mail.kspdominion.group>';
+  to: string;
+  templateAlias: 'roughbid-organization-invite';
+  variables: {
+    WORKSPACE_NAME: string;
+    INVITE_URL: string;
+    ROLE: string;
   };
 };
 
@@ -22,6 +40,24 @@ export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): Works
     templateAlias: 'roughbid-workspace-welcome',
     variables: {
       APP_URL: appUrl.toString().replace(/\/$/, ''),
+    },
+  };
+}
+
+export function createWorkspaceInviteEmail(input: WorkspaceInviteEmailInput): WorkspaceInviteEmail {
+  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
+  const inviteUrl = new URL(input.inviteUrl);
+  if (inviteUrl.protocol !== 'https:') throw new Error('Invite URL must use HTTPS.');
+  const workspaceName = input.workspaceName.trim();
+  if (!workspaceName) throw new Error('Workspace name is required.');
+  return {
+    from: 'RoughBid <hello@mail.kspdominion.group>',
+    to: input.to,
+    templateAlias: 'roughbid-organization-invite',
+    variables: {
+      WORKSPACE_NAME: workspaceName,
+      INVITE_URL: inviteUrl.toString(),
+      ROLE: input.role.trim() || 'estimator',
     },
   };
 }
@@ -63,6 +99,37 @@ export async function sendWorkspaceWelcomeEmail(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Resend rejected the workspace welcome email (${response.status}): ${detail}`);
+  }
+  const result = await response.json() as { id?: unknown };
+  if (typeof result.id !== 'string') throw new Error('Resend returned an invalid email response.');
+  return { id: result.id };
+}
+
+export async function sendWorkspaceInviteEmail(
+  config: ResendServerConfig,
+  input: WorkspaceInviteEmailInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  if (!config.apiKey.trim()) throw new Error('A Resend API key is required.');
+  const email = createWorkspaceInviteEmail(input);
+  const response = await fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: email.from,
+      to: [email.to],
+      template: {
+        id: email.templateAlias,
+        variables: email.variables,
+      },
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Resend rejected the workspace invite email (${response.status}): ${detail}`);
   }
   const result = await response.json() as { id?: unknown };
   if (typeof result.id !== 'string') throw new Error('Resend returned an invalid email response.');

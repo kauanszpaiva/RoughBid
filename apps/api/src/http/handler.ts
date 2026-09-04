@@ -12,6 +12,7 @@ import { handleAiPlanRequest } from '../ai-plan/routes.ts';
 import { createAiPlanQueue } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
+import { loadResendServerConfig, sendWorkspaceInviteEmail } from '../email/resend.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 
@@ -58,7 +59,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
   }
   if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
-    return handleWorkspacesRequest(request, client as unknown as AuthenticatedSupabaseClient);
+    const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
+    const inviteMailer = process.env.RESEND_API_KEY
+      ? (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer' }) => sendWorkspaceInviteEmail(loadResendServerConfig(process.env), input)
+      : undefined;
+    return handleWorkspacesRequest(request, client as unknown as AuthenticatedSupabaseClient, {
+      appUrl,
+      ...(inviteMailer ? { sendInviteEmail: inviteMailer } : {}),
+    });
   }
   if (pathname === '/api/billing/checkout' || pathname === '/api/billing/portal' || pathname === '/api/webhooks/stripe') {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();

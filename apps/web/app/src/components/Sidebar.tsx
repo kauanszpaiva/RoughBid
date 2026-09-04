@@ -10,6 +10,8 @@ import {
   HelpCircle,
   Sparkles,
   X,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { UserProfile } from "../types";
 
@@ -30,6 +32,8 @@ interface SidebarProps {
   onOpenAuth: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,6 +43,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAuth,
   isMobileOpen = false,
   onCloseMobile,
+  isCollapsed = false,
+  onToggleCollapsed,
 }) => {
   const mainNavItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     {
@@ -80,25 +86,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const renderNavContent = (isDrawer = false) => (
+  const renderNavContent = (isDrawer = false) => {
+    const collapsed = !isDrawer && isCollapsed;
+    return (
     <>
       {/* Top Logo Section */}
       <div>
         <div
-          className="p-6 border-b border-[#e5e7eb] flex items-center justify-between cursor-pointer"
+          className={`${collapsed ? "p-3 justify-center" : "p-6"} border-b border-[#e5e7eb] flex items-center justify-between cursor-pointer`}
           onClick={() => handleItemClick("projects")}
         >
-          <div>
-            <div className="flex items-center gap-2.5">
-              <img
-                src="/roughbid-logo-generated.png"
-                alt="RoughBid"
-                className="w-40 h-12 object-contain object-left rounded bg-white"
-              />
-            </div>
-            <p className="text-[10px] text-[#6b7280] mt-1 uppercase font-semibold tracking-widest pl-0.5">
-              by KSP Ventures
-            </p>
+          <div className={`${collapsed ? "w-full flex justify-center" : ""}`}>
+            <img
+              src="/favicon.svg"
+              alt="RoughBid"
+              className={`${collapsed ? "w-9 h-9" : "w-10 h-10"} object-contain rounded bg-white`}
+            />
+            {!collapsed && (
+              <p className="sr-only">
+                RoughBid
+              </p>
+            )}
           </div>
 
           {isDrawer && onCloseMobile && (
@@ -116,17 +124,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation List */}
-        <nav className="p-4 space-y-1">
-          <div className="px-3 pb-2 pt-1 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
+        <nav className={`${collapsed ? "p-2" : "p-4"} space-y-1`}>
+          {!collapsed && <div className="px-3 pb-2 pt-1 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
             Main Navigation
-          </div>
+          </div>}
           {mainNavItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => handleItemClick(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+                title={collapsed ? item.label : undefined}
+                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
                   isActive
                     ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
                     : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
@@ -135,48 +144,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className={isActive ? "text-[#2563eb]" : "text-[#6b7280]"}>
                   {item.icon}
                 </span>
-                <span>{item.label}</span>
+                {!collapsed && <span>{item.label}</span>}
               </button>
             );
           })}
 
-          <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
+          {!collapsed && <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
             System & Support
-          </div>
+          </div>}
           <button
             onClick={() => handleItemClick("settings")}
-            className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            title={collapsed ? "Settings" : undefined}
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "settings"
                 ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
                 : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
             }`}
           >
             <Settings className="w-4 h-4 text-[#6b7280]" />
-            <span>Settings</span>
+            {!collapsed && <span>Settings</span>}
           </button>
 
           <button
             onClick={() => handleItemClick("help")}
-            className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            title={collapsed ? "Help & Docs" : undefined}
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "help"
                 ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
                 : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
             }`}
           >
             <HelpCircle className="w-4 h-4 text-[#6b7280]" />
-            <span>Help & Docs</span>
+            {!collapsed && <span>Help & Docs</span>}
           </button>
         </nav>
       </div>
 
       {/* Bottom User / Pass Profile */}
-      <div className="p-4 border-t border-[#e5e7eb]">
+      <div className={`${collapsed ? "p-2" : "p-4"} border-t border-[#e5e7eb] space-y-2`}>
+        {!isDrawer && (
+          <button
+            onClick={onToggleCollapsed}
+            className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-between"} px-3 py-2 rounded-md text-xs font-semibold text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition`}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {!collapsed && <span>Collapse</span>}
+            {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+          </button>
+        )}
         <div
           onClick={() => {
             onOpenAuth();
             if (onCloseMobile) onCloseMobile();
           }}
-          className="bg-[#f3f4f6] hover:bg-[#e5e7eb]/80 p-3 rounded-lg flex items-center gap-3 cursor-pointer transition"
+          className={`bg-[#f3f4f6] hover:bg-[#e5e7eb]/80 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
+          title={collapsed ? "Account" : undefined}
         >
           <div className="w-8 h-8 rounded-full bg-[#d1d5db] text-[#374151] font-bold text-xs flex items-center justify-center shrink-0">
             {user.name
@@ -184,22 +207,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
               .map((n) => n[0])
               .join("") || "JA"}
           </div>
-          <div className="flex-1 min-w-0">
+          {!collapsed && <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-[#111827] truncate">{user.name}</p>
             <p className="text-[10px] text-[#6b7280] truncate flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
               <span>{user.plan}</span>
             </p>
-          </div>
+          </div>}
         </div>
       </div>
     </>
   );
+  };
 
   return (
     <>
       {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className="hidden md:flex w-64 bg-white border-r border-[#e5e7eb] flex-col justify-between h-screen select-none shrink-0 font-sans">
+      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-white border-r border-[#e5e7eb] flex-col justify-between h-screen select-none shrink-0 font-sans transition-[width] duration-200`}>
         {renderNavContent(false)}
       </aside>
 
