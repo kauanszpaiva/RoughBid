@@ -60,7 +60,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-stretch lg:self-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-stretch lg:self-auto">
             <div className="relative flex-1 lg:flex-none">
               <select
                 value={filterStatus}
@@ -85,7 +85,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
           <div className="rounded-md bg-[#f9fafb] border border-[#e5e7eb] p-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-[#6b7280]">Total</p>
             <p className="text-xl font-bold text-[#111827]">{projects.length}</p>
@@ -185,7 +185,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 mb-3">
                   <div className="rounded-md bg-[#f9fafb] border border-[#e5e7eb] p-2">
                     <p className="text-[10px] text-[#6b7280] font-bold">Plans</p>
                     <p className="text-sm font-bold text-[#111827]">{project.revisions.length}</p>

@@ -38,7 +38,11 @@ export default function App() {
   const [activeStep, setActiveStep] = useState<ProjectStep>("plans");
   const [user, setUser] = useState<UserProfile>(StorageService.getUserProfile());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("roughbid-sidebar-collapsed") === "true");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    const saved = localStorage.getItem("roughbid-sidebar-collapsed");
+    if (saved !== null) return saved === "true";
+    return window.innerWidth < 1180;
+  });
 
   // Real Supabase Auth session. The product app is gated behind this session;
   // public access stays limited to the landing page and client proposal links.
@@ -277,7 +281,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#fcfcfd] text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-dvh bg-[#fcfcfd] text-slate-900 overflow-hidden font-sans">
       {/* Sidebar */}
       <Sidebar
         currentTab={activeTab}
@@ -292,7 +296,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
         {/* Top Header */}
         <Header
           project={activeTab === "projects" ? activeProject : null}

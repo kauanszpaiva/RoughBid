@@ -54,8 +54,8 @@ export const MaterialsPage: React.FC = () => {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
-      <div className="flex items-start justify-between">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
             Materials Library
@@ -67,7 +67,7 @@ export const MaterialsPage: React.FC = () => {
 
         <button
           onClick={() => setIsAdding(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[13px] font-semibold transition shadow-xs"
+          className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[13px] font-semibold transition shadow-xs"
         >
           <Plus className="w-4 h-4" />
           <span>New Material</span>
@@ -75,8 +75,8 @@ export const MaterialsPage: React.FC = () => {
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
@@ -87,12 +87,12 @@ export const MaterialsPage: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md p-1">
+        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md p-1 overflow-x-auto">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded text-[12px] font-medium transition capitalize ${
+              className={`px-3 py-1 rounded text-[12px] font-medium transition capitalize whitespace-nowrap ${
                 selectedCategory === cat
                   ? "bg-blue-600 text-white font-semibold shadow-2xs"
                   : "text-slate-600 hover:text-slate-900"
@@ -111,8 +111,8 @@ export const MaterialsPage: React.FC = () => {
           className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3"
         >
           <h3 className="text-[13px] font-bold text-blue-900">Add Material to Price Catalog</h3>
-          <div className="grid grid-cols-5 gap-3 text-[12px]">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-[12px]">
+            <div className="sm:col-span-2">
               <label className="block text-slate-600 mb-1">Description</label>
               <input
                 type="text"
@@ -155,17 +155,17 @@ export const MaterialsPage: React.FC = () => {
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-3 py-1 text-slate-600 text-[12px]"
+              className="px-3 py-2 sm:py-1 text-slate-600 text-[12px]"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1 bg-blue-600 text-white rounded text-[12px] font-bold"
+              className="px-4 py-2 sm:py-1 bg-blue-600 text-white rounded text-[12px] font-bold"
             >
               Save to Catalog
             </button>
@@ -174,8 +174,44 @@ export const MaterialsPage: React.FC = () => {
       )}
 
       {/* Materials Table */}
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
-        <table className="w-full text-left text-[13px]">
+      <div className="md:hidden space-y-3">
+        {filtered.map((mat) => (
+          <div key={mat.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-slate-900 leading-snug">{mat.name}</h3>
+                <p className="text-xs text-slate-500 mt-1">{mat.supplier}</p>
+              </div>
+              <button
+                onClick={() => handleDelete(mat.id)}
+                className="p-1 text-slate-300 hover:text-rose-600 transition shrink-0"
+                aria-label={`Delete ${mat.name}`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              <div className="rounded-md bg-slate-50 border border-slate-100 p-2">
+                <p className="text-[10px] font-bold uppercase text-slate-400">Category</p>
+                <p className="text-xs font-bold text-slate-700 truncate">{mat.category}</p>
+              </div>
+              <div className="rounded-md bg-slate-50 border border-slate-100 p-2">
+                <p className="text-[10px] font-bold uppercase text-slate-400">Unit</p>
+                <p className="text-xs font-bold text-slate-700 font-mono">{mat.unit}</p>
+              </div>
+              <div className="rounded-md bg-slate-50 border border-slate-100 p-2">
+                <p className="text-[10px] font-bold uppercase text-slate-400">Price</p>
+                <p className="text-xs font-bold text-slate-900 font-mono">{formatCurrency(mat.unitCost ?? mat.unitPrice ?? 0)}</p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-3">Updated {mat.lastUpdated}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden md:block bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[780px] text-left text-[13px]">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px] uppercase tracking-wider">
             <tr>
               <th className="py-3 px-4">ITEM DESCRIPTION</th>
@@ -214,6 +250,7 @@ export const MaterialsPage: React.FC = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

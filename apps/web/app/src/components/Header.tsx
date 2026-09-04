@@ -49,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <div className="flex flex-col shrink-0 z-20 select-none bg-white font-sans">
       {/* Primary Header Bar */}
-      <header className="h-14 md:h-16 border-b border-[#e5e7eb] px-4 md:px-8 flex items-center justify-between">
+      <header className="h-14 md:h-16 border-b border-[#e5e7eb] px-3 sm:px-4 md:px-6 xl:px-8 flex items-center justify-between">
         {/* Left: Mobile Hamburger & Project / App Title */}
         <div className="flex items-center gap-2.5 md:gap-3 min-w-0">
           {/* Mobile hamburger menu toggle */}
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Project</span>
+              <span className="hidden sm:inline">New Project</span>
             </button>
           )}
 
@@ -184,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Mobile Project Horizontal Stepper Bar */}
       {project && (
         <div className="md:hidden bg-[#f9fafb] border-b border-[#e5e7eb] px-3 py-2 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1.5 min-w-max mx-auto justify-center">
+          <div className="flex items-center gap-1.5 min-w-max">
             {steps.map((step, idx) => {
               const isActive = activeStep === step.id;
               const stepIdx = steps.findIndex((s) => s.id === step.id);

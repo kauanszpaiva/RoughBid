@@ -103,7 +103,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
             </button>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
             <div className="border border-[#e5e7eb] rounded-lg p-4">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">Pipeline</span>
@@ -217,7 +217,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
             </div>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-5">
             {[
               { label: "Photo", icon: <Camera className="w-4 h-4" /> },
               { label: "Video", icon: <Video className="w-4 h-4" /> },

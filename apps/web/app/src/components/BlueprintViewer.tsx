@@ -21,7 +21,13 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   currentRevision,
   projectName,
 }) => {
-  const [zoom, setZoom] = useState<number>(100);
+  const getFitZoom = () => {
+    if (typeof window === "undefined") return 100;
+    if (window.innerWidth < 640) return 50;
+    if (window.innerWidth < 1024) return 75;
+    return 100;
+  };
+  const [zoom, setZoom] = useState<number>(() => getFitZoom());
   const [activeLayer, setActiveLayer] = useState<"all" | "structural" | "finishes">("all");
   const [activeHotspot, setActiveHotspot] = useState<string | null>("dimensions");
   const [showBeginnerLabels, setShowBeginnerLabels] = useState<boolean>(true);
@@ -34,11 +40,11 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 250));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 25, 50));
   const handleFit = () => {
-    setZoom(100);
+    setZoom(getFitZoom());
     setPanOffset({ x: 0, y: 0 });
   };
   const handleReset = () => {
-    setZoom(100);
+    setZoom(getFitZoom());
     setPanOffset({ x: 0, y: 0 });
     setActiveHotspot("dimensions");
   };
@@ -119,7 +125,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === activeHotspot) ?? null;
 
   return (
-    <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden flex flex-col h-[440px] sm:h-[500px] md:h-[580px]">
+    <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden flex flex-col h-[68dvh] min-h-[430px] sm:h-[500px] md:h-[580px]">
       {/* Top Toolbar */}
       <div className="min-h-11 bg-[#f9fafb] border-b border-[#e5e7eb] px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 select-none text-xs font-medium text-[#6b7280]">
         <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
@@ -225,12 +231,12 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
         }`}
       >
         <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
-          <div className="pointer-events-auto bg-white/95 border border-[#dbeafe] rounded-lg shadow-xs p-2.5 max-w-xs">
+          <div className="pointer-events-auto bg-white/95 border border-[#dbeafe] rounded-lg shadow-xs p-2.5 max-w-[220px] sm:max-w-xs">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#1d4ed8] uppercase tracking-wider">
               <MousePointer2 className="w-3.5 h-3.5" />
               Click a blue dot
             </div>
-            <p className="text-[11px] text-[#475569] mt-1">
+            <p className="hidden sm:block text-[11px] text-[#475569] mt-1">
               Simple explanations appear here so a new estimator knows what each mark means.
             </p>
           </div>
@@ -428,7 +434,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
           </div>
 
           {selectedHotspot && (
-            <div className="absolute right-5 top-20 z-20 w-64 bg-white border border-[#bfdbfe] rounded-lg shadow-lg p-3 text-left">
+            <div className="absolute left-3 right-3 bottom-20 sm:left-auto sm:right-5 sm:top-20 sm:bottom-auto z-20 sm:w-64 bg-white border border-[#bfdbfe] rounded-lg shadow-lg p-3 text-left">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-[10px] uppercase tracking-wider font-bold text-[#2563eb]">
@@ -459,8 +465,9 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
 
         {/* Floating helper badge */}
         <div className="absolute bottom-3 left-3 right-3 sm:right-auto bg-white/90 backdrop-blur-xs border border-[#e5e7eb] px-3 py-2 rounded-md text-xs text-[#4b5563] flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs">
-          <Info className="w-3.5 h-3.5 text-[#2563eb]" />
-          <span>Use + / - to zoom, hand to drag, and blue dots to understand the plan.</span>
+          <Info className="w-3.5 h-3.5 text-[#2563eb] hidden sm:block" />
+          <span className="hidden sm:inline">Use + / - to zoom, hand to drag, and blue dots to understand the plan.</span>
+          <span className="sm:hidden font-semibold text-[#374151]">Zoom and drag the plan</span>
           <input
             type="range"
             min={50}
