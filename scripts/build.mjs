@@ -19,6 +19,8 @@ execFileSync(
 await mkdir(new URL('../dist/landing', import.meta.url), { recursive: true });
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/landing/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/landing/styles.css', import.meta.url));
+await mkdir(new URL('../dist/app', import.meta.url), { recursive: true });
+await cp(new URL('../dist/index.html', import.meta.url), new URL('../dist/app/index.html', import.meta.url));
 
 const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY'];
 async function assertNoServerSecrets(directory) {
@@ -38,4 +40,4 @@ async function assertNoServerSecrets(directory) {
 }
 
 await assertNoServerSecrets(new URL('../dist/', import.meta.url));
-console.log('Built RoughBid app to dist/ and static landing to dist/landing/');
+console.log('Built RoughBid app to dist/, dist/app/, and static landing to dist/landing/');
