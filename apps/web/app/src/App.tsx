@@ -265,6 +265,7 @@ export default function App() {
         onSelectTab={handleSelectTab}
         user={user}
         onOpenAuth={() => setShowAuthModal(true)}
+        isSignedIn={session !== null}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
         isCollapsed={isSidebarCollapsed}
@@ -285,6 +286,7 @@ export default function App() {
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           user={user}
           onOpenAuth={() => setShowAuthModal(true)}
+          isSignedIn={session !== null}
         />
 
         {/* Dynamic Page Views */}

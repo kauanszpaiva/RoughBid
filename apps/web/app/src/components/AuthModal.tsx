@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Mail, LogOut, ShieldCheck, Link as LinkIcon, Copy } from "lucide-react";
+import { X, Mail, LogOut, ShieldCheck, Link as LinkIcon, Copy, UserPlus } from "lucide-react";
 import { supabase, isAuthConfigured, type Session } from "../services/supabaseClient";
 import { createWorkspaceInvite, type Workspace } from "../services/api";
 
@@ -87,8 +87,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
             <div>
-              <h3 className="text-sm font-bold text-[#111827]">Account</h3>
-              <p className="text-xs text-[#6b7280]">Sign in with a magic link — no password.</p>
+              <h3 className="text-sm font-bold text-[#111827]">Sign in / Create account</h3>
+              <p className="text-xs text-[#6b7280]">Enter your email. Supabase sends a secure magic link.</p>
             </div>
           </div>
           <button onClick={onClose} className="text-[#9ca3af] hover:text-[#111827] rounded-md transition p-1">
@@ -192,6 +192,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
 
           {isAuthConfigured && !session && state !== "sent" && (
             <form onSubmit={handleSendLink} className="space-y-3">
+              <div className="p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a] flex gap-2.5">
+                <UserPlus className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold">One email creates or opens your RoughBid account.</div>
+                  <p className="text-[#3b82f6] mt-0.5">No password setup. Organization invites are accepted after the same login link.</p>
+                </div>
+              </div>
               <label className="block">
                 <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider">Email</span>
                 <input
@@ -212,7 +219,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-60 text-white text-xs font-semibold rounded-md transition"
               >
                 <Mail className="w-3.5 h-3.5" />
-                {state === "sending" ? "Sending…" : "Send magic link"}
+                {state === "sending" ? "Sending..." : "Email me a sign-in link"}
               </button>
             </form>
           )}

@@ -34,6 +34,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   isCollapsed?: boolean;
   onToggleCollapsed?: () => void;
+  isSignedIn?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -45,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   isCollapsed = false,
   onToggleCollapsed,
+  isSignedIn = false,
 }) => {
   const mainNavItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     {
@@ -180,7 +182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Bottom User / Pass Profile */}
+      {/* Bottom Account Profile */}
       <div className={`${collapsed ? "p-2" : "p-4"} border-t border-[#e5e7eb] space-y-2`}>
         {!isDrawer && (
           <button
@@ -201,17 +203,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`bg-[#f3f4f6] hover:bg-[#e5e7eb]/80 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
           title={collapsed ? "Account" : undefined}
         >
-          <div className="w-8 h-8 rounded-full bg-[#d1d5db] text-[#374151] font-bold text-xs flex items-center justify-center shrink-0">
-            {user.name
-              .split(" ")
-              .map((n) => n[0])
-              .join("") || "JA"}
+          <div className={`${isSignedIn ? "bg-[#d1d5db] text-[#374151]" : "bg-[#111827] text-white"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
+            {isSignedIn
+              ? user.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("") || "JA"
+              : "IN"}
           </div>
           {!collapsed && <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-[#111827] truncate">{user.name}</p>
+            <p className="text-xs font-semibold text-[#111827] truncate">{isSignedIn ? user.name : "Sign in"}</p>
             <p className="text-[10px] text-[#6b7280] truncate flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
-              <span>{user.plan}</span>
+              <span>{isSignedIn ? user.plan : "Create account"}</span>
             </p>
           </div>}
         </div>

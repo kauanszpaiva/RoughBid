@@ -1,5 +1,5 @@
 import React from "react";
-import { Bell, FileDown, Plus, ChevronLeft, Menu } from "lucide-react";
+import { Bell, FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
 import { Project, UserProfile } from "../types";
 
 export type ProjectStep = "plans" | "quantities" | "estimate" | "review" | "export";
@@ -15,6 +15,7 @@ interface HeaderProps {
   onToggleMobileMenu?: () => void;
   user?: UserProfile;
   onOpenAuth?: () => void;
+  isSignedIn?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,6 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMobileMenu,
   user,
   onOpenAuth,
+  isSignedIn = false,
 }) => {
   const steps: { id: ProjectStep; label: string }[] = [
     { id: "plans", label: "Plans" },
@@ -162,13 +164,19 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="w-1.5 h-1.5 bg-[#2563eb] rounded-full absolute top-1.5 right-1.5" />
           </button>
 
-          {/* User profile avatar button */}
           <button
             onClick={onOpenAuth}
-            className="w-8 h-8 rounded-full bg-[#d1d5db] hover:bg-[#9ca3af] text-[#374151] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
-            title={user?.name || "Account Profile"}
+            className={isSignedIn
+              ? "w-8 h-8 rounded-full bg-[#d1d5db] hover:bg-[#9ca3af] text-[#374151] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
+              : "h-8 px-3 rounded-md bg-[#111827] hover:bg-black text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"}
+            title={isSignedIn ? user?.name || "Account Profile" : "Sign in or create account"}
           >
-            {userInitials}
+            {isSignedIn ? userInitials : (
+              <>
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign in</span>
+              </>
+            )}
           </button>
         </div>
       </header>
