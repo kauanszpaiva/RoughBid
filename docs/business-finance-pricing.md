@@ -6,6 +6,8 @@ Status: draft operating plan. Owner approval required before creating live Strip
 
 RoughBid is an independent construction estimating SaaS for small contractors, estimators, and owners who do not have technical blueprint experience.
 
+The buyer is usually also the operator: the same person or company reads the plan, buys materials, manages labor, sends the proposal, and delivers the work. Estimates must therefore connect scope, material purchasing, labor assumptions, supplier pricing, overhead, markup, and client presentation in one simple flow.
+
 Primary promise:
 - Upload a construction plan.
 - RoughBid explains the plan in plain language.
@@ -18,23 +20,33 @@ The product should feel low-risk to try and inexpensive enough for a small contr
 
 - Keep minimum gross margin at 50% or higher after AI, storage, email, data feed, and Stripe card fees.
 - Keep trial COGS below $1.00 per user, with a soft target of $0.80 or lower.
-- Charge around the project, because contractors understand jobs better than tokens.
-- Use subscriptions to lower per-project price and increase retention.
+- Charge per project, because contractors understand jobs better than tokens.
+- Calculate the project charge from project size and complexity.
+- Use subscriptions to discount project charges and increase retention.
 - Sell local pricing/code datasets as paid marketplace add-ons, not as unlimited free usage.
 - Never allow postpaid negative balance without owner approval.
 - Do not price live products below the guardrail in `packages/domain/src/billing.ts`.
 
 ## Recommended Price Ladder
 
+Per-project charges are based on project size. This avoids charging a tiny bathroom refresh the same as a dense multi-trade renovation.
+
+| Project size | Base project price | Target use case | Included AI budget |
+| --- | ---: | --- | --- |
+| Small | $7 | Small repair, bath refresh, single-room finish update | up to $0.75 COGS |
+| Standard | $15 | Kitchen remodel, basement finish, small addition | up to $1.25 COGS |
+| Large | $29 | Whole-home remodel, multi-room addition, larger deck/exterior package | up to $2.50 COGS |
+| Complex | $49 | Light commercial, multi-trade renovation, dense plan set | up to $5.00 COGS |
+
 Entry without subscription:
-- 1 project credit: $7 one time.
-- 5 project credits: $25 one time.
-- 20 project credits: $80 one time.
+- User pays the base project price for each project.
+- No monthly commitment.
+- Good for a contractor trying RoughBid on one job.
 
 Subscriptions:
-- Starter: $19/month, 5 project credits/month, extra projects $4 each.
-- Pro: $49/month, 20 project credits/month, extra projects $3 each.
-- Team: $149/month, 80 project credits/month, extra projects $2.50 each.
+- Starter: $9/month, 10% discount on every project.
+- Pro: $29/month, 25% discount on every project.
+- Team: $79/month, 40% discount on every project.
 
 Marketplace add-ons:
 - New England Code Assistant: $9/month.
@@ -52,14 +64,14 @@ Target COGS per completed AI project:
 
 Approximate project margin after Stripe card fee:
 
-| Sale type | Customer price | Target COGS | Est. Stripe fee | Gross profit | Margin |
+| Size | No subscription | Starter price | Pro price | Team price | Lowest margin target |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Single project credit | $7.00 | $0.75 | $0.50 | $5.75 | 82% |
-| Starter extra project | $4.00 | $0.75 | $0.42 | $2.83 | 71% |
-| Pro extra project | $3.00 | $0.75 | $0.39 | $1.86 | 62% |
-| Team extra project | $2.50 | $0.75 | $0.37 | $1.38 | 55% |
+| Small | $7.00 | $6.30 | $5.25 | $4.20 | 50%+ |
+| Standard | $15.00 | $13.50 | $11.25 | $9.00 | 50%+ |
+| Large | $29.00 | $26.10 | $21.75 | $17.40 | 50%+ |
+| Complex | $49.00 | $44.10 | $36.75 | $29.40 | 50%+ |
 
-The Team overage is the lowest acceptable floor under current assumptions. Do not reduce it unless real COGS drops below $0.60/project or payment economics change.
+The Team-discounted small project is the lowest acceptable floor under current assumptions. Do not lower it unless real COGS drops materially or payment economics change.
 
 ## Trial Policy
 
@@ -77,9 +89,9 @@ Trial limits:
 - Hard stop before $1.00 in AI/provider cost per user.
 
 Trial conversion:
-- Show low one-time pack first for price-sensitive users.
-- Show Starter as the recommended monthly option.
-- Explain credits as "projects", not tokens.
+- Show the per-project size price first.
+- Show Starter as the lowest-friction monthly discount.
+- Explain usage as "projects", not tokens.
 
 ## Payment Method Flow
 
@@ -88,7 +100,7 @@ Use Stripe-hosted Checkout for all payments.
 Flow:
 1. User creates account with Supabase magic link.
 2. RoughBid creates or finds the workspace billing account.
-3. User selects subscription, credit pack, or marketplace add-on.
+3. User selects a project size, subscription, or marketplace add-on.
 4. API creates Stripe Checkout Session.
 5. Stripe collects card/payment method.
 6. Stripe webhook is the source of truth.
@@ -102,13 +114,13 @@ Do not mark a user paid based only on frontend redirect success. Only signed Str
 Every workspace has isolated credits. Credits are never shared across unrelated organizations.
 
 Rules:
-- Reserve 1 project credit when AI estimation starts.
-- Capture the credit when the first useful estimate is saved.
+- Reserve the project charge when AI estimation starts.
+- Capture the project charge when the first useful estimate is saved.
 - Release the credit if provider failure, validation failure, or user cancellation happens before saved output.
 - Regenerations after a useful saved estimate consume the same project budget until generation limit is reached.
-- Subscription credits reset monthly and do not roll over by default.
-- Purchased credits expire after 12 months unless owner/legal approves another period.
-- Marketplace add-ons do not grant project credits.
+- Subscriptions discount future project charges instead of granting unlimited usage.
+- Optional prepaid credit packs can be added later, but should be secondary.
+- Marketplace add-ons do not include project usage.
 - Every ledger write needs an idempotency key.
 
 Required database entities:
@@ -123,14 +135,11 @@ Required database entities:
 
 ## Usage Limits By Plan
 
-| Plan | Active projects | Seats | PDF limit | AI generations/project | Client proposal links/month | Included feeds |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 1 credit | 1 | 1 | 25 MB | 3 | 5 | None |
-| 5 credits | 5 | 1 | 25 MB | 3 | 20 | None |
-| 20 credits | 20 | 2 | 35 MB | 4 | 75 | None |
-| Starter | 5 | 1 | 25 MB | 3 | 25 | New England codes |
-| Pro | 20 | 3 | 50 MB | 5 | 100 | Codes, material prices |
-| Team | 80 | 10 | 75 MB | 8 | 400 | Codes, material prices, labor benchmarks |
+| Plan | Monthly price | Project discount | Active projects | Seats | PDF limit | AI generations/project | Client proposal links/month | Included feeds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Starter | $9 | 10% | 5 | 1 | 25 MB | 3 | 25 | New England codes |
+| Pro | $29 | 25% | 20 | 3 | 50 MB | 5 | 100 | Codes, material prices |
+| Team | $79 | 40% | 80 | 10 | 75 MB | 8 | 400 | Codes, material prices, labor benchmarks |
 
 Enterprise/custom can exist later, but should require manual approval because usage can destroy margins if unlimited.
 

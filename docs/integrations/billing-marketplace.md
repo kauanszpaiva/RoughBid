@@ -6,7 +6,7 @@ Primary commercial plan: see `docs/business-finance-pricing.md`.
 
 ## Current Implementation Snapshot
 
-- Implemented as domain rules: trial credits, trial COGS caps, proposed plan catalog, subscription overage discounts, and 50%+ unit-margin guardrail live in `packages/domain/src/billing.ts`.
+- Implemented as domain rules: trial credits, trial COGS caps, project-size pricing, subscription project discounts, and 50%+ unit-margin guardrail live in `packages/domain/src/billing.ts`.
 - Implemented as domain rules: plan limits, marketplace add-on catalog, estimated Stripe card fees, marketplace feed economics, and project-level margin checks.
 - Implemented in API: Stripe hosted subscription checkout supports one configured `STRIPE_PRICE_ID`; signed subscription webhooks mirror subscription status idempotently.
 - Implemented in UI: Price Marketplace is an informational workspace screen with active/draft/licensed feed states.
@@ -14,7 +14,7 @@ Primary commercial plan: see `docs/business-finance-pricing.md`.
 
 ## Model
 
-Use RoughBid internal project credits. Stripe sells plans and credit packs; RoughBid's ledger decides when a workspace can run AI, create client views, or consume paid price data.
+Use RoughBid internal project charges. Stripe sells subscriptions, per-project charges, and marketplace add-ons; RoughBid's ledger decides when a workspace can run AI, create client views, or consume paid price data.
 
 ## Trial Guardrail
 
@@ -28,15 +28,16 @@ Use RoughBid internal project credits. Stripe sells plans and credit packs; Roug
 
 Do not create these in production until approved.
 
-One-time project credits:
-- 1 project credit: $7.00.
-- 5 project credits: $25.00.
-- 20 project credits: $80.00.
+Per-project charges:
+- Small: $7.00.
+- Standard: $15.00.
+- Large: $29.00.
+- Complex: $49.00.
 
 Subscriptions:
-- Starter: $19/month, includes 5 monthly project credits, extra projects $4.00.
-- Pro: $49/month, includes 20 monthly project credits, extra projects $3.00.
-- Team: $149/month, includes 80 monthly project credits, extra projects $2.50.
+- Starter: $9/month, 10% project discount.
+- Pro: $29/month, 25% project discount.
+- Team: $79/month, 40% project discount.
 
 Marketplace add-ons:
 - New England Code Assistant: $9/month.
@@ -51,14 +52,11 @@ Gross margin rule:
 
 ## Plan Limits
 
-| Plan | Active projects | Seats | PDF limit | AI generations/project | Client proposal links/month |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 credit | 1 | 1 | 25 MB | 3 | 5 |
-| 5 credits | 5 | 1 | 25 MB | 3 | 20 |
-| 20 credits | 20 | 2 | 35 MB | 4 | 75 |
-| Starter | 5 | 1 | 25 MB | 3 | 25 |
-| Pro | 20 | 3 | 50 MB | 5 | 100 |
-| Team | 80 | 10 | 75 MB | 8 | 400 |
+| Plan | Project discount | Active projects | Seats | PDF limit | AI generations/project | Client proposal links/month |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Starter | 10% | 5 | 1 | 25 MB | 3 | 25 |
+| Pro | 25% | 20 | 3 | 50 MB | 5 | 100 |
+| Team | 40% | 80 | 10 | 75 MB | 8 | 400 |
 
 ## Minimum Database Entities
 
@@ -66,7 +64,7 @@ Gross margin rule:
 - workspace, Stripe customer/subscription IDs, plan status, trial dates, trial budget/spend.
 
 `credit_grants`
-- source type, Stripe checkout/invoice IDs, credits granted/remaining, expiration, status.
+- source type, Stripe checkout/invoice IDs, project charge/reservation balance, expiration, status.
 
 `credit_ledger_entries`
 - atomic grant/reserve/capture/release/refund/adjustment entries with idempotency keys.
@@ -88,7 +86,7 @@ Gross margin rule:
 
 ## Accounting Rules
 
-- Reserve 1 credit when AI estimation starts.
+- Reserve the calculated project charge when AI estimation starts.
 - Capture when the first useful estimate is saved.
 - Release on provider failure, validation failure, or user cancellation before saved output.
 - Do not release for repeated regeneration after successful first estimate; regeneration spends the project budget.

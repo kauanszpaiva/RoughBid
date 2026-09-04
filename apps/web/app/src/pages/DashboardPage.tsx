@@ -184,22 +184,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
         <div className="bg-white border border-[#e5e7eb] rounded-lg p-5 shadow-xs">
-          <h3 className="text-sm font-bold text-[#111827]">Marketplace Status</h3>
+          <h3 className="text-sm font-bold text-[#111827]">Project Pricing Model</h3>
           <p className="text-xs text-[#6b7280] mt-1">
-            New England price books, public bid indexes, and licensed cost feeds will be separate paid add-ons.
+            RoughBid charges by project size. Subscriptions make every project cheaper while add-ons unlock better material, labor, and code data.
           </p>
           <div className="mt-4 space-y-2 text-xs">
             <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
-              <span>Free trial AI budget</span>
-              <strong className="text-[#111827]">max $0.80/user</strong>
+              <span>Small / Standard</span>
+              <strong className="text-[#111827]">$7 / $15</strong>
             </div>
             <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
-              <span>Default project COGS cap</span>
-              <strong className="text-[#111827]">max $0.75/project</strong>
+              <span>Large / Complex</span>
+              <strong className="text-[#111827]">$29 / $49</strong>
             </div>
             <div className="flex items-center justify-between border border-[#e5e7eb] rounded-md px-3 py-2">
-              <span>Margin guardrail</span>
-              <strong className="text-[#111827]">50%+</strong>
+              <span>Subscription discount</span>
+              <strong className="text-[#111827]">10-40%</strong>
             </div>
           </div>
         </div>

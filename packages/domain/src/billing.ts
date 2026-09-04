@@ -9,7 +9,8 @@ export const STRIPE_FIXED_FEE_USD = 0.3;
 export const CHEAP_MODEL_PROJECT_BUDGET_USD = 0.45;
 export const EXPENSIVE_MODEL_REVIEW_BUDGET_USD = 0.3;
 
-export type RoughBidPlanId = 'credit_1' | 'credit_5' | 'credit_20' | 'starter' | 'pro' | 'team';
+export type RoughBidPlanId = 'starter' | 'pro' | 'team';
+export type RoughBidProjectSizeId = 'small' | 'standard' | 'large' | 'complex';
 export type RoughBidMarketplaceFeedId =
   | 'new_england_codes'
   | 'regional_material_prices'
@@ -19,11 +20,22 @@ export type RoughBidMarketplaceFeedId =
 export type RoughBidCommercialPlan = {
   id: RoughBidPlanId;
   name: string;
-  kind: 'credit_pack' | 'subscription';
+  kind: 'subscription';
   priceUsd: number;
-  includedProjectCredits: number;
-  extraProjectPriceUsd: number | null;
+  projectDiscountPercent: number;
   billingInterval: 'one_time' | 'month';
+};
+
+export type RoughBidProjectSizePricing = {
+  id: RoughBidProjectSizeId;
+  name: string;
+  basePriceUsd: number;
+  targetCogsUsd: number;
+  reviewCapUsd: number;
+  maxPdfMb: number;
+  maxPlanPages: number;
+  aiGenerations: number;
+  examples: string[];
 };
 
 export type RoughBidPlanLimits = {
@@ -45,87 +57,80 @@ export type RoughBidMarketplaceFeed = {
 };
 
 export const ROUGHBID_COMMERCIAL_PLANS: Record<RoughBidPlanId, RoughBidCommercialPlan> = {
-  credit_1: {
-    id: 'credit_1',
-    name: '1 Project Credit',
-    kind: 'credit_pack',
-    priceUsd: 7,
-    includedProjectCredits: 1,
-    extraProjectPriceUsd: null,
-    billingInterval: 'one_time',
-  },
-  credit_5: {
-    id: 'credit_5',
-    name: '5 Project Credits',
-    kind: 'credit_pack',
-    priceUsd: 25,
-    includedProjectCredits: 5,
-    extraProjectPriceUsd: null,
-    billingInterval: 'one_time',
-  },
-  credit_20: {
-    id: 'credit_20',
-    name: '20 Project Credits',
-    kind: 'credit_pack',
-    priceUsd: 80,
-    includedProjectCredits: 20,
-    extraProjectPriceUsd: null,
-    billingInterval: 'one_time',
-  },
   starter: {
     id: 'starter',
     name: 'Starter',
     kind: 'subscription',
-    priceUsd: 19,
-    includedProjectCredits: 5,
-    extraProjectPriceUsd: 4,
+    priceUsd: 9,
+    projectDiscountPercent: 10,
     billingInterval: 'month',
   },
   pro: {
     id: 'pro',
     name: 'Pro',
     kind: 'subscription',
-    priceUsd: 49,
-    includedProjectCredits: 20,
-    extraProjectPriceUsd: 3,
+    priceUsd: 29,
+    projectDiscountPercent: 25,
     billingInterval: 'month',
   },
   team: {
     id: 'team',
     name: 'Team',
     kind: 'subscription',
-    priceUsd: 149,
-    includedProjectCredits: 80,
-    extraProjectPriceUsd: 2.5,
+    priceUsd: 79,
+    projectDiscountPercent: 40,
     billingInterval: 'month',
   },
 };
 
-export const ROUGHBID_PLAN_LIMITS: Record<RoughBidPlanId, RoughBidPlanLimits> = {
-  credit_1: {
-    activeProjects: 1,
-    seats: 1,
+export const ROUGHBID_PROJECT_SIZE_PRICES: Record<RoughBidProjectSizeId, RoughBidProjectSizePricing> = {
+  small: {
+    id: 'small',
+    name: 'Small Repair / Simple Remodel',
+    basePriceUsd: 7,
+    targetCogsUsd: 0.75,
+    reviewCapUsd: 0.9,
     maxPdfMb: 25,
-    aiGenerationsPerProject: 3,
-    clientProposalLinksPerMonth: 5,
-    marketplaceFeedsIncluded: [],
+    maxPlanPages: 8,
+    aiGenerations: 3,
+    examples: ['bath refresh', 'small deck repair', 'single-room finish update'],
   },
-  credit_5: {
-    activeProjects: 5,
-    seats: 1,
-    maxPdfMb: 25,
-    aiGenerationsPerProject: 3,
-    clientProposalLinksPerMonth: 20,
-    marketplaceFeedsIncluded: [],
-  },
-  credit_20: {
-    activeProjects: 20,
-    seats: 2,
+  standard: {
+    id: 'standard',
+    name: 'Standard Remodel',
+    basePriceUsd: 15,
+    targetCogsUsd: 1.25,
+    reviewCapUsd: 1.5,
     maxPdfMb: 35,
-    aiGenerationsPerProject: 4,
-    clientProposalLinksPerMonth: 75,
-    marketplaceFeedsIncluded: [],
+    maxPlanPages: 20,
+    aiGenerations: 4,
+    examples: ['kitchen remodel', 'basement finish', 'small addition'],
   },
+  large: {
+    id: 'large',
+    name: 'Large Residential Project',
+    basePriceUsd: 29,
+    targetCogsUsd: 2.5,
+    reviewCapUsd: 3,
+    maxPdfMb: 60,
+    maxPlanPages: 50,
+    aiGenerations: 6,
+    examples: ['whole-home remodel', 'multi-room addition', 'large deck and exterior package'],
+  },
+  complex: {
+    id: 'complex',
+    name: 'Complex / Light Commercial',
+    basePriceUsd: 49,
+    targetCogsUsd: 5,
+    reviewCapUsd: 6,
+    maxPdfMb: 100,
+    maxPlanPages: 100,
+    aiGenerations: 8,
+    examples: ['small commercial fit-out', 'multi-trade renovation', 'dense plan set'],
+  },
+};
+
+export const ROUGHBID_PLAN_LIMITS: Record<RoughBidPlanId, RoughBidPlanLimits> = {
   starter: {
     activeProjects: 5,
     seats: 1,
@@ -235,6 +240,20 @@ export function calculateProjectUnitEconomics(revenueUsd: number, cogsUsd = TARG
   });
 }
 
+export function projectPriceForSize(size: RoughBidProjectSizePricing, subscriptionPlan?: RoughBidCommercialPlan | null): number {
+  const discount = subscriptionPlan ? subscriptionPlan.projectDiscountPercent / 100 : 0;
+  return money(size.basePriceUsd * (1 - discount));
+}
+
+export function calculateSizedProjectUnitEconomics(size: RoughBidProjectSizePricing, subscriptionPlan?: RoughBidCommercialPlan | null): UnitEconomicsResult {
+  const revenueUsd = projectPriceForSize(size, subscriptionPlan);
+  return calculateUnitEconomics({
+    revenueUsd,
+    variableCogsUsd: size.targetCogsUsd,
+    paymentFeeUsd: estimateStripeCardFee(revenueUsd),
+  });
+}
+
 export function assertTrialCogsAllowed(spendToDateUsd: number, nextOperationCostUsd: number): void {
   assertMoney(spendToDateUsd, 'Trial spend to date');
   assertMoney(nextOperationCostUsd, 'Next operation cost');
@@ -243,16 +262,11 @@ export function assertTrialCogsAllowed(spendToDateUsd: number, nextOperationCost
   }
 }
 
-export function projectCreditUnitPrice(plan: RoughBidCommercialPlan): number {
-  return money(plan.priceUsd / plan.includedProjectCredits);
-}
-
-export function subscriptionProjectDiscountPercent(subscriptionPlan: RoughBidCommercialPlan, referenceCreditPack = ROUGHBID_COMMERCIAL_PLANS.credit_1): number {
-  if (subscriptionPlan.kind !== 'subscription' || subscriptionPlan.extraProjectPriceUsd == null) {
-    throw new TypeError('A subscription plan with extra project pricing is required.');
+export function subscriptionProjectDiscountPercent(subscriptionPlan: RoughBidCommercialPlan): number {
+  if (subscriptionPlan.kind !== 'subscription') {
+    throw new TypeError('A subscription plan is required.');
   }
-  const referencePrice = projectCreditUnitPrice(referenceCreditPack);
-  return ((referencePrice - subscriptionPlan.extraProjectPriceUsd) / referencePrice) * 100;
+  return subscriptionPlan.projectDiscountPercent;
 }
 
 export function marketplaceFeedEconomics(feed: RoughBidMarketplaceFeed): UnitEconomicsResult {

@@ -8,6 +8,8 @@ Last reviewed: 2026-09-04.
 
 RoughBid is an independent construction estimating SaaS. It is built for contractors, estimators, and small construction teams who need a simple way to understand plans, produce quantities, price work, send proposals, and track client acceptance.
 
+The main customer is a person or company that performs the work and buys the materials. The estimate must therefore connect plan reading, scope, material purchasing, supplier pricing, labor assumptions, overhead, markup, and client approval.
+
 Product inspiration:
 
 - AI tools that read construction plans and explain drawings to people without blueprint experience.
@@ -54,20 +56,26 @@ Resend sends product transactional emails for welcome, organization invites, pro
 
 ## Business And Pricing
 
-RoughBid sells projects, not tokens.
+RoughBid sells project estimates, not tokens.
 
 Recommended customer prices:
 
-| Item | Price | Intended buyer |
+| Project size | Base price | Typical job |
 | --- | ---: | --- |
-| 1 project credit | $7 one time | First paid job |
-| 5 project credits | $25 one time | Small contractor |
-| 20 project credits | $80 one time | Active estimator |
-| Starter | $19/month | Individual contractor |
-| Pro | $49/month | Small estimating team |
-| Team | $149/month | Multi-seat operation |
+| Small | $7 | Small repair, bath refresh, single-room finish update |
+| Standard | $15 | Kitchen remodel, basement finish, small addition |
+| Large | $29 | Whole-home remodel, large deck, multi-room addition |
+| Complex | $49 | Light commercial or dense multi-trade renovation |
 
-Subscriptions make each project cheaper, but every plan must keep at least 50% gross margin after AI, storage, email, data, and Stripe card fees.
+Subscriptions make every project cheaper:
+
+| Subscription | Monthly price | Project discount |
+| --- | ---: | ---: |
+| Starter | $9/month | 10% |
+| Pro | $29/month | 25% |
+| Team | $79/month | 40% |
+
+Every project-size and subscription-discount combination must keep at least 50% gross margin after AI, storage, email, data, and Stripe card fees.
 
 ## Trial Limits
 
@@ -100,15 +108,15 @@ No live prices should be created until the owner approves the exact public offer
 
 ## Credit And Usage Accounting
 
-RoughBid credits are workspace-scoped.
+RoughBid project charges are workspace-scoped.
 
-- Reserve 1 credit when AI estimation starts.
-- Capture the credit when the first useful estimate is saved.
-- Release the credit if provider failure, validation failure, or user cancellation happens before useful output.
+- Reserve the calculated project charge when AI estimation starts.
+- Capture the charge when the first useful estimate is saved.
+- Release the reservation if provider failure, validation failure, or user cancellation happens before useful output.
 - Keep usage records by provider, model, operation, project, user, estimated cost, actual cost, and sensitive payload flag.
 - Use idempotency keys for every financial ledger write.
-- Purchased credits expire after 12 months unless legal/owner approval changes that policy.
-- Subscription credits reset monthly and do not roll over by default.
+- Subscriptions discount future project charges instead of granting unlimited usage.
+- Optional prepaid credit packs can exist later, but the primary model is project-size billing.
 
 ## AI Plan Reading
 
