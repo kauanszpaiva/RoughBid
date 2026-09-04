@@ -6,6 +6,9 @@ import {
   RotateCcw,
   FileText,
   Info,
+  MousePointer2,
+  Maximize2,
+  X,
 } from "lucide-react";
 import { PlanRevision } from "../types";
 
@@ -20,6 +23,8 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
 }) => {
   const [zoom, setZoom] = useState<number>(100);
   const [activeLayer, setActiveLayer] = useState<"all" | "structural" | "finishes">("all");
+  const [activeHotspot, setActiveHotspot] = useState<string | null>("dimensions");
+  const [showBeginnerLabels, setShowBeginnerLabels] = useState<boolean>(true);
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [startPan, setStartPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -28,9 +33,14 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 250));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 25, 50));
+  const handleFit = () => {
+    setZoom(100);
+    setPanOffset({ x: 0, y: 0 });
+  };
   const handleReset = () => {
     setZoom(100);
     setPanOffset({ x: 0, y: 0 });
+    setActiveHotspot("dimensions");
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -62,6 +72,51 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
       });
     }
   };
+
+  const hotspots = [
+    {
+      id: "dimensions",
+      left: "49%",
+      top: "19%",
+      title: "Project size",
+      label: "20 ft wide x 14 ft deep",
+      detail: "Blue dimension lines tell you the overall size. Start here before counting materials.",
+    },
+    {
+      id: "ledger",
+      left: "50%",
+      top: "28%",
+      title: "House connection",
+      label: "Ledger attachment",
+      detail: "This is where the deck connects to the existing house. It usually affects framing, flashing, and code checks.",
+    },
+    {
+      id: "joists",
+      left: "41%",
+      top: "48%",
+      title: "Framing members",
+      label: "Repeated joist lines",
+      detail: "These repeated dashed lines are framing pieces. RoughBid can turn them into linear feet after estimator review.",
+    },
+    {
+      id: "footings",
+      left: "72%",
+      top: "67%",
+      title: "Post footings",
+      label: "Concrete supports",
+      detail: "The circles/squares mark supports under the deck. These drive excavation, concrete, posts, and inspection items.",
+    },
+    {
+      id: "stairs",
+      left: "50%",
+      top: "78%",
+      title: "Stairs",
+      label: "4 risers",
+      detail: "Stairs are a separate scope item. They affect stringers, treads, railings, landing rules, and labor time.",
+    },
+  ];
+
+  const selectedHotspot = hotspots.find((hotspot) => hotspot.id === activeHotspot) ?? null;
 
   return (
     <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden flex flex-col h-[440px] sm:h-[500px] md:h-[580px]">
@@ -141,6 +196,14 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
           </button>
 
           <button
+            onClick={handleFit}
+            className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition"
+            title="Fit plan"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
             onClick={handleReset}
             className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition"
             title="Reset Zoom"
@@ -161,6 +224,27 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
           isPanning ? "cursor-grab active:cursor-grabbing" : "cursor-default"
         }`}
       >
+        <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
+          <div className="pointer-events-auto bg-white/95 border border-[#dbeafe] rounded-lg shadow-xs p-2.5 max-w-xs">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#1d4ed8] uppercase tracking-wider">
+              <MousePointer2 className="w-3.5 h-3.5" />
+              Click a blue dot
+            </div>
+            <p className="text-[11px] text-[#475569] mt-1">
+              Simple explanations appear here so a new estimator knows what each mark means.
+            </p>
+          </div>
+          <label className="pointer-events-auto flex items-center gap-2 bg-white/95 border border-[#e5e7eb] rounded-lg px-3 py-2 text-[11px] font-semibold text-[#374151] shadow-xs">
+            <input
+              type="checkbox"
+              checked={showBeginnerLabels}
+              onChange={(event) => setShowBeginnerLabels(event.target.checked)}
+              className="accent-[#2563eb]"
+            />
+            Beginner labels
+          </label>
+        </div>
+
         <div
           style={{
             transform: `scale(${zoom / 100}) translate(${panOffset.x}px, ${panOffset.y}px)`,
@@ -291,6 +375,42 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
                   </text>
                 </g>
               </svg>
+
+              {hotspots.map((hotspot) => (
+                <button
+                  key={hotspot.id}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setActiveHotspot(hotspot.id);
+                  }}
+                  style={{ left: hotspot.left, top: hotspot.top }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shadow-sm transition ${
+                    activeHotspot === hotspot.id
+                      ? "bg-[#2563eb] border-white text-white scale-110"
+                      : "bg-white border-[#2563eb] text-[#2563eb] hover:bg-[#eff6ff]"
+                  }`}
+                  title={hotspot.title}
+                  aria-label={`Explain ${hotspot.title}`}
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              ))}
+
+              {showBeginnerLabels && hotspots.map((hotspot) => (
+                <button
+                  key={`${hotspot.id}-label`}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setActiveHotspot(hotspot.id);
+                  }}
+                  style={{ left: hotspot.left, top: `calc(${hotspot.top} + 22px)` }}
+                  className="absolute -translate-x-1/2 z-10 px-2 py-1 bg-white/95 border border-[#bfdbfe] rounded text-[10px] font-bold text-[#1d4ed8] shadow-xs max-w-[120px] leading-tight"
+                >
+                  {hotspot.label}
+                </button>
+              ))}
             </div>
 
             {/* Bottom Title Block */}
@@ -306,12 +426,51 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
               </div>
             </div>
           </div>
+
+          {selectedHotspot && (
+            <div className="absolute right-5 top-20 z-20 w-64 bg-white border border-[#bfdbfe] rounded-lg shadow-lg p-3 text-left">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#2563eb]">
+                    Plan help
+                  </div>
+                  <h4 className="text-sm font-black text-[#111827] mt-0.5">
+                    {selectedHotspot.title}
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveHotspot(null)}
+                  className="p-1 rounded hover:bg-[#f1f5f9] text-[#64748b]"
+                  aria-label="Close plan help"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-xs font-semibold text-[#1d4ed8] mt-2">
+                {selectedHotspot.label}
+              </p>
+              <p className="text-xs text-[#475569] leading-relaxed mt-1.5">
+                {selectedHotspot.detail}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Floating helper badge */}
-        <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-xs border border-[#e5e7eb] px-3 py-1 rounded-md text-xs text-[#4b5563] flex items-center gap-1.5 shadow-xs">
+        <div className="absolute bottom-3 left-3 right-3 sm:right-auto bg-white/90 backdrop-blur-xs border border-[#e5e7eb] px-3 py-2 rounded-md text-xs text-[#4b5563] flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs">
           <Info className="w-3.5 h-3.5 text-[#2563eb]" />
-          <span>Interactive Architectural Blueprint Viewer — {currentRevision.fileName}</span>
+          <span>Use + / - to zoom, hand to drag, and blue dots to understand the plan.</span>
+          <input
+            type="range"
+            min={50}
+            max={250}
+            step={25}
+            value={zoom}
+            onChange={(event) => setZoom(Number(event.target.value))}
+            className="w-full sm:w-36 accent-[#2563eb]"
+            aria-label="Plan zoom"
+          />
         </div>
       </div>
     </div>
