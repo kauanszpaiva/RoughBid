@@ -1,10 +1,11 @@
 import React from "react";
-import { Bell, FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
+import { FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
 import { Project, UserProfile } from "../types";
 
 export type ProjectStep = "plans" | "quantities" | "estimate" | "review" | "export";
 
 interface HeaderProps {
+  canWrite?: boolean;
   project: Project | null;
   activeStep: ProjectStep;
   onSelectStep: (step: ProjectStep) => void;
@@ -16,9 +17,11 @@ interface HeaderProps {
   user?: UserProfile;
   onOpenAuth?: () => void;
   isSignedIn?: boolean;
+  pageTitle?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  canWrite = false,
   project,
   activeStep,
   onSelectStep,
@@ -30,6 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   onOpenAuth,
   isSignedIn = false,
+  pageTitle = "Projects",
 }) => {
   const steps: { id: ProjectStep; label: string }[] = [
     { id: "plans", label: "Plans" },
@@ -89,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
               <h2 className="text-base md:text-lg font-bold text-[#111827] tracking-tight">
                 <span className="sr-only md:hidden">RoughBid</span>
-                <span className="hidden md:inline">Dashboard</span>
+                <span className="hidden md:inline">{pageTitle}</span>
               </h2>
             </div>
           )}
@@ -132,6 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={onCreateEstimate}
+                disabled={!canWrite}
                 className="hidden md:flex bg-[#2563eb] text-white px-3.5 py-1.5 rounded-md text-xs font-semibold hover:bg-[#1d4ed8] shadow-xs items-center gap-1.5 transition cursor-pointer"
               >
                 <span>Create Estimate</span>
@@ -149,20 +154,13 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <button
               onClick={onOpenNewProject}
+              disabled={!canWrite}
               className="flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">New Project</span>
             </button>
           )}
-
-          <button
-            className="hidden sm:block p-2 text-[#9ca3af] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-full transition relative cursor-pointer"
-            title="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="w-1.5 h-1.5 bg-[#2563eb] rounded-full absolute top-1.5 right-1.5" />
-          </button>
 
           <button
             onClick={onOpenAuth}

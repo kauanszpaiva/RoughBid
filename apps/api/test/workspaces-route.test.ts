@@ -5,7 +5,10 @@ import { handleWorkspacesRequest } from '../src/workspaces/routes.ts';
 test('GET /api/workspaces lists the signed-in user workspaces', async () => {
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
-    from: () => ({
+    from: (table: string) => table === 'workspace_members' ? {
+      select() { return this; }, eq() { return this; },
+      then(resolve: (result: unknown) => unknown) { return Promise.resolve(resolve({ data: [{ workspace_id: 'ws-1', role: 'viewer' }], error: null })); },
+    } : ({
       select() { return this; },
       order: async () => ({
         data: [{ id: 'ws-1', name: 'Main Shop', created_by: 'user-1', created_at: '2026-09-02T00:00:00Z' }],
@@ -18,13 +21,17 @@ test('GET /api/workspaces lists the signed-in user workspaces', async () => {
   const body = await response.json() as Array<Record<string, unknown>>;
   assert.equal(body.length, 1);
   assert.equal(body[0]?.name, 'Main Shop');
+  assert.equal(body[0]?.role, 'viewer');
 });
 
 test('POST /api/workspaces creates a workspace derived from the authenticated user', async () => {
   let inserted: Record<string, unknown> | undefined;
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
-    from: () => ({
+    from: (table: string) => table === 'workspace_members' ? {
+      select() { return this; }, eq() { return this; },
+      then(resolve: (result: unknown) => unknown) { return Promise.resolve(resolve({ data: [{ role: 'admin' }], error: null })); },
+    } : ({
       insert(value: Record<string, unknown>) { inserted = value; return this; },
       select() { return this; },
       single: async () => ({ data: { id: 'ws-1', ...inserted, created_at: '2026-09-02T00:00:00Z' }, error: null }),

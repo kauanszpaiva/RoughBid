@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { Project, UserProfile, QuantityItem } from "./types";
-import { StorageService } from "./utils/storage";
+import React, { useState, useEffect, useRef } from "react";
+import { Project, UserProfile, QuantityItem, PlanRevision } from "./types";
+import { StorageService, persistentProject, type StorageScope } from "./utils/storage";
+import { ProjectSaveQueue, type SaveState } from "./utils/projectSaveQueue";
+import { projectReadiness } from "./utils/projectReadiness";
+import { canWriteWorkspace } from "./utils/workspaceAccess";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { Header, ProjectStep } from "./components/Header";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -22,7 +25,7 @@ import { NewProjectModal } from "./components/NewProjectModal";
 import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
 import { AuthGate } from "./components/AuthGate";
-import { exportClientProposalPDF, exportInternalEstimatePDF } from "./utils/pdfExport";
+import { exportClientProposalPDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
 import { isAuthConfigured } from "./services/supabaseClient";
 import {
@@ -48,11 +51,13 @@ export default function App() {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>("projects");
   const [activeStep, setActiveStep] = useState<ProjectStep>("plans");
-  const [user, setUser] = useState<UserProfile>(StorageService.getUserProfile());
+  const [user, setUser] = useState<UserProfile>(() => StorageService.getUserProfile());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    const saved = localStorage.getItem("roughbid-sidebar-collapsed");
-    if (saved !== null) return saved === "true";
+    try {
+      const saved = localStorage.getItem("roughbid-sidebar-collapsed");
+      if (saved !== null) return saved === "true";
+    } catch { /* Navigation still works when browser storage is unavailable. */ }
     return window.innerWidth < 1180;
   });
 
@@ -61,9 +66,26 @@ export default function App() {
   const { session, loading: sessionLoading } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const [workspaceState, setWorkspaceState] = useState<"loading" | "ready" | "error">("loading");
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [workspaceRetry, setWorkspaceRetry] = useState(0);
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
+  const [saveStates, setSaveStates] = useState<Record<string, { state: SaveState; message?: string }>>({});
+  const [operationNotice, setOperationNotice] = useState<string | null>(null);
+  const [localCacheWarning, setLocalCacheWarning] = useState(false);
+  const [operationCount, setOperationCount] = useState(0);
+  const projectsRef = useRef<Project[]>([]);
+  const scopeRef = useRef<StorageScope | null>(null);
+  const saveQueueRef = useRef<ProjectSaveQueue<Project> | null>(null);
+  const deletingIds = useRef(new Set<string>());
+  const attemptedCreateIds = useRef(new Set<string>());
+  const canWrite = workspaceState === "ready" && loadedUserId === session?.user.id && canWriteWorkspace(workspace?.role);
+  const canWriteRef = useRef(false);
+  canWriteRef.current = canWrite;
 
   // Modal States
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
+  const [newProjectType, setNewProjectType] = useState("Deck Renovation");
   const [showAIModal, setShowAIModal] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
 
@@ -85,9 +107,10 @@ export default function App() {
     return typeof candidate.name === "string" && Array.isArray(candidate.revisions) && Array.isArray(candidate.quantities) && Array.isArray(candidate.estimateItems);
   };
 
-  const remoteToProject = (remote: RemoteProject): Project => {
-    const stored = isStoredProject(remote.app_state) ? remote.app_state : null;
+  const remoteToProject = (remote: RemoteProject, profile: UserProfile): Project => {
+    const stored = isStoredProject(remote.app_state) ? persistentProject(remote.app_state) : null;
     const project: Project = {
+      ...stored,
       id: stored?.id ?? remote.id,
       remoteId: remote.id,
       name: stored?.name ?? remote.name,
@@ -96,8 +119,8 @@ export default function App() {
       projectType: stored?.projectType ?? "Construction Project",
       status: stored?.status ?? fromRemoteStatus(remote.status),
       updatedAt: remote.updated_at ? `Updated ${new Date(remote.updated_at).toLocaleDateString()}` : stored?.updatedAt ?? "Updated recently",
-      overheadPercentage: stored?.overheadPercentage ?? user.defaultOverhead,
-      markupPercentage: stored?.markupPercentage ?? user.defaultMarkup,
+      overheadPercentage: stored?.overheadPercentage ?? profile.defaultOverhead,
+      markupPercentage: stored?.markupPercentage ?? profile.defaultMarkup,
       revisions: stored?.revisions ?? [],
       quantities: stored?.quantities ?? [],
       estimateItems: stored?.estimateItems ?? [],
@@ -109,52 +132,127 @@ export default function App() {
     name: project.name,
     address: project.address,
     status: toRemoteStatus(project.status),
-    appState: project,
+    appState: persistentProject(project),
   });
 
-  // Once signed in, resolve the user's real backend workspace (creating one
-  // the first time), so real projects created below have somewhere to live.
-  // This intentionally does not replace the local project list above yet —
-  // the backend `projects` table doesn't carry the full plans/quantities/
-  // estimate-items shape this app already works with (see api.ts and
-  // storage.ts TODOs) — it only proves and keeps the real auth chain wired.
+  const commitProjects = (next: Project[]) => {
+    projectsRef.current = next;
+    setProjects(next);
+    if (scopeRef.current && !StorageService.saveProjects(next, scopeRef.current)) setLocalCacheWarning(true);
+  };
+
+  // Account changes invalidate the whole workspace, including in-flight saves.
+  // Token refreshes for the same account must not replace newer local edits.
   useEffect(() => {
+    saveQueueRef.current?.stop();
+    saveQueueRef.current = null;
+    scopeRef.current = null;
+    projectsRef.current = [];
+    setProjects([]);
+    setActiveProject(null);
+    setWorkspace(null);
+    setLoadedUserId(null);
+    setWorkspaceState("loading");
+    setWorkspaceError("");
+    setSaveStates({});
+    setOperationNotice(null);
+    setOperationCount(0);
+    setLocalCacheWarning(false);
+    setInviteNotice(null);
+    setShowNewProjectModal(false);
+    setShowAIModal(false);
+    deletingIds.current.clear();
+    attemptedCreateIds.current.clear();
     if (!session) {
-      setWorkspace(null);
+      setUser(StorageService.getUserProfile());
       return;
     }
     let active = true;
+    let queue: ProjectSaveQueue<Project> | null = null;
+    const userId = session.user.id;
     (async () => {
       try {
-        await bootstrapAuth();
+        const auth = await bootstrapAuth();
+        if (!active) return;
+        const savedProfile = StorageService.getUserProfile(userId);
+        const profile: UserProfile = {
+          ...savedProfile,
+          id: userId,
+          email: session.user.email ?? "",
+          name: savedProfile.name === "RoughBid Estimator" ? auth.profile.displayName ?? "RoughBid Estimator" : savedProfile.name,
+        };
+        setUser(profile);
         const pendingInvite = new URLSearchParams(window.location.search).get("invite");
         if (pendingInvite) {
           try {
             await acceptWorkspaceInvite(pendingInvite);
+            if (!active) return;
             window.history.replaceState({}, "", window.location.pathname);
             setInviteNotice("Invite accepted. Your organization access is ready.");
           } catch (error) {
+            if (!active) return;
             setInviteNotice(error instanceof Error ? error.message : "Invite could not be accepted.");
           }
         }
         const workspaces = await listWorkspaces();
+        if (!active) return;
         const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
         if (!active) return;
-        setWorkspace(resolved);
         const remoteProjects = await listRemoteProjects(resolved.id);
         if (active) {
-          const mapped = remoteProjects.map(remoteToProject);
-          setProjects(mapped);
-          StorageService.saveProjects(mapped);
+          const scope = { userId, workspaceId: resolved.id };
+          scopeRef.current = scope;
+          const mapped = remoteProjects.map((remote) => remoteToProject(remote, profile));
+          const drafts = StorageService.getPendingProjects(scope);
+          const writable = canWriteWorkspace(resolved.role);
+          const unavailableDrafts = writable ? drafts.filter((draft) => !mapped.some((project) => draft.remoteId === project.remoteId && draft.id === project.id)) : drafts;
+          // Only restore drafts whose remote project still exists in this workspace.
+          const recovered = writable ? mapped.map((project) => drafts.find((draft) => draft.remoteId === project.remoteId && draft.id === project.id) ?? project) : mapped;
+          queue = new ProjectSaveQueue<Project>(
+            (updated) => {
+              if (!canWriteRef.current) return Promise.reject(new Error("This workspace is read-only for your account."));
+              return updateRemoteProject(resolved.id, updated.remoteId!, projectPayload(updated));
+            },
+            (id, state, error) => {
+              if (!active) return;
+              setSaveStates((current) => ({ ...current, [id]: { state, ...(error instanceof Error ? { message: error.message } : {}) } }));
+              if (!StorageService.savePendingProjects([...unavailableDrafts, ...(queue?.getPending() ?? [])], scope)) setLocalCacheWarning(true);
+            },
+          );
+          saveQueueRef.current = queue;
+          for (const project of recovered) {
+            if (drafts.includes(project)) queue.recover(project);
+          }
+          commitProjects(recovered);
+          if (unavailableDrafts.length) setOperationNotice(writable ? "An earlier unsaved draft belongs to an unavailable project. Its backup is still stored in this browser." : "Earlier unsaved drafts are kept in this browser. Read-only access shows the saved workspace version.");
+          setWorkspace(resolved);
+          setUser({ ...profile, role: resolved.role === "admin" ? "Admin" : resolved.role === "estimator" ? "Estimator" : "Read-only" });
+          setLoadedUserId(userId);
+          setWorkspaceState("ready");
         }
       } catch (error) {
-        console.error("Could not resolve your workspace from the backend.", error);
+        if (!active) return;
+        setWorkspaceError(error instanceof Error ? error.message : "Your workspace could not be loaded.");
+        setWorkspaceState("error");
+        setLoadedUserId(userId);
       }
     })();
     return () => {
       active = false;
+      queue?.stop();
     };
-  }, [session]);
+  }, [session?.user.id, workspaceRetry]);
+
+  useEffect(() => {
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      if (saveQueueRef.current?.getPending().length || operationCount > 0) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [operationCount]);
 
   const handleSelectTab = (tab: NavTab) => {
     setActiveTab(tab);
@@ -166,7 +264,7 @@ export default function App() {
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed((current) => {
-      localStorage.setItem("roughbid-sidebar-collapsed", String(!current));
+      try { localStorage.setItem("roughbid-sidebar-collapsed", String(!current)); } catch { /* This preference is optional. */ }
       return !current;
     });
   };
@@ -184,112 +282,135 @@ export default function App() {
   };
 
   const handleUpdateProject = (updated: Project) => {
-    setActiveProject(updated);
-    const newProjects = projects.map((p) => (p.id === updated.id ? updated : p));
-    setProjects(newProjects);
-    StorageService.saveProjects(newProjects);
-    if (workspace && updated.remoteId) {
-      updateRemoteProject(workspace.id, updated.remoteId, projectPayload(updated)).catch((error) => {
-        console.error("Could not persist this project to the backend.", error);
-      });
-    }
+    if (!canWriteRef.current || !scopeRef.current || !updated.remoteId || deletingIds.current.has(updated.id)) return;
+    if (!projectsRef.current.some((project) => project.id === updated.id)) return;
+    setActiveProject((current) => current?.id === updated.id ? updated : current);
+    commitProjects(projectsRef.current.map((project) => project.id === updated.id ? updated : project));
+    saveQueueRef.current?.enqueue(updated);
   };
 
-  const handleCreateProject = (newProject: Project) => {
-    const stagedProject = { ...newProject, updatedAt: "Saving..." };
-    const newProjects = [stagedProject, ...projects];
-    setProjects(newProjects);
-    StorageService.saveProjects(newProjects);
-    setActiveProject(stagedProject);
-    setActiveStep("plans");
-    setActiveTab("projects");
-
-    if (workspace) {
-      createRemoteProject(workspace.id, projectPayload(stagedProject)).then((remote) => {
-        const remoteProject = remote as RemoteProject;
-        const synced = { ...stagedProject, remoteId: remoteProject.id, updatedAt: "Just now" };
-        setActiveProject((current) => current?.id === newProject.id ? synced : current);
-        setProjects((current) => {
-          const next = current.map((project) => project.id === newProject.id ? synced : project);
-          StorageService.saveProjects(next);
-          return next;
-        });
-      }).catch((error) => {
-        console.error("Could not sync this project to the backend.", error);
-      });
-    }
+  const handleAppendRevision = (projectId: string, revision: PlanRevision) => {
+    if (!canWriteRef.current) return;
+    const latest = projectsRef.current.find((project) => project.id === projectId);
+    if (!latest) return;
+    handleUpdateProject({ ...latest, revisions: [...latest.revisions.map((item) => ({ ...item, isCurrent: false })), revision] });
   };
 
-  const handleDeleteProject = (projectId: string) => {
-    if (confirm("Are you sure you want to delete this project?")) {
-      const projectToDelete = projects.find((p) => p.id === projectId);
-      const updated = projects.filter((p) => p.id !== projectId);
-      setProjects(updated);
-      StorageService.saveProjects(updated);
-      if (workspace && projectToDelete?.remoteId) {
-        deleteRemoteProject(workspace.id, projectToDelete.remoteId).catch((error) => {
-          console.error("Could not delete this project from the backend.", error);
-        });
+  const handleCreateProject = async (newProject: Project, openProject = true): Promise<void> => {
+    const scope = scopeRef.current;
+    if (!canWriteRef.current) throw new Error("This workspace is read-only for your account.");
+    if (!workspace || !scope || workspaceState !== "ready") throw new Error("Load your workspace before creating a project.");
+    setOperationCount((count) => count + 1);
+    setOperationNotice(null);
+    try {
+      // No editable local shell exists until the server confirms its identity.
+      const { remoteId: _remoteId, ...draft } = newProject;
+      let remote: RemoteProject | undefined;
+      if (attemptedCreateIds.current.has(draft.id)) {
+        // A timeout may hide a successful POST. Check its stable client ID
+        // before a retry can create another server record.
+        const existing = (await listRemoteProjects(workspace.id)).find((candidate) => candidate.app_state?.id === draft.id);
+        if (scopeRef.current !== scope) return;
+        if (existing) remote = await updateRemoteProject(workspace.id, existing.id, projectPayload(draft));
       }
-      if (activeProject?.id === projectId) {
-        setActiveProject(null);
+      if (!remote) {
+        attemptedCreateIds.current.add(draft.id);
+        remote = await createRemoteProject(workspace.id, projectPayload(draft));
+      }
+      if (scopeRef.current !== scope) return;
+      const synced = { ...draft, remoteId: remote.id, updatedAt: "Just now" };
+      commitProjects([synced, ...projectsRef.current]);
+      setSaveStates((current) => ({ ...current, [synced.id]: { state: "saved" } }));
+      if (openProject) {
+        setActiveProject(synced);
+        setActiveStep("plans");
+        setActiveTab("projects");
+      }
+    } finally {
+      if (scopeRef.current === scope) setOperationCount((count) => Math.max(0, count - 1));
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    const projectToDelete = projectsRef.current.find((project) => project.id === projectId);
+    const scope = scopeRef.current;
+    if (!canWriteRef.current || !workspace || !scope || !projectToDelete?.remoteId || deletingIds.current.has(projectId)) return;
+    if (!confirm(`Delete "${projectToDelete.name}"? This removes the project from your workspace.`)) return;
+    deletingIds.current.add(projectId);
+    setOperationCount((count) => count + 1);
+    setOperationNotice(null);
+    try {
+      await saveQueueRef.current?.wait(projectId);
+      if (scopeRef.current !== scope) return;
+      await deleteRemoteProject(workspace.id, projectToDelete.remoteId);
+      if (scopeRef.current !== scope) return;
+      commitProjects(projectsRef.current.filter((project) => project.id !== projectId));
+      setActiveProject((current) => current?.id === projectId ? null : current);
+      setSaveStates((current) => {
+        const next = { ...current };
+        delete next[projectId];
+        return next;
+      });
+    } catch (error) {
+      if (scopeRef.current === scope) setOperationNotice(`Project kept. ${error instanceof Error ? error.message : "Deletion failed; try again."}`);
+    } finally {
+      if (scopeRef.current === scope) {
+        deletingIds.current.delete(projectId);
+        setOperationCount((count) => Math.max(0, count - 1));
       }
     }
   };
 
-  const handleDuplicateProject = (project: Project) => {
+  const handleDuplicateProject = async (project: Project) => {
+    if (!canWriteRef.current) return;
+    const { remoteId: _remoteId, ...source } = project;
     const duplicated: Project = {
-      ...project,
-      id: `proj-${Date.now()}`,
+      ...structuredClone(source),
+      id: `proj-${crypto.randomUUID()}`,
       name: `${project.name} (Copy)`,
       updatedAt: "Just now",
+      revisions: [],
     };
-    const updated = [duplicated, ...projects];
-    setProjects(updated);
-    StorageService.saveProjects(updated);
-    if (workspace) {
-      createRemoteProject(workspace.id, projectPayload(duplicated)).then((remote) => {
-        const synced = { ...duplicated, remoteId: remote.id };
-        setProjects((current) => {
-          const next = current.map((project) => project.id === duplicated.id ? synced : project);
-          StorageService.saveProjects(next);
-          return next;
-        });
-      }).catch((error) => {
-        console.error("Could not persist duplicated project to the backend.", error);
-      });
+    try {
+      await handleCreateProject(duplicated, false);
+      setOperationNotice("Project copied with its estimate. Upload plans separately for the new project.");
+    } catch (error) {
+      setOperationNotice(error instanceof Error ? error.message : "The project could not be copied.");
     }
   };
 
   const handleUpdateUser = (updatedUser: UserProfile) => {
-    setUser(updatedUser);
-    StorageService.saveUserProfile(updatedUser);
+    if (!canWriteRef.current) return;
+    const scopedUser = { ...updatedUser, id: session?.user.id ?? "", email: session?.user.email ?? "" };
+    setUser(scopedUser);
+    if (!StorageService.saveUserProfile(scopedUser)) setLocalCacheWarning(true);
   };
 
   // AI Confirmed item addition (Requires User Confirmation). `costOverride`
   // carries the real priced material/labor cost from the AI plan-reading
-  // worker (see apps/api/src/ai-plan/pricing.ts) when the item came from a
-  // real finding; without it (the generic "missing trade scope" checklist)
-  // this falls back to a rough placeholder rate.
+  // worker. Unpriced checklist items remain at zero until the estimator sets
+  // their costs; never insert invented placeholder prices into a proposal.
   const handleAddQuantityFromAI = (
     item: Omit<QuantityItem, "id" | "itemNumber">,
     costOverride?: { materialCost: number; laborCost: number }
   ) => {
-    if (!activeProject) return;
+    if (!canWriteRef.current) return;
+    const currentProject = projectsRef.current.find((project) => project.id === activeProject?.id);
+    if (!currentProject) return;
 
-    const newId = `qty-${Date.now()}`;
+    const newId = `qty-${crypto.randomUUID()}`;
     const newQtyItem: QuantityItem = {
       ...item,
       id: newId,
-      itemNumber: activeProject.quantities.length + 1,
+      itemNumber: currentProject.quantities.length + 1,
     };
 
-    const materialCost = costOverride ? costOverride.materialCost : Number((item.quantity * 2.2).toFixed(2));
-    const laborCost = costOverride ? costOverride.laborCost : Number((item.quantity * 1.8).toFixed(2));
-    const equipmentCost = costOverride ? 0 : Number((item.quantity * 0.2).toFixed(2));
+    const materialCost = costOverride?.materialCost ?? 0;
+    const laborCost = costOverride?.laborCost ?? 0;
+    const equipmentCost = 0;
 
     const newEstItem = {
-      id: `est-${Date.now()}`,
+      id: `est-${crypto.randomUUID()}`,
       quantityId: newId,
       name: item.name,
       quantity: item.quantity,
@@ -301,53 +422,26 @@ export default function App() {
     };
 
     const updated: Project = {
-      ...activeProject,
-      quantities: [...activeProject.quantities, newQtyItem],
-      estimateItems: [...activeProject.estimateItems, newEstItem],
+      ...currentProject,
+      quantities: [...currentProject.quantities, newQtyItem],
+      estimateItems: [...currentProject.estimateItems, newEstItem],
     };
 
     handleUpdateProject(updated);
   };
 
   const handleUseTemplate = (templateName: string) => {
-    const newProj: Project = {
-      id: `proj-${Date.now()}`,
-      name: `New ${templateName} Project`,
-      clientName: "Prospective Client",
-      address: "100 Construction Way",
-      projectType: templateName.includes("Deck") ? "Deck Renovation" : "Remodel",
-      status: "Planning",
-      updatedAt: "Just now",
-      overheadPercentage: user.defaultOverhead,
-      markupPercentage: user.defaultMarkup,
-      revisions: [
-        {
-          id: `rev-${Date.now()}`,
-          revisionNumber: "01",
-          fileName: `${templateName.replace(/\s+/g, "_")}_Plans.pdf`,
-          fileSize: "16.0 MB",
-          pages: 12,
-          uploadDate: new Date().toLocaleDateString(),
-          uploadedBy: user.name,
-          isCurrent: true,
-        },
-      ],
-      quantities: [
-        { id: `qty-1`, itemNumber: 1, name: "Framing & Structural", quantity: 600, unit: "LF", category: "Framing" },
-        { id: `qty-2`, itemNumber: 2, name: "Surface Decking & Planks", quantity: 450, unit: "SF", category: "Finishes" },
-        { id: `qty-3`, itemNumber: 3, name: "Perimeter Railing System", quantity: 64, unit: "LF", category: "Finishes" },
-      ],
-      estimateItems: [
-        { id: `est-1`, quantityId: `qty-1`, csiCode: "06 11 00", name: "06 11 00 - Framing", quantity: 600, unit: "LF", materialCost: 2200, laborCost: 1900, equipmentCost: 200, directCost: 4300 },
-        { id: `est-2`, quantityId: `qty-2`, csiCode: "06 15 00", name: "06 15 00 - Composite Decking", quantity: 450, unit: "SF", materialCost: 3200, laborCost: 2100, equipmentCost: 100, directCost: 5400 },
-      ],
-    };
-
-    handleCreateProject(newProj);
+    if (!canWriteRef.current) return;
+    setNewProjectType(templateName.includes("Deck") ? "Deck Renovation" : templateName.includes("Kitchen") ? "Kitchen Remodel" : "New Construction");
+    setShowNewProjectModal(true);
   };
-
   const handleExportPDF = () => {
     if (!activeProject) return;
+    if (!canWriteRef.current && saveQueueRef.current?.getPending().some((project) => project.id === activeProject.id)) return;
+    if (!projectReadiness(activeProject).canExport) {
+      setActiveStep("review");
+      return;
+    }
     exportClientProposalPDF(activeProject);
   };
 
@@ -368,6 +462,30 @@ export default function App() {
     return <AuthGate />;
   }
 
+  if (loadedUserId !== session.user.id || workspaceState !== "ready") {
+    return (
+      <div className="min-h-dvh bg-slate-50 flex items-center justify-center px-5">
+        <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-7 shadow-sm text-center">
+          <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-lg font-black text-white">RB</div>
+          <h1 className="text-xl font-bold text-slate-900">{workspaceState === "error" ? "We couldn't load your workspace" : "Opening your workspace"}</h1>
+          <p className="mt-3 text-sm text-slate-600" role={workspaceState === "error" ? "alert" : "status"}>
+            {workspaceState === "error" ? workspaceError : "Connecting your account and loading your projects…"}
+          </p>
+          {workspaceState === "error" && (
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700" onClick={() => setWorkspaceRetry((value) => value + 1)}>Try again</button>
+              <button className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700" onClick={() => setShowAuthModal(true)}>Account</button>
+            </div>
+          )}
+        </div>
+        <AuthModal session={session} workspace={workspace} inviteNotice={inviteNotice} isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      </div>
+    );
+  }
+
+  const pendingSaveEntries = Object.entries(saveStates).filter(([, value]) => value.state !== "saved");
+  const saveErrors = pendingSaveEntries.filter(([, value]) => value.state === "error");
+
   return (
     <div className="flex h-dvh bg-[#fcfcfd] text-slate-900 overflow-hidden font-sans">
       {/* Sidebar */}
@@ -387,26 +505,41 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
         {/* Top Header */}
         <Header
+          canWrite={canWrite}
+          pageTitle={{ dashboard: "Dashboard", projects: "Projects", materials: "Materials", assemblies: "Assemblies", pricelists: "Price Lists", billing: "Billing", templates: "Templates", settings: "Settings", help: "Help" }[activeTab]}
           project={activeTab === "projects" ? activeProject : null}
           activeStep={activeStep}
           onSelectStep={(step) => setActiveStep(step)}
           onBackToProjects={handleBackToProjects}
           onExportPDF={handleExportPDF}
           onCreateEstimate={handleCreateEstimate}
-          onOpenNewProject={() => setShowNewProjectModal(true)}
+          onOpenNewProject={() => { if (canWriteRef.current) setShowNewProjectModal(true); }}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           user={user}
           onOpenAuth={() => setShowAuthModal(true)}
           isSignedIn={session !== null}
         />
 
+        {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role.</div>}
+
+        <div className="border-b border-slate-200 bg-white px-4 sm:px-6 py-2 text-xs flex flex-wrap items-center gap-x-4 gap-y-2" aria-live="polite">
+          <span className={saveErrors.length ? "font-semibold text-amber-800" : "text-slate-500"}>
+            {operationCount > 0 ? "Saving project changes…" : saveErrors.length ? `${saveErrors.length} project${saveErrors.length > 1 ? "s" : ""} with unsaved changes` : pendingSaveEntries.length ? "Saving changes…" : "All changes saved"}
+          </span>
+          {saveErrors.length > 0 && <button className="font-semibold text-blue-600 underline" onClick={() => saveErrors.forEach(([id]) => saveQueueRef.current?.retry(id))}>Retry saving</button>}
+          {operationNotice && <span role="status" className="text-slate-700">{operationNotice}</span>}
+          {localCacheWarning && <span className="text-amber-800" role="alert">Browser backup is unavailable. Keep this tab open until changes are saved.</span>}
+        </div>
+        {saveErrors.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 sm:px-6 py-2 text-xs text-amber-900" role="alert">{saveErrors[0]?.[1].message ?? "Changes remain in this browser. Retry saving before leaving."}</div>}
+
         {/* Dynamic Page Views */}
         <main className="flex-1 overflow-y-auto">
           {activeTab === "dashboard" && (
             <DashboardPage
+              canWrite={canWrite}
               projects={projects}
               onOpenProject={handleOpenProject}
-              onNewProject={() => setShowNewProjectModal(true)}
+              onNewProject={() => { if (canWriteRef.current) setShowNewProjectModal(true); }}
             />
           )}
 
@@ -414,9 +547,10 @@ export default function App() {
             <>
               {!activeProject ? (
                 <ProjectsPage
+                  canWrite={canWrite}
                   projects={projects}
                   onOpenProject={handleOpenProject}
-                  onNewProject={() => setShowNewProjectModal(true)}
+                  onNewProject={() => { if (canWriteRef.current) setShowNewProjectModal(true); }}
                   onDeleteProject={handleDeleteProject}
                   onDuplicateProject={handleDuplicateProject}
                 />
@@ -424,6 +558,8 @@ export default function App() {
                 <>
                   {activeStep === "plans" && (
                     <PlansPage
+                      canWrite={canWrite}
+                      onAppendRevision={(revision) => handleAppendRevision(activeProject.id, revision)}
                       key={`${workspace?.id}:${activeProject.remoteId}:${activeProject.id}`}
                       project={activeProject}
                       workspaceId={workspace?.id ?? null}
@@ -435,6 +571,7 @@ export default function App() {
 
                   {activeStep === "quantities" && (
                     <QuantitiesPage
+                      canWrite={canWrite}
                       project={activeProject}
                       onUpdateProject={handleUpdateProject}
                       onContinue={() => setActiveStep("estimate")}
@@ -445,6 +582,7 @@ export default function App() {
 
                   {activeStep === "estimate" && (
                     <EstimatePage
+                      canWrite={canWrite}
                       project={activeProject}
                       onUpdateProject={handleUpdateProject}
                       onContinue={() => setActiveStep("review")}
@@ -465,7 +603,9 @@ export default function App() {
 
                   {activeStep === "export" && (
                     <ExportPage
+                      canPublish={canWrite}
                       project={activeProject}
+                      isProjectSaved={!saveQueueRef.current?.getPending().some((project) => project.id === activeProject.id)}
                       workspaceId={workspace?.id ?? null}
                       onSelectStep={(step) => setActiveStep(step)}
                     />
@@ -476,29 +616,32 @@ export default function App() {
           )}
 
           {/* Secondary Views */}
-          {activeTab === "materials" && <MaterialsPage />}
-          {activeTab === "assemblies" && <AssembliesPage />}
-          {activeTab === "pricelists" && <PriceListsPage />}
-          {activeTab === "billing" && <BillingPage />}
+          {activeTab === "materials" && <MaterialsPage scope={scopeRef.current!} canWrite={canWrite} />}
+          {activeTab === "assemblies" && <AssembliesPage scope={scopeRef.current!} canWrite={canWrite} />}
+          {activeTab === "pricelists" && <PriceListsPage scope={scopeRef.current!} onOpenMaterials={() => setActiveTab("materials")} />}
+          {activeTab === "billing" && <fieldset disabled={!canWrite}><BillingPage /></fieldset>}
           {activeTab === "templates" && (
-            <TemplatesPage onUseTemplate={handleUseTemplate} />
+            <fieldset disabled={!canWrite}><TemplatesPage onUseTemplate={handleUseTemplate} /></fieldset>
           )}
           {activeTab === "settings" && (
-            <SettingsPage user={user} onUpdateUser={handleUpdateUser} />
+            <fieldset disabled={!canWrite}><SettingsPage user={user} onUpdateUser={handleUpdateUser} /></fieldset>
           )}
           {activeTab === "help" && <HelpPage />}
         </main>
       </div>
 
       {/* New Project Creation Modal */}
-      <NewProjectModal
+      {canWrite && showNewProjectModal && <NewProjectModal
         isOpen={showNewProjectModal}
         onClose={() => setShowNewProjectModal(false)}
         onCreate={handleCreateProject}
-      />
+        initialProjectType={newProjectType}
+        defaultOverhead={user.defaultOverhead}
+        defaultMarkup={user.defaultMarkup}
+      />}
 
       {/* AI Estimator Modal (if active project selected) */}
-      {activeProject && (
+      {canWrite && activeProject && (
         <AIPlanModal
           project={activeProject}
           workspaceId={workspace?.id ?? null}

@@ -31,11 +31,15 @@ test('workspace creation derives created_by from the authenticated user', async 
   };
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
-    from: () => query,
+    from: (table: string) => table === 'workspace_members' ? {
+      select() { return this; }, eq() { return this; },
+      then(resolve: (result: unknown) => unknown) { return Promise.resolve(resolve({ data: [{ role: 'admin' }], error: null })); },
+    } : query,
   };
 
   const result = await createWorkspace(client as never, { name: '  Main Shop  ' });
   assert.deepEqual(inserted, { name: 'Main Shop', created_by: 'user-1' });
   assert.equal(result.createdBy, 'user-1');
+  assert.equal(result.role, 'admin');
 });
 

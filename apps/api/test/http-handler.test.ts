@@ -64,9 +64,6 @@ test('billing routes are mounted but disabled until server billing credentials e
 });
 
 test('AI plan reading route is mounted but disabled until Supabase service-role credentials exist', async () => {
-  // GEMINI_API_KEY is deliberately NOT required here: GeminiPlanReader falls
-  // back to a synthetic takeoff when it's unset (see gemini.ts) rather than
-  // disabling the route. Only the service-role write path is a hard gate.
   const previous = {
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
@@ -85,6 +82,65 @@ test('AI plan reading route is mounted but disabled until Supabase service-role 
       else process.env[key] = value;
     }
   }
+});
+
+async function withManualDeployment(run: () => Promise<void>) {
+  const config: Record<string, string | undefined> = {
+    SUPABASE_URL: 'https://example.supabase.co',
+    SUPABASE_PUBLISHABLE_KEY: 'test-anon-key',
+    SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
+    SUPABASE_PLAN_FUNCTION: undefined,
+    BLOB_READ_WRITE_TOKEN: undefined,
+    OBJECT_STORAGE_ENDPOINT: 'https://storage.example',
+    OBJECT_STORAGE_BUCKET: 'test-documents',
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'test-key',
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'test-secret',
+    REDIS_URL: undefined,
+    PDF_PAGE_PROCESSING_ENABLED: undefined,
+    PAID_PLAN_READINGS_ENABLED: undefined,
+    GEMINI_API_KEY: undefined,
+    GEMINI_MODEL: undefined,
+  };
+  const previous = Object.fromEntries(Object.keys(config).map(key => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(config)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  try { await run(); }
+  finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+}
+
+test('manual upload, completion, preview and download reach authentication without Redis or AI keys', async () => {
+  await withManualDeployment(async () => {
+    for (const [path, method] of [
+      ['/api/projects/project-1/documents/upload-url', 'POST'],
+      ['/api/documents/file-1/complete', 'POST'],
+      ['/api/documents/file-1/download-url', 'POST'],
+      ['/api/documents/file-1/preview', 'GET'],
+    ]) {
+      const response = await handleApiRequest(new Request('https://roughbid.test' + path, { method }));
+      assert.equal(response.status, 401, path);
+      assert.deepEqual(await response.json(), { error: 'Authentication required' });
+    }
+  });
+});
+
+test('disabled paid AI fails before a job can be reserved, while existing reading review remains accessible to auth', async () => {
+  await withManualDeployment(async () => {
+    const create = await handleApiRequest(new Request('https://roughbid.test/api/projects/project-1/ai-plan-readings', { method: 'POST' }));
+    assert.equal(create.status, 503);
+    assert.match((await create.json() as any).error, /manual quantities/);
+    for (const [path, method] of [
+      ['/api/ai-plan-readings/job-1', 'GET'],
+      ['/api/ai-plan-readings/findings/finding-1', 'PATCH'],
+    ]) {
+      const review = await handleApiRequest(new Request('https://roughbid.test' + path, { method }));
+      assert.equal(review.status, 401);
+    }
+  });
 });
 
 test('AI plan reading route falls through to 503 when object storage credentials are missing too', async () => {

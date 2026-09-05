@@ -1,354 +1,157 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
-import {
-  FileText,
-  Hand,
-  Info,
-  Maximize2,
-  MousePointer2,
-  RotateCcw,
-  X,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
-import { PlanRevision } from "../types";
+import { ChevronLeft, ChevronRight, FileText, Maximize2, MapPin, X, ZoomIn, ZoomOut } from "lucide-react";
+import type { PlanAnnotation, PlanRevision } from "../types";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface BlueprintViewerProps {
+  canWrite?: boolean;
   currentRevision: PlanRevision;
   projectName: string;
   previewUrl?: string | null;
   isPreviewLoading?: boolean;
   previewError?: string | null;
+  onAnnotationsChange: (annotations: PlanAnnotation[]) => void;
 }
 
-const hotspots = [
-  {
-    id: "dimensions",
-    left: "50%",
-    top: "18%",
-    title: "Important dimensions",
-    label: "Check sizes",
-    detail: "Review measurements visible on the uploaded plan before they become quantities.",
-  },
-  {
-    id: "scope",
-    left: "36%",
-    top: "38%",
-    title: "Scope area",
-    label: "Work zone",
-    detail: "This mark sits on the real uploaded sheet. Use it to keep scope review tied to the plan.",
-  },
-  {
-    id: "counts",
-    left: "67%",
-    top: "47%",
-    title: "Count items",
-    label: "Count symbols",
-    detail: "Fixtures, doors, posts, outlets and repeated symbols should be checked visually on the PDF.",
-  },
-  {
-    id: "notes",
-    left: "76%",
-    top: "70%",
-    title: "Plan notes",
-    label: "Read notes",
-    detail: "General notes and schedules can change the estimate. Keep this layer on top of the actual PDF.",
-  },
-];
-
-export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
-  currentRevision,
-  projectName,
-  previewUrl,
-  isPreviewLoading = false,
-  previewError = null,
-}) => {
-  const getFitZoom = () => {
-    if (typeof window === "undefined") return 100;
-    if (window.innerWidth < 640) return 50;
-    if (window.innerWidth < 1024) return 75;
-    return 100;
-  };
-
-  const [zoom, setZoom] = useState<number>(() => getFitZoom());
-  const [activeHotspot, setActiveHotspot] = useState<string | null>("dimensions");
-  const [showBeginnerLabels, setShowBeginnerLabels] = useState<boolean>(true);
-  const [isPanning, setIsPanning] = useState<boolean>(false);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevision, projectName, previewUrl, isPreviewLoading = false, previewError, onAnnotationsChange, canWrite = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [renderStatus, setRenderStatus] = useState<"idle" | "rendering" | "ready" | "failed">("idle");
+  const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [zoom, setZoom] = useState(100);
+  const [availableWidth, setAvailableWidth] = useState(600);
+  const [pageSize, setPageSize] = useState({ width: 600, height: 780 });
+  const [renderStatus, setRenderStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [addingNote, setAddingNote] = useState(false);
+  const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const annotations = currentRevision.annotations ?? [];
+  const pageAnnotations = annotations.filter(note => note.page === pageNumber);
+  const selectedNote = pageAnnotations.find(note => note.id === selectedId);
 
-  const selectedHotspot = hotspots.find((hotspot) => hotspot.id === activeHotspot) ?? null;
-  const hasPreview = Boolean(previewUrl);
-  const displayedPreviewError = previewError || renderError;
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setAvailableWidth(Math.max(180, element.clientWidth - 32)));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let canceled = false;
-    const canvas = canvasRef.current;
-    if (!previewUrl || !canvas) {
-      setRenderStatus("idle");
-      setRenderError(null);
-      return;
-    }
-
-    const renderPdf = async () => {
-      setRenderStatus("rendering");
-      setRenderError(null);
+    const controller = new AbortController();
+    let loadingTask: ReturnType<typeof pdfjs.getDocument> | undefined;
+    setPdf(null); setPageNumber(1); setZoom(100); setRenderStatus('loading'); setRenderError(null);
+    setPendingPoint(null); setSelectedId(null); setAddingNote(false);
+    if (!previewUrl) return () => controller.abort();
+    void (async () => {
       try {
-        const response = await fetch(previewUrl);
-        if (!response.ok) throw new Error(`PDF preview failed with ${response.status}`);
+        const response = await fetch(previewUrl, { signal: controller.signal });
+        if (!response.ok) throw new Error(`Unable to open this PDF (${response.status}).`);
         const data = await response.arrayBuffer();
-        const document = await pdfjs.getDocument({ data }).promise;
-        const page = await document.getPage(1);
-        const baseViewport = page.getViewport({ scale: 1 });
-        const availableWidth = containerRef.current?.clientWidth ?? 900;
-        const scale = Math.min(2, Math.max(1, (availableWidth * 0.82) / baseViewport.width));
-        const viewport = page.getViewport({ scale });
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("PDF canvas is unavailable");
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        canvas.style.width = `${Math.ceil(viewport.width)}px`;
-        canvas.style.height = `${Math.ceil(viewport.height)}px`;
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvas, canvasContext: context, viewport }).promise;
-        if (!canceled) setRenderStatus("ready");
+        if (canceled) return;
+        loadingTask = pdfjs.getDocument({ data });
+        const document = await loadingTask.promise;
+        if (!canceled) setPdf(document);
       } catch (error) {
-        if (!canceled) {
-          setRenderStatus("failed");
-          setRenderError(error instanceof Error ? error.message : "Could not render the uploaded PDF preview.");
-        }
+        if (!canceled) { setRenderStatus('failed'); setRenderError(error instanceof Error ? error.message : 'Unable to open this PDF.'); }
       }
-    };
-
-    void renderPdf();
-    return () => {
-      canceled = true;
-    };
+    })();
+    return () => { canceled = true; controller.abort(); void loadingTask?.destroy(); };
   }, [previewUrl]);
 
-  const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 250));
-  const handleZoomOut = () => setZoom((prev) => Math.max(prev - 25, 50));
-  const handleFit = () => {
-    setZoom(getFitZoom());
-    setPanOffset({ x: 0, y: 0 });
-  };
-  const handleReset = () => {
-    handleFit();
-    setActiveHotspot("dimensions");
-  };
+  useEffect(() => {
+    if (!pdf) return;
+    let canceled = false;
+    let task: ReturnType<pdfjs.PDFPageProxy['render']> | undefined;
+    setRenderStatus('loading'); setRenderError(null);
+    void (async () => {
+      try {
+        const page = await pdf.getPage(pageNumber);
+        if (canceled || !canvasRef.current) return;
+        const base = page.getViewport({ scale: 1 });
+        const scale = availableWidth / base.width * zoom / 100;
+        const viewport = page.getViewport({ scale });
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        // Render into a detached canvas, so an old page cannot overwrite a newer one.
+        const staging = document.createElement('canvas');
+        staging.width = Math.ceil(viewport.width * pixelRatio);
+        staging.height = Math.ceil(viewport.height * pixelRatio);
+        const context = staging.getContext('2d');
+        if (!context) throw new Error('PDF preview is unavailable in this browser.');
+        task = page.render({ canvas: staging, canvasContext: context, viewport, transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] });
+        await task.promise;
+        if (canceled || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        canvas.width = staging.width; canvas.height = staging.height;
+        canvas.getContext('2d')?.drawImage(staging, 0, 0);
+        setPageSize({ width: viewport.width, height: viewport.height });
+        setRenderStatus('ready');
+      } catch (error) {
+        if (!canceled) { setRenderStatus('failed'); setRenderError(error instanceof Error ? error.message : 'Unable to draw this page.'); }
+      }
+    })();
+    return () => { canceled = true; task?.cancel(); };
+  }, [pdf, pageNumber, availableWidth, zoom]);
 
-  const handleMouseDown = (event: React.MouseEvent) => {
-    if (!isPanning) return;
-    setStartPan({ x: event.clientX - panOffset.x, y: event.clientY - panOffset.y });
+  const changePage = (page: number) => {
+    setPageNumber(page); setPendingPoint(null); setSelectedId(null); setAddingNote(false);
+    containerRef.current?.scrollTo(0, 0);
   };
-
-  const handleMouseMove = (event: React.MouseEvent) => {
-    if (!isPanning || event.buttons !== 1) return;
-    setPanOffset({ x: event.clientX - startPan.x, y: event.clientY - startPan.y });
+  const placeNote = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!canWrite || !addingNote || renderStatus !== 'ready') return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setPendingPoint({ x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)), y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) });
+    setNoteText(''); setSelectedId(null); setAddingNote(false);
   };
-
-  const handleTouchStart = (event: React.TouchEvent) => {
-    const touch = event.touches.length === 1 ? event.touches[0] : undefined;
-    if (touch) setStartPan({ x: touch.clientX - panOffset.x, y: touch.clientY - panOffset.y });
+  const saveNote = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canWrite || !pendingPoint || !noteText.trim()) return;
+    const note = { id: crypto.randomUUID(), page: pageNumber, ...pendingPoint, text: noteText.trim().slice(0, 500) };
+    onAnnotationsChange([...annotations, note]); setSelectedId(note.id); setPendingPoint(null);
   };
-
-  const handleTouchMove = (event: React.TouchEvent) => {
-    const touch = event.touches.length === 1 ? event.touches[0] : undefined;
-    if (touch) setPanOffset({ x: touch.clientX - startPan.x, y: touch.clientY - startPan.y });
-  };
+  const error = previewError || renderError;
 
   return (
-    <div className="bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden flex flex-col h-[68dvh] min-h-[430px] sm:h-[500px] md:h-[580px]">
-      <div className="min-h-11 bg-[#f9fafb] border-b border-[#e5e7eb] px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 select-none text-xs font-medium text-[#6b7280]">
-        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#e5e7eb] rounded-md text-[#111827] font-semibold shadow-2xs truncate max-w-[180px] sm:max-w-none">
-            <FileText className="w-3.5 h-3.5 text-[#2563eb] shrink-0" />
-            <span className="truncate">{currentRevision.fileName}</span>
-          </div>
-          <span className="px-1.5 sm:px-2 py-0.5 bg-[#eff6ff] text-[#2563eb] rounded text-[10px] font-bold border border-blue-200 shrink-0">
-            Rev {currentRevision.revisionNumber}
-          </span>
-          <span className="text-[#6b7280] text-[11px] sm:text-xs hidden xs:inline shrink-0">{projectName}</span>
+    <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden" aria-label={`${projectName} PDF preview`}>
+      <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0 flex-1"><FileText className="size-4 text-blue-600 shrink-0" /><span className="truncate text-xs font-semibold" title={currentRevision.fileName}>{currentRevision.fileName}</span></div>
+        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 rounded px-2 py-1">REV {currentRevision.revisionNumber}</span>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs">
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Previous PDF page" disabled={!pdf || pageNumber <= 1} onClick={() => changePage(pageNumber - 1)} className="p-2 rounded hover:bg-slate-200 disabled:opacity-30"><ChevronLeft className="size-4" /></button>
+          <label className="flex gap-1 items-center">Page <select aria-label="PDF page" value={pageNumber} disabled={!pdf} onChange={event => changePage(Number(event.target.value))} className="rounded border border-slate-200 bg-white p-1">{Array.from({ length: pdf?.numPages ?? 1 }, (_, i) => <option key={i + 1}>{i + 1}</option>)}</select><span className="text-slate-500">of {pdf?.numPages ?? currentRevision.pages ?? 0}</span></label>
+          <button type="button" aria-label="Next PDF page" disabled={!pdf || pageNumber >= pdf.numPages} onClick={() => changePage(pageNumber + 1)} className="p-2 rounded hover:bg-slate-200 disabled:opacity-30"><ChevronRight className="size-4" /></button>
         </div>
-
-        <div className="flex items-center gap-1 shrink-0 ml-auto">
-          <button
-            onClick={() => setIsPanning(!isPanning)}
-            className={`p-1 sm:p-1.5 rounded-md transition ${
-              isPanning ? "bg-[#2563eb] text-white" : "hover:bg-[#e5e7eb] text-[#4b5563]"
-            }`}
-            title={isPanning ? "Pan active" : "Move plan"}
-          >
-            <Hand className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={handleZoomOut} className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition" title="Zoom out">
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="w-8 sm:w-12 text-center text-xs font-semibold text-[#374151]">{zoom}%</span>
-          <button onClick={handleZoomIn} className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition" title="Zoom in">
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={handleFit} className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition" title="Fit plan">
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={handleReset} className="p-1 sm:p-1.5 hover:bg-[#e5e7eb] text-[#4b5563] rounded-md transition" title="Reset view">
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Zoom out" disabled={zoom <= 50} onClick={() => setZoom(value => Math.max(50, value - 25))} className="p-2 rounded hover:bg-slate-200 disabled:opacity-30"><ZoomOut className="size-4" /></button>
+          <span className="w-10 text-center tabular-nums">{zoom}%</span>
+          <button type="button" aria-label="Zoom in" disabled={zoom >= 250} onClick={() => setZoom(value => Math.min(250, value + 25))} className="p-2 rounded hover:bg-slate-200 disabled:opacity-30"><ZoomIn className="size-4" /></button>
+          <button type="button" aria-label="Fit width" onClick={() => setZoom(100)} className="p-2 rounded hover:bg-slate-200"><Maximize2 className="size-4" /></button>
+        </div>
+        <button type="button" disabled={!canWrite || renderStatus !== 'ready'} aria-pressed={addingNote} onClick={() => { setAddingNote(!addingNote); setPendingPoint(null); }} className={`flex items-center gap-1.5 rounded-lg px-3 py-2 font-semibold disabled:opacity-40 ${addingNote ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><MapPin className="size-4" />{addingNote ? 'Tap the plan' : 'Add note'}</button>
+      </div>
+      <div ref={containerRef} className="h-[68dvh] min-h-[360px] max-h-[760px] overflow-auto bg-slate-200/70 p-4 relative">
+        {(renderStatus !== 'ready' || !previewUrl) && <div role="status" className="sticky top-0 z-20 p-4 rounded-xl bg-white text-sm text-slate-600 shadow-sm">{error || (isPreviewLoading ? 'Opening your saved PDF…' : previewUrl ? 'Rendering uploaded PDF…' : 'Upload a PDF to preview your plan.')}</div>}
+        <div onClick={placeNote} style={{ width: pageSize.width, height: pageSize.height, display: renderStatus === 'ready' ? 'block' : 'none' }} className={`relative mx-auto bg-white shadow-lg shrink-0 ${addingNote ? 'cursor-crosshair' : ''}`}>
+          <canvas ref={canvasRef} aria-label={`Uploaded PDF: ${currentRevision.fileName}, page ${pageNumber}`} style={{ width: '100%', height: '100%' }} />
+          {pageAnnotations.map((note, index) => <button key={note.id} type="button" aria-label={`Plan note ${index + 1}: ${note.text}`} title={note.text} onClick={event => { event.stopPropagation(); setSelectedId(note.id); setPendingPoint(null); }} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} className={`absolute -translate-x-1/2 -translate-y-1/2 size-8 rounded-full border-2 border-white shadow-md text-white text-xs font-bold ${selectedId === note.id ? 'bg-blue-800 ring-2 ring-blue-300' : 'bg-blue-600'}`}>{index + 1}</button>)}
+          {pendingPoint && <span style={{ left: `${pendingPoint.x * 100}%`, top: `${pendingPoint.y * 100}%` }} className="absolute -translate-x-1/2 -translate-y-1/2 size-5 bg-blue-500/60 ring-4 ring-blue-200 rounded-full" />}
         </div>
       </div>
-
-      <div
-        ref={containerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        className={`flex-1 overflow-hidden relative bg-[#f3f4f6] flex items-center justify-center touch-none ${
-          isPanning ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-        }`}
-      >
-        <div className="absolute top-3 left-3 right-3 z-30 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
-          <div className="pointer-events-auto bg-white/95 border border-[#dbeafe] rounded-lg shadow-xs p-2.5 max-w-[240px] sm:max-w-xs">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#1d4ed8] uppercase tracking-wider">
-              <MousePointer2 className="w-3.5 h-3.5" />
-              Markup layer
-            </div>
-            <p className="hidden sm:block text-[11px] text-[#475569] mt-1">Blue marks and notes sit on top of the PDF you uploaded.</p>
-          </div>
-          <label className="pointer-events-auto flex items-center gap-2 bg-white/95 border border-[#e5e7eb] rounded-lg px-3 py-2 text-[11px] font-semibold text-[#374151] shadow-xs">
-            <input
-              type="checkbox"
-              checked={showBeginnerLabels}
-              onChange={(event) => setShowBeginnerLabels(event.target.checked)}
-              className="accent-[#2563eb]"
-            />
-            Beginner labels
-          </label>
-        </div>
-
-        <div
-          style={{
-            transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom / 100})`,
-            transformOrigin: "center center",
-            transition: isPanning ? "none" : "transform 0.15s ease-out",
-          }}
-          className="relative w-[min(920px,92%)] h-[min(1180px,92%)] min-h-[360px] bg-white border border-[#d1d5db] shadow-sm rounded-lg overflow-hidden select-none"
-        >
-          {hasPreview ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-white p-6" aria-label={`${currentRevision.fileName} PDF preview`}>
-              {renderStatus !== "ready" && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-8 text-center bg-white">
-                  <FileText className="w-10 h-10 text-[#94a3b8] mb-3" />
-                  <h3 className="text-sm font-bold text-[#111827]">
-                    {renderStatus === "failed" ? "PDF preview unavailable" : "Rendering uploaded PDF"}
-                  </h3>
-                  <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                    {displayedPreviewError || "RoughBid is drawing the first page you uploaded so the blue marks can sit on top of it."}
-                  </p>
-                </div>
-              )}
-              <canvas
-                ref={canvasRef}
-                className={`max-h-full max-w-full bg-white transition-opacity ${renderStatus === "ready" ? "opacity-100" : "opacity-0"}`}
-              />
-            </div>
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white">
-              <FileText className="w-10 h-10 text-[#94a3b8] mb-3" />
-              <h3 className="text-sm font-bold text-[#111827]">
-                {isPreviewLoading ? "Opening PDF preview" : "PDF preview unavailable"}
-              </h3>
-              <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                {displayedPreviewError || "Upload a PDF through the workspace so RoughBid can show the real plan here."}
-              </p>
-            </div>
-          )}
-
-          <div className="absolute inset-0 z-20 pointer-events-none">
-            {hotspots.map((hotspot) => (
-              <button
-                key={hotspot.id}
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setActiveHotspot(hotspot.id);
-                }}
-                style={{ left: hotspot.left, top: hotspot.top }}
-                className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shadow-sm transition ${
-                  activeHotspot === hotspot.id
-                    ? "bg-[#2563eb] border-white text-white scale-110"
-                    : "bg-white border-[#2563eb] text-[#2563eb] hover:bg-[#eff6ff]"
-                }`}
-                title={hotspot.title}
-                aria-label={`Explain ${hotspot.title}`}
-              >
-                <Info className="w-3.5 h-3.5" />
-              </button>
-            ))}
-
-            {showBeginnerLabels &&
-              hotspots.map((hotspot) => (
-                <button
-                  key={`${hotspot.id}-label`}
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setActiveHotspot(hotspot.id);
-                  }}
-                  style={{ left: hotspot.left, top: `calc(${hotspot.top} + 22px)` }}
-                  className="pointer-events-auto absolute -translate-x-1/2 z-10 px-2 py-1 bg-white/95 border border-[#bfdbfe] rounded text-[10px] font-bold text-[#1d4ed8] shadow-xs max-w-[120px] leading-tight"
-                >
-                  {hotspot.label}
-                </button>
-              ))}
-          </div>
-
-          {selectedHotspot && (
-            <div className="absolute left-3 right-3 bottom-20 sm:left-auto sm:right-5 sm:top-20 sm:bottom-auto z-40 sm:w-64 bg-white border border-[#bfdbfe] rounded-lg shadow-lg p-3 text-left">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#2563eb]">Plan help</div>
-                  <h4 className="text-sm font-black text-[#111827] mt-0.5">{selectedHotspot.title}</h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveHotspot(null)}
-                  className="p-1 rounded hover:bg-[#f1f5f9] text-[#64748b]"
-                  aria-label="Close plan help"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <p className="text-xs font-semibold text-[#1d4ed8] mt-2">{selectedHotspot.label}</p>
-              <p className="text-xs text-[#475569] leading-relaxed mt-1.5">{selectedHotspot.detail}</p>
-            </div>
-          )}
-        </div>
-
-        <div className="absolute bottom-3 left-3 right-3 sm:right-auto z-30 bg-white/90 backdrop-blur-xs border border-[#e5e7eb] px-3 py-2 rounded-md text-xs text-[#4b5563] flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs">
-          <Info className="w-3.5 h-3.5 text-[#2563eb] hidden sm:block" />
-          <span className="hidden sm:inline">Use zoom, hand and blue marks directly over the uploaded PDF.</span>
-          <span className="sm:hidden font-semibold text-[#374151]">Zoom and drag the uploaded PDF</span>
-          <input
-            type="range"
-            min={50}
-            max={250}
-            step={25}
-            value={zoom}
-            onChange={(event) => setZoom(Number(event.target.value))}
-            className="w-full sm:w-36 accent-[#2563eb]"
-            aria-label="Plan zoom"
-          />
-        </div>
-      </div>
-    </div>
+      {pendingPoint && <form onSubmit={saveNote} className="p-4 border-t border-blue-200 bg-blue-50 space-y-2">
+        <label htmlFor="plan-note" className="text-xs font-bold text-blue-950">Your note · page {pageNumber}</label>
+        <textarea id="plan-note" autoFocus maxLength={500} value={noteText} onChange={event => setNoteText(event.target.value)} placeholder="What needs checking at this location?" className="block w-full p-3 text-sm border border-blue-200 bg-white rounded-lg" />
+        <div className="flex justify-end gap-2"><button type="button" onClick={() => setPendingPoint(null)} className="px-3 py-2 text-xs">Cancel</button><button type="submit" disabled={!noteText.trim()} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold disabled:opacity-40">Save note</button></div>
+      </form>}
+      {selectedNote && <div className="p-4 border-t border-blue-200 bg-blue-50 flex justify-between items-start gap-3"><div><p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Your plan note · page {pageNumber}</p><p className="text-sm text-slate-800 mt-1 whitespace-pre-wrap break-words">{selectedNote.text}</p></div><button type="button" aria-label="Close plan note" onClick={() => setSelectedId(null)} className="p-1"><X className="size-4" /></button></div>}
+      <p className="px-4 py-3 border-t border-slate-200 text-[11px] text-slate-500">Original PDF · {pageAnnotations.length} saved notes on this page. Notes mark your review locations; they do not measure or interpret the drawing.</p>
+    </section>
   );
 };
-

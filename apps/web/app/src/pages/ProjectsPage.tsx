@@ -14,6 +14,7 @@ import { Project, ProjectStatus } from "../types";
 import { calculateProjectFinancials, formatRoundedCurrency } from "../utils/calculations";
 
 interface ProjectsPageProps {
+  canWrite?: boolean;
   projects: Project[];
   onOpenProject: (project: Project) => void;
   onNewProject: () => void;
@@ -35,6 +36,7 @@ const getStatusBadge = (status: ProjectStatus) => {
 };
 
 export const ProjectsPage: React.FC<ProjectsPageProps> = ({
+  canWrite = false,
   projects,
   onOpenProject,
   onNewProject,
@@ -76,7 +78,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
             </div>
 
             <button
-              onClick={onNewProject}
+              onClick={onNewProject} disabled={!canWrite}
               className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -110,7 +112,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
           <FolderOpen className="w-10 h-10 text-[#9ca3af] mx-auto mb-3" />
           <h3 className="text-sm font-bold text-[#111827]">No projects found</h3>
           <p className="text-xs text-[#6b7280] mt-1 mb-4">Create your first construction project to start building takeoffs and estimates.</p>
-          <button onClick={onNewProject} className="px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs">
+          <button onClick={onNewProject} disabled={!canWrite} className="px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs">
             Create New Project
           </button>
         </div>
@@ -152,7 +154,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                           <span>Open Project</span>
                         </button>
                         <button
-                          onClick={() => {
+                          disabled={!canWrite} onClick={() => {
                             setActiveMenuId(null);
                             onDuplicateProject(project);
                           }}
@@ -163,7 +165,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                         </button>
                         <div className="my-1 border-t border-[#e5e7eb]" />
                         <button
-                          onClick={() => {
+                          disabled={!canWrite} onClick={() => {
                             setActiveMenuId(null);
                             onDeleteProject(project.id);
                           }}

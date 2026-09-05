@@ -13,9 +13,9 @@ test('official app loads workspace projects from the backend after login', () =>
 });
 
 test('project create update and delete persist the full project state', () => {
-  assert.match(app, /appState: project/);
+  assert.match(app, /appState: persistentProject\(project\)/);
   assert.match(app, /createRemoteProject\(workspace\.id, projectPayload/);
-  assert.match(app, /updateRemoteProject\(workspace\.id, updated\.remoteId, projectPayload\(updated\)\)/);
+  assert.match(app, /updateRemoteProject\(resolved\.id, updated\.remoteId!, projectPayload\(updated\)\)/);
   assert.match(app, /deleteRemoteProject\(workspace\.id, projectToDelete\.remoteId\)/);
 });
 

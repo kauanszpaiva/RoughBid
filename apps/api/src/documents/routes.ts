@@ -4,7 +4,7 @@ import { DocumentService, type DocumentObjectStorage, type JobQueue } from './se
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 /** Authenticated HTTP boundary for direct uploads, completion, and private retrieval. */
-export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue): Promise<Response> {
+export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue | null = null): Promise<Response> {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');

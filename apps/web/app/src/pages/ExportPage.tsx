@@ -19,16 +19,21 @@ import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 import { ProposalModal } from "../components/ProposalModal";
 import { createClientProposal, type ClientProposalPayload } from "../services/api";
+import { projectReadiness } from "../utils/projectReadiness";
 
 interface ExportPageProps {
+  canPublish?: boolean;
   project: Project;
   workspaceId: string | null;
+  isProjectSaved: boolean;
   onSelectStep: (step: ProjectStep) => void;
 }
 
 export const ExportPage: React.FC<ExportPageProps> = ({
+  canPublish = false,
   project,
   workspaceId,
+  isProjectSaved,
   onSelectStep,
 }) => {
   const [showProposalModal, setShowProposalModal] = useState<boolean>(false);
@@ -42,13 +47,9 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     project.overheadPercentage,
     project.markupPercentage
   );
-  const hasPlan = project.revisions.length > 0;
-  const hasQuantities = project.quantities.length > 0;
-  const hasEstimate = project.estimateItems.length > 0;
-  const canExport = hasPlan && hasQuantities && hasEstimate;
+  const { canExport, issues } = projectReadiness(project);
 
   const handleExportRoughBidPackage = () => {
-    if (!canExport) return;
     exportRoughBidJSON(project);
     setSyncSuccess(true);
     setTimeout(() => setSyncSuccess(false), 4000);
@@ -81,7 +82,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
   };
 
   const handleCreateClientLink = async () => {
-    if (!canExport) return;
+    if (!canPublish || !canExport || !isProjectSaved) return;
     if (!workspaceId || !project.remoteId) {
       setShareState("error");
       setShareError("Sign in and create/sync this project before sending a live client link.");
@@ -142,7 +143,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs flex items-start gap-2.5">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <div>
-            <strong>Needs attention before export.</strong> Add {hasPlan ? "" : "a plan"}, {hasQuantities ? "" : "takeoff quantities"} and {hasEstimate ? "" : "priced estimate lines"} before creating client-ready files.
+            <strong>Needs attention before export.</strong> Please {issues.join(", ")} before creating client-ready files.
           </div>
         </div>
       )}
@@ -222,7 +223,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={handleCreateClientLink}
-              disabled={!canExport || shareState === "creating"}
+              disabled={!canPublish || !canExport || !isProjectSaved || shareState === "creating"}
               className="w-full py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-60 text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
             >
               <Share2 className="w-3.5 h-3.5" />
@@ -310,7 +311,6 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <div className="pt-3 border-t border-[#f3f4f6]">
             <button
               onClick={handleExportRoughBidPackage}
-              disabled={!canExport}
               className={`w-full py-2 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs ${
                 syncSuccess
                   ? "bg-emerald-600 text-white"

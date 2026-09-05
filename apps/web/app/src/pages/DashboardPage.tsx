@@ -17,12 +17,13 @@ import { Project } from "../types";
 import { calculateProjectFinancials, formatRoundedCurrency } from "../utils/calculations";
 
 interface DashboardPageProps {
+  canWrite?: boolean;
   projects: Project[];
   onOpenProject: (project: Project) => void;
   onNewProject: () => void;
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenProject, onNewProject }) => {
+export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenProject, onNewProject, canWrite = false }) => {
   const activeBidsCount = projects.filter((p) => p.status === "In Progress").length;
   const completedCount = projects.filter((p) => p.status === "Completed").length;
   const readyToSendCount = projects.filter((p) => p.estimateItems.length > 0 && p.revisions.length > 0).length;
@@ -95,7 +96,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
               </p>
             </div>
             <button
-              onClick={onNewProject}
+              onClick={onNewProject} disabled={!canWrite}
               className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -169,7 +170,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
             <div className="border border-dashed border-[#d1d5db] rounded-lg p-6 text-center">
               <FolderOpen className="w-8 h-8 text-[#9ca3af] mx-auto mb-2" />
               <p className="text-sm font-bold text-[#111827]">No active projects</p>
-              <button onClick={onNewProject} className="mt-3 text-xs font-bold text-[#2563eb]">
+              <button onClick={onNewProject} disabled={!canWrite} className="mt-3 text-xs font-bold text-[#2563eb]">
                 Create the first project
               </button>
             </div>

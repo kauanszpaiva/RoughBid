@@ -1,6 +1,7 @@
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import type { AiPlanObjectStorage } from '../ai-plan/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, quoteProject } from './project-preflight.ts';
+import { isConfiguredValue, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
 import type { ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import type { StripeEvent } from './stripe.ts';
 export interface ServerDatabase { from(table: string): any; rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: any }> }
@@ -36,6 +37,7 @@ export class ProjectPayments {
   }
   async quote(userId: string, workspaceId: string, projectId: string, input: Record<string,unknown>, storage: AiPlanObjectStorage) {
     await this.access(userId,workspaceId,projectId);
+    requirePaidPlanReadingConfig(this.env);
     const fileId = input.file_id;
     if (typeof fileId !== 'string') throw new ProjectApiError(400,'Select an uploaded plan.');
     const file = databaseValue(await this.db.from('project_files').select('id,storage_path,processing_status').eq('workspace_id',workspaceId).eq('project_id',projectId).eq('id',fileId).maybeSingle());
@@ -54,12 +56,13 @@ export class ProjectPayments {
   }
   async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string) {
     await this.access(userId,workspaceId,projectId);
+    requirePaidPlanReadingConfig(this.env);
     const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id',quoteId).eq('project_id',projectId).eq('workspace_id',workspaceId).maybeSingle());
     if (!q) throw new ProjectApiError(404,'Quote not found.');
     if (q.status !== 'quoted' || Date.parse(q.expires_at) <= Date.now()+30_000) throw new ProjectApiError(409,'Refresh the project price or check its payment status.');
     const key = this.env.STRIPE_SECRET_KEY;
     const appUrl = this.env.APP_URL;
-    if (!key || !appUrl || new URL(appUrl).protocol !== 'https:' || (key.startsWith('sk_live_') !== q.livemode)) throw new ProjectApiError(503,'Checkout is not configured.');
+    if (!isConfiguredValue(key) || !key.startsWith(q.livemode ? 'sk_live_' : 'sk_test_') || !isConfiguredValue(this.env.STRIPE_WEBHOOK_SECRET) || !isConfiguredValue(appUrl) || new URL(appUrl).protocol !== 'https:') throw new ProjectApiError(503,'Checkout is not configured.');
     if (q.stripe_session_id) {
       const response = await this.fetcher(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(q.stripe_session_id)}`,{headers:{authorization:`Bearer ${key}`}});
       const session = await response.json() as {url?:string;status?:string};

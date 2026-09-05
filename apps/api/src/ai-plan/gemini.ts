@@ -1,4 +1,6 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import { ProjectApiError } from '../projects/service.ts';
+import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
 
 /** Shared by every PDF-native reader (Gemini, Claude) — both take the raw uploaded PDF inline, no page-rendering step. */
 export interface GeminiPlanReadInput {
@@ -58,6 +60,7 @@ export class GeminiPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
+    this.assertReady();
     const base64 = Buffer.from(input.fileBytes).toString('base64');
     const contents = [
       { text: userPrompt(input.scope) },
@@ -96,5 +99,9 @@ export class GeminiPlanReader {
     }
 
     throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
+  }
+
+  assertReady(): void {
+    if (!this.client || !this.models.length) throw new ProjectApiError(503, PLAN_READING_UNAVAILABLE);
   }
 }

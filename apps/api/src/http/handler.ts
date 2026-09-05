@@ -4,7 +4,7 @@ import { handleAuthBootstrapRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
-import { createDocumentQueue } from '../documents/service.ts';
+import { createDocumentQueue, type JobQueue } from '../documents/service.ts';
 import { createEstimateCalculationHandler } from '../estimates/routes.ts';
 import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
@@ -12,6 +12,8 @@ import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
+import { requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { runtimeCapabilities } from './capabilities.ts';
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
@@ -53,6 +55,10 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
   if (pathname === '/api/health') {
     return json({ status: 'ok', service: 'RoughBid API' });
+  }
+  if (pathname === '/api/capabilities') {
+    if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+    return Response.json(runtimeCapabilities(process.env), { headers: { 'cache-control': 'no-store' } });
   }
 
   let client: ReturnType<typeof clientForRequest>;
@@ -121,14 +127,20 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     return recalculate(request);
   }
   if (/^\/api\/projects\/[^/]+\/documents\/upload-url$/.test(pathname) || /^\/api\/documents\/[^/]+\/(complete|download-url|preview)$/.test(pathname)) {
-    if (!process.env.REDIS_URL) return json({ error: 'Document processing is not configured.' }, 503);
+    let queue: JobQueue | null = null;
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      return handleDocumentRequest(request, client as unknown as SupabaseLike, storage, await createDocumentQueue(process.env.REDIS_URL));
+      if (request.method === 'POST' && pathname.endsWith('/complete') && process.env.PDF_PAGE_PROCESSING_ENABLED === 'true' && process.env.REDIS_URL) {
+        try { queue = await createDocumentQueue(process.env.REDIS_URL); }
+        catch { /* Original PDF uploads do not depend on optional page rendering. */ }
+      }
+      return await handleDocumentRequest(request, client as unknown as SupabaseLike, storage, queue);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
+    } finally {
+      await queue?.close?.().catch(() => {});
     }
   }
   if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
@@ -138,12 +150,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     try {
+      const readingConfig = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname)
+        ? requirePaidPlanReadingConfig(process.env)
+        : null;
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-      const geminiClient = geminiApiKey ? await createGeminiClient(geminiApiKey) : null;
-      const reader = new GeminiPlanReader(geminiClient, [process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash']);
+      const geminiClient = readingConfig ? await createGeminiClient(readingConfig.apiKey) : null;
+      const reader = new GeminiPlanReader(geminiClient, readingConfig ? [readingConfig.model] : []);
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;

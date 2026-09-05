@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Plus,
   Edit2,
@@ -6,11 +6,13 @@ import {
   ArrowRight,
   Sparkles,
   Check,
-  Percent,
+  AlertCircle,
+  X,
   SlidersHorizontal,
   Search,
 } from "lucide-react";
 import { Project, EstimateItem, UnitType } from "../types";
+import { createUnpricedEstimateItem, editEstimateLine, validateEstimateInput } from "../utils/manualEstimate";
 import {
   calculateProjectFinancials,
   calculateLineDirectCost,
@@ -22,6 +24,7 @@ import { ProjectStep } from "../components/Header";
 
 interface EstimatePageProps {
   project: Project;
+  canWrite?: boolean;
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onSelectStep: (step: ProjectStep) => void;
@@ -30,6 +33,7 @@ interface EstimatePageProps {
 
 export const EstimatePage: React.FC<EstimatePageProps> = ({
   project,
+  canWrite = false,
   onUpdateProject,
   onContinue,
   onSelectStep,
@@ -47,18 +51,38 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
   const [isAddingLine, setIsAddingLine] = useState<boolean>(false);
   const [newName, setNewName] = useState<string>("");
-  const [newCsi, setNewCsi] = useState<string>("09 29 00");
-  const [newQty, setNewQty] = useState<number>(100);
+  const [newCsi, setNewCsi] = useState<string>("");
+  const [newQty, setNewQty] = useState<number>(1);
   const [newUnit, setNewUnit] = useState<UnitType>("SF");
-  const [newMaterial, setNewMaterial] = useState<number>(500);
-  const [newLabor, setNewLabor] = useState<number>(400);
-  const [newEquipment, setNewEquipment] = useState<number>(50);
+  const [newMaterial, setNewMaterial] = useState<number>(0);
+  const [newLabor, setNewLabor] = useState<number>(0);
+  const [newEquipment, setNewEquipment] = useState<number>(0);
+  const [error, setError] = useState("");
+  const [rateError, setRateError] = useState("");
 
   const [showRateModal, setShowRateModal] = useState<boolean>(false);
   const [overheadInput, setOverheadInput] = useState<number>(project.overheadPercentage);
   const [markupInput, setMarkupInput] = useState<number>(project.markupPercentage);
 
+  useEffect(() => { if (!canWrite) { setEditingItemId(null); setIsAddingLine(false); setShowRateModal(false); } }, [canWrite]);
+
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
+  const unpricedItems = project.estimateItems.filter((item) => calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
+  const missingQuantities = project.quantities.filter((quantity) => !project.estimateItems.some((item) => item.quantityId === quantity.id));
+
+  const handleOpenRates = () => {
+    if (!canWrite) return;
+    setOverheadInput(project.overheadPercentage);
+    setMarkupInput(project.markupPercentage);
+    setRateError("");
+    setShowRateModal(true);
+  };
+
+  const handleRestoreQuantities = () => {
+    if (!canWrite) return;
+    onUpdateProject({ ...project, estimateItems: [...project.estimateItems, ...missingQuantities.map(createUnpricedEstimateItem)] });
+    setSearchQuery("");
+  };
 
   // Financial Engine calculation
   const financials = calculateProjectFinancials(
@@ -73,6 +97,9 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   );
 
   const handleStartEdit = (item: EstimateItem) => {
+    if (!canWrite) return;
+    setError("");
+    setIsAddingLine(false);
     setEditingItemId(item.id);
     setEditName(item.name);
     setEditCsi(item.csiCode || "");
@@ -84,33 +111,32 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   };
 
   const handleSaveEdit = (id: string) => {
-    const directCost = calculateLineDirectCost(editMaterial, editLabor, editEquipment);
-    const updatedItems = project.estimateItems.map((item) =>
-      item.id === id
-        ? {
-            ...item,
-            name: editName.trim(),
-            csiCode: editCsi.trim(),
-            quantity: Number(editQty) || 0,
-            unit: editUnit,
-            materialCost: Number(editMaterial) || 0,
-            laborCost: Number(editLabor) || 0,
-            equipmentCost: Number(editEquipment) || 0,
-            directCost,
-          }
-        : item
-    );
-
-    onUpdateProject({ ...project, estimateItems: updatedItems });
+    if (!canWrite) return;
+    try {
+      onUpdateProject(editEstimateLine(project, id, {
+        name: editName, csiCode: editCsi.trim(), quantity: editQty, unit: editUnit,
+        materialCost: editMaterial, laborCost: editLabor, equipmentCost: editEquipment,
+      }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "This item could not be updated.");
+      return;
+    }
     setEditingItemId(null);
+    setError("");
   };
 
   const handleDeleteItem = (id: string) => {
+    if (!canWrite) return;
     const updatedItems = project.estimateItems.filter((item) => item.id !== id);
     onUpdateProject({ ...project, estimateItems: updatedItems });
   };
 
   const handleSaveFinancialRates = () => {
+    if (!canWrite) return;
+    if (![overheadInput, markupInput].every((rate) => Number.isFinite(rate) && rate >= 0 && rate <= 100)) {
+      setRateError("Enter percentages from 0 to 100.");
+      return;
+    }
     onUpdateProject({
       ...project,
       overheadPercentage: Math.max(0, Number(overheadInput) || 0),
@@ -121,18 +147,26 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
   const handleAddNewItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!canWrite) return;
+    const validationError = validateEstimateInput(newName, newQty, [newMaterial, newLabor, newEquipment]);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
-    const directCost = calculateLineDirectCost(newMaterial, newLabor, newEquipment);
+    const materialCost = Number(newMaterial.toFixed(2));
+    const laborCost = Number(newLabor.toFixed(2));
+    const equipmentCost = Number(newEquipment.toFixed(2));
+    const directCost = calculateLineDirectCost(materialCost, laborCost, equipmentCost);
     const newItem: EstimateItem = {
-      id: `est-${Date.now()}`,
+      id: `est-${crypto.randomUUID()}`,
       csiCode: newCsi.trim(),
       name: newName.trim(),
       quantity: Number(newQty) || 0,
       unit: newUnit,
-      materialCost: Number(newMaterial) || 0,
-      laborCost: Number(newLabor) || 0,
-      equipmentCost: Number(newEquipment) || 0,
+      materialCost,
+      laborCost,
+      equipmentCost,
       directCost,
     };
 
@@ -142,11 +176,18 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
     });
 
     setNewName("");
+    setNewCsi("");
+    setNewQty(1);
+    setNewMaterial(0);
+    setNewLabor(0);
+    setNewEquipment(0);
+    setSearchQuery("");
+    setError("");
     setIsAddingLine(false);
   };
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 font-sans [&_button:disabled]:cursor-not-allowed [&_button:disabled]:opacity-40">
       {/* Title Bar and Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
         <div>
@@ -154,7 +195,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             Estimate Table
           </h3>
           <p className="text-xs sm:text-sm text-[#6b7280]">
-            Detailed cost breakdown per takeoff item
+            Enter your actual material, labor and equipment costs.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -163,17 +204,19 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-[#eff6ff] border border-[#bfdbfe] text-[#2563eb] hover:bg-[#dbeafe] rounded-md text-xs font-semibold transition cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-            <span>AI Explain</span>
+            <span>Estimate Help</span>
           </button>
           <button
-            onClick={() => setShowRateModal(true)}
+            disabled={!canWrite}
+            onClick={handleOpenRates}
             className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition cursor-pointer"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-[#6b7280]" />
             <span>Rates</span>
           </button>
           <button
-            onClick={() => setIsAddingLine(true)}
+            disabled={!canWrite}
+            onClick={() => { if (!canWrite) return; setIsAddingLine(true); setEditingItemId(null); setError(""); setSearchQuery(""); }}
             className="bg-[#2563eb] text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-semibold flex items-center gap-1.5 sm:gap-2 hover:bg-[#1d4ed8] shadow-xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -183,14 +226,24 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       </div>
 
       {/* Stepper timeline */}
-      <Stepper currentStep="estimate" onSelectStep={onSelectStep} />
+      <Stepper currentStep="estimate" onSelectStep={(step) => { if (editingItemId || isAddingLine) { setError("Save or cancel your open item before changing steps."); return; } onSelectStep(step); }} />
+
+      <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
+        Costs below are <strong>totals for the entire line in USD</strong>, not prices per unit.
+        When editing a quantity here, review and enter the matching cost totals.
+      </div>
+      {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+      {unpricedItems.length > 0 && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900"><AlertCircle className="h-4 w-4 shrink-0" /><span>{unpricedItems.length} item{unpricedItems.length === 1 ? " has" : "s have"} no costs entered. The estimate is incomplete until you price or remove these items.</span></div>}
+      {missingQuantities.length > 0 && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-600"><span>{missingQuantities.length} takeoff item{missingQuantities.length === 1 ? " is" : "s are"} excluded from this estimate.</span><button disabled={!canWrite} onClick={handleRestoreQuantities} className="self-start rounded-md bg-blue-50 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-100">Add missing takeoff items</button></div>}
 
       {/* Inline Search Bar */}
-      {project.estimateItems.length > 4 && (
+      {(project.estimateItems.length > 4 || searchQuery) && (
         <div className="relative max-w-sm">
           <Search className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
           <input
             type="text"
+            aria-label="Search estimate items"
+            disabled={Boolean(editingItemId) || isAddingLine}
             placeholder="Search estimate items or CSI codes..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -200,16 +253,16 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       )}
 
       {/* Desktop Estimate Table (hidden on mobile) */}
-      <div className="hidden md:block bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden">
-        <table className="w-full text-left border-collapse">
+      <div className="hidden lg:block bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left border-collapse">
           <thead>
             <tr className="bg-[#f9fafb] border-b border-[#e5e7eb] text-[11px] font-bold text-[#6b7280] uppercase tracking-wider">
               <th className="py-3.5 px-5 font-bold">Item Name</th>
               <th className="py-3.5 px-4 font-bold text-right w-24">Qty</th>
               <th className="py-3.5 px-4 font-bold text-center w-20">Unit</th>
-              <th className="py-3.5 px-4 font-bold text-right w-28">Material</th>
-              <th className="py-3.5 px-4 font-bold text-right w-28">Labor</th>
-              <th className="py-3.5 px-4 font-bold text-right w-28">Equip</th>
+              <th className="py-3.5 px-4 font-bold text-right w-28">Material $</th>
+              <th className="py-3.5 px-4 font-bold text-right w-28">Labor $</th>
+              <th className="py-3.5 px-4 font-bold text-right w-28">Equip $</th>
               <th className="py-3.5 px-5 font-bold text-right bg-[#f1f5f9] text-[#111827] w-32">
                 Direct Cost
               </th>
@@ -238,6 +291,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
+                            aria-label="CSI code"
                             value={editCsi}
                             onChange={(e) => setEditCsi(e.target.value)}
                             placeholder="CSI Code"
@@ -245,10 +299,10 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           />
                           <input
                             type="text"
+                            aria-label="Item description"
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
                             className="flex-1 px-2 py-1 border border-[#2563eb] rounded text-xs font-semibold"
-                            autoFocus
                           />
                         </div>
                       ) : (
@@ -274,6 +328,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                         <input
                           type="number"
                           min="0"
+                          step="any"
+                          aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
                           className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
@@ -287,6 +343,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     <td className="py-3.5 px-4 text-center">
                       {isEditing ? (
                         <select
+                          aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
                           className="px-1.5 py-1 border border-[#2563eb] rounded text-xs bg-white"
@@ -311,6 +368,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Material total in USD"
                           value={editMaterial}
                           onChange={(e) => setEditMaterial(Number(e.target.value))}
                           className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
@@ -327,6 +385,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Labor total in USD"
                           value={editLabor}
                           onChange={(e) => setEditLabor(Number(e.target.value))}
                           className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
@@ -343,6 +402,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Equipment total in USD"
                           value={editEquipment}
                           onChange={(e) => setEditEquipment(Number(e.target.value))}
                           className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
@@ -354,7 +414,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
                     {/* Direct Cost (Highlighted column) */}
                     <td className="py-3.5 px-5 text-right font-mono font-bold bg-[#f1f5f9] text-[#111827]">
-                      {formatCurrency(item.directCost)}
+                      {formatCurrency(isEditing ? calculateLineDirectCost(editMaterial, editLabor, editEquipment) : calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost))}
                     </td>
 
                     {/* Actions */}
@@ -362,26 +422,33 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                       {isEditing ? (
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            disabled={!canWrite}
                             onClick={() => handleSaveEdit(item.id)}
                             className="p-1 bg-[#10b981] hover:bg-[#059669] text-white rounded transition"
-                            title="Save"
+                            title="Save item"
+                            aria-label="Save item"
                           >
                             <Check className="w-3.5 h-3.5" />
                           </button>
+                          <button onClick={() => { setEditingItemId(null); setError(""); }} className="p-1 text-gray-500 hover:text-gray-900" title="Cancel edit" aria-label="Cancel edit"><X className="w-3.5 h-3.5" /></button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-1 text-[#9ca3af]">
                           <button
+                            disabled={!canWrite}
                             onClick={() => handleStartEdit(item)}
                             className="p-1 hover:text-[#2563eb] transition"
                             title="Edit"
+                            aria-label="Edit item"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
+                            disabled={!canWrite}
                             onClick={() => handleDeleteItem(item.id)}
                             className="p-1 hover:text-[#ef4444] transition"
                             title="Delete"
+                            aria-label="Delete item"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -405,6 +472,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               <input
                 type="text"
                 placeholder="CSI (09 29 00)"
+                aria-label="New CSI code"
                 value={newCsi}
                 onChange={(e) => setNewCsi(e.target.value)}
                 className="w-full px-2.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs font-mono"
@@ -414,10 +482,10 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               <input
                 type="text"
                 placeholder="Item name (e.g., Drywall 5/8 Type X)"
+                aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="w-full px-2.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs font-semibold"
-                autoFocus
                 required
               />
             </div>
@@ -425,6 +493,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               <input
                 type="number"
                 min="0"
+                step="any"
+                aria-label="New quantity"
                 value={newQty}
                 onChange={(e) => setNewQty(Number(e.target.value))}
                 className="w-full px-2 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
@@ -433,6 +503,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             </div>
             <div className="col-span-1">
               <select
+                aria-label="New unit"
                 value={newUnit}
                 onChange={(e) => setNewUnit(e.target.value as UnitType)}
                 className="w-full px-1 py-1.5 bg-white border border-[#d1d5db] rounded text-xs"
@@ -449,6 +520,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 type="number"
                 min="0"
                 step="any"
+                aria-label="New material total in USD"
                 value={newMaterial}
                 onChange={(e) => setNewMaterial(Number(e.target.value))}
                 className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
@@ -460,6 +532,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 type="number"
                 min="0"
                 step="any"
+                aria-label="New labor total in USD"
                 value={newLabor}
                 onChange={(e) => setNewLabor(Number(e.target.value))}
                 className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
@@ -471,6 +544,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 type="number"
                 min="0"
                 step="any"
+                aria-label="New equipment total in USD"
                 value={newEquipment}
                 onChange={(e) => setNewEquipment(Number(e.target.value))}
                 className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
@@ -497,7 +571,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       </div>
 
       {/* Mobile Stacked Line Item Cards (visible on mobile only) */}
-      <div className="md:hidden space-y-3">
+      <div className="lg:hidden space-y-3">
         {filteredItems.length === 0 ? (
           <div className="bg-white border border-dashed border-[#e5e7eb] rounded-xl p-8 text-center text-[#9ca3af] text-xs">
             No line items found. Tap &quot;Add Item&quot; to begin estimating.
@@ -531,10 +605,10 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                       </label>
                       <input
                         type="text"
+                        aria-label="Item description"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                         className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded-md font-semibold"
-                        autoFocus
                       />
                     </div>
 
@@ -545,6 +619,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                         </label>
                         <input
                           type="text"
+                          aria-label="CSI code"
                           value={editCsi}
                           onChange={(e) => setEditCsi(e.target.value)}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono"
@@ -557,6 +632,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                         <input
                           type="number"
                           min="0"
+                          step="any"
+                          aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono font-bold text-right"
@@ -567,6 +644,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           Unit
                         </label>
                         <select
+                          aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-semibold"
@@ -589,6 +667,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Material total in USD"
                           value={editMaterial}
                           onChange={(e) => setEditMaterial(Number(e.target.value))}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
@@ -602,6 +681,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Labor total in USD"
                           value={editLabor}
                           onChange={(e) => setEditLabor(Number(e.target.value))}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
@@ -615,6 +695,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           type="number"
                           min="0"
                           step="any"
+                          aria-label="Equipment total in USD"
                           value={editEquipment}
                           onChange={(e) => setEditEquipment(Number(e.target.value))}
                           className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
@@ -624,7 +705,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   </div>
 
                   <button
-                    onClick={() => handleSaveEdit(item.id)}
+                    disabled={!canWrite}
+                            onClick={() => handleSaveEdit(item.id)}
                     className="w-full py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs"
                   >
                     <Check className="w-3.5 h-3.5" />
@@ -658,7 +740,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
                   <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => handleStartEdit(item)}
+                      disabled={!canWrite}
+                            onClick={() => handleStartEdit(item)}
                       className="p-1.5 text-[#6b7280] hover:text-[#2563eb] hover:bg-[#eff6ff] rounded-md transition"
                       title="Edit Item"
                       aria-label="Edit Item"
@@ -666,7 +749,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDeleteItem(item.id)}
+                      disabled={!canWrite}
+                            onClick={() => handleDeleteItem(item.id)}
                       className="p-1.5 text-[#9ca3af] hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
                       title="Delete Item"
                       aria-label="Delete Item"
@@ -698,7 +782,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     Direct Cost:
                   </span>
                   <span className="text-sm font-bold font-mono text-[#111827] bg-[#f1f5f9] px-2.5 py-0.5 rounded">
-                    {formatCurrency(item.directCost)}
+                    {formatCurrency(calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost))}
                   </span>
                 </div>
               </div>
@@ -732,10 +816,10 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               <input
                 type="text"
                 placeholder="e.g., Drywall 5/8 Type X"
+                aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md bg-white font-medium"
-                autoFocus
                 required
               />
             </div>
@@ -748,6 +832,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 <input
                   type="text"
                   placeholder="09 29 00"
+                  aria-label="New CSI code"
                   value={newCsi}
                   onChange={(e) => setNewCsi(e.target.value)}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono"
@@ -760,6 +845,8 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 <input
                   type="number"
                   min="0"
+                  step="any"
+                  aria-label="New quantity"
                   value={newQty}
                   onChange={(e) => setNewQty(Number(e.target.value))}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono font-bold text-right"
@@ -770,6 +857,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   Unit
                 </label>
                 <select
+                  aria-label="New unit"
                   value={newUnit}
                   onChange={(e) => setNewUnit(e.target.value as UnitType)}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-bold"
@@ -792,6 +880,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   type="number"
                   min="0"
                   step="any"
+                  aria-label="New material total in USD"
                   value={newMaterial}
                   onChange={(e) => setNewMaterial(Number(e.target.value))}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
@@ -805,6 +894,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   type="number"
                   min="0"
                   step="any"
+                  aria-label="New labor total in USD"
                   value={newLabor}
                   onChange={(e) => setNewLabor(Number(e.target.value))}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
@@ -818,6 +908,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   type="number"
                   min="0"
                   step="any"
+                  aria-label="New equipment total in USD"
                   value={newEquipment}
                   onChange={(e) => setNewEquipment(Number(e.target.value))}
                   className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
@@ -862,10 +953,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 Overhead ({financials.overheadPercentage}%)
               </p>
               <button
-                onClick={() => setShowRateModal(true)}
+                disabled={!canWrite}
+            onClick={handleOpenRates}
                 className="text-[#2563eb] bg-[#eff6ff] hover:bg-[#dbeafe] px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
               >
-                Auto
+                Edit
               </button>
             </div>
             <p className="text-2xl font-bold text-[#111827] mt-1 font-mono">
@@ -886,10 +978,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 Markup ({financials.markupPercentage}%)
               </p>
               <button
-                onClick={() => setShowRateModal(true)}
+                disabled={!canWrite}
+            onClick={handleOpenRates}
                 className="text-[#2563eb] bg-[#eff6ff] hover:bg-[#dbeafe] px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
               >
-                Auto
+                Edit
               </button>
             </div>
             <p className="text-2xl font-bold text-[#111827] mt-1 font-mono">
@@ -897,7 +990,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             </p>
           </div>
           <p className="text-[10px] text-[#6b7280] mt-4">
-            Compounded margin calculation
+            Applied to direct costs plus overhead
           </p>
         </div>
 
@@ -927,16 +1020,12 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
       {/* Bottom Actions Bar */}
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-[#e5e7eb]">
-        <button
-          onClick={() => alert("Draft estimate saved successfully to local persistent storage.")}
-          className="text-xs font-semibold text-[#6b7280] hover:text-[#111827] transition py-2 text-center"
-        >
-          Save as Draft
-        </button>
+        <p className="text-xs text-gray-500">{editingItemId || isAddingLine ? "Save or cancel your open item before continuing." : "Review the completed items before continuing."}</p>
 
         <button
           onClick={onContinue}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
+          disabled={Boolean(editingItemId) || isAddingLine}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
         >
           <span>Continue to Review</span>
           <ArrowRight className="w-4 h-4" />
@@ -946,20 +1035,22 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* Rate Adjustment Modal */}
       {showRateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-2xs p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md p-6 space-y-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="estimate-rates-title" className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md p-6 space-y-4 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
-              <h3 className="text-base font-bold text-[#111827] flex items-center gap-2">
+              <h3 id="estimate-rates-title" className="text-base font-bold text-[#111827] flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-[#2563eb]" />
                 <span>Adjust Overhead & Markup Rates</span>
               </h3>
               <button
                 onClick={() => setShowRateModal(false)}
+                aria-label="Close rates"
                 className="text-[#9ca3af] hover:text-[#111827]"
               >
                 ✕
               </button>
             </div>
 
+            {rateError && <p role="alert" className="rounded-md bg-rose-50 p-2 text-xs text-rose-700">{rateError}</p>}
             <div className="space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-[#374151] mb-1">
@@ -971,6 +1062,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     min="0"
                     max="100"
                     step="0.5"
+                    aria-label="Overhead percentage"
                     value={overheadInput}
                     onChange={(e) => setOverheadInput(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-[#d1d5db] rounded font-mono font-bold text-sm"
@@ -992,6 +1084,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     min="0"
                     max="100"
                     step="0.5"
+                    aria-label="Markup percentage"
                     value={markupInput}
                     onChange={(e) => setMarkupInput(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-[#d1d5db] rounded font-mono font-bold text-sm"
@@ -999,7 +1092,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   <span className="font-bold text-[#6b7280]">%</span>
                 </div>
                 <p className="text-[11px] text-[#6b7280] mt-1">
-                  Net company profit applied on top of Direct Cost + Overhead.
+                  Added to direct costs plus overhead; this percentage is markup, not profit margin.
                 </p>
               </div>
             </div>
@@ -1012,6 +1105,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 Cancel
               </button>
               <button
+                disabled={!canWrite}
                 onClick={handleSaveFinancialRates}
                 className="px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold rounded text-xs transition"
               >

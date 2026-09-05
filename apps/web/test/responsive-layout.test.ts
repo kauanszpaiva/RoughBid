@@ -22,19 +22,20 @@ test('header and project stepper avoid mobile text crowding', () => {
   assert.doesNotMatch(header, /mx-auto justify-center/);
 });
 
-test('plan viewer fits smaller screens and uses a mobile bottom sheet for callouts', () => {
-  assert.match(blueprint, /window\.innerWidth < 640\) return 50/);
+test('plan viewer fits its container and lets phones scroll the actual PDF', () => {
+  assert.match(blueprint, /ResizeObserver/);
   assert.match(blueprint, /h-\[68dvh\]/);
-  assert.match(blueprint, /bottom-20 sm:left-auto/);
+  assert.match(blueprint, /overflow-auto/);
 });
 
 test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(blueprint, /<canvas/);
   assert.match(blueprint, /pdfjs\.getDocument/);
   assert.match(blueprint, /Rendering uploaded PDF/);
-  assert.match(blueprint, /Blue marks and notes sit on top of the PDF you uploaded/);
+  assert.match(blueprint, /note.page === pageNumber/);
+  assert.match(blueprint, /onAnnotationsChange/);
+  assert.doesNotMatch(blueprint, /const hotspots/);
   assert.doesNotMatch(blueprint, /PLAN SHEET A-1|EXISTING HOUSE|STAIRS \(4 RISERS\)/);
-  assert.match(plans, /URL\.createObjectURL\(file\)/);
   assert.match(plans, /createDocumentPreviewObjectUrl/);
   assert.match(api, /URL\.createObjectURL/);
   assert.match(api, /application\/pdf/);

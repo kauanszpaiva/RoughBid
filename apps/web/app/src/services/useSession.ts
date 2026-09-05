@@ -12,20 +12,23 @@ export function useSession(): { session: Session | null; loading: boolean } {
   useEffect(() => {
     if (!supabase) return;
     let active = true;
+    let sessionResolved = false;
+    const timer = setTimeout(() => { if (active) setLoading(false); }, 15_000);
 
     supabase.auth.getSession().then(({ data }) => {
-      if (active) {
+      if (active && !sessionResolved) {
         setSession(data.session);
         setLoading(false);
       }
-    });
+    }).catch(() => { if (active) setLoading(false); }).finally(() => clearTimeout(timer));
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (active) setSession(next);
+      if (active) { sessionResolved = true; setSession(next); setLoading(false); clearTimeout(timer); }
     });
 
     return () => {
       active = false;
+      clearTimeout(timer);
       subscription.subscription.unsubscribe();
     };
   }, []);

@@ -40,11 +40,24 @@ function appInviteUrl(appUrl: string, token: string): string {
   return url.toString();
 }
 
-export async function listWorkspaces(client: AuthenticatedSupabaseClient): Promise<Workspace[]> {
-  await requireUser(client);
-  const { data, error } = await client.from('workspaces').select('*').order('created_at');
-  throwIfError(error);
-  return (data as Record<string, unknown>[]).map(workspace);
+export type WorkspaceWithRole = Workspace & { role: WorkspaceRole | null };
+
+const knownRole = (value: unknown): WorkspaceRole | null =>
+  value === 'admin' || value === 'estimator' || value === 'viewer' ? value : null;
+
+export async function listWorkspaces(client: AuthenticatedSupabaseClient): Promise<WorkspaceWithRole[]> {
+  const user = await requireUser(client);
+  const [workspaces, memberships] = await Promise.all([
+    client.from('workspaces').select('*').order('created_at'),
+    client.from('workspace_members').select('workspace_id, role').eq('user_id', user.id),
+  ]);
+  throwIfError(workspaces.error);
+  throwIfError(memberships.error);
+  const memberRows = Array.isArray(memberships.data) ? memberships.data as Record<string, unknown>[] : [];
+  return (workspaces.data as Record<string, unknown>[]).map((row) => ({
+    ...workspace(row),
+    role: knownRole(memberRows.find((member) => member.workspace_id === row.id)?.role),
+  }));
 }
 
 export async function getWorkspace(client: AuthenticatedSupabaseClient, id: string): Promise<Workspace | null> {
@@ -54,13 +67,16 @@ export async function getWorkspace(client: AuthenticatedSupabaseClient, id: stri
   return data ? workspace(data) : null;
 }
 
-export async function createWorkspace(client: AuthenticatedSupabaseClient, input: CreateWorkspaceInput): Promise<Workspace> {
+export async function createWorkspace(client: AuthenticatedSupabaseClient, input: CreateWorkspaceInput): Promise<WorkspaceWithRole> {
   const user = await requireUser(client);
   const { data, error } = await client.from('workspaces')
     .insert({ name: normalizeWorkspaceName(input.name), created_by: user.id }).select('*').single();
   throwIfError(error);
   if (!data) throw new Error('Workspace insert returned no row.');
-  return workspace(data);
+  const ownMembership = await client.from('workspace_members').select('role').eq('workspace_id', String(data.id)).eq('user_id', user.id);
+  throwIfError(ownMembership.error);
+  const rows = Array.isArray(ownMembership.data) ? ownMembership.data as Record<string, unknown>[] : [];
+  return { ...workspace(data), role: knownRole(rows[0]?.role) };
 }
 
 export async function updateWorkspace(client: AuthenticatedSupabaseClient, id: string, input: UpdateWorkspaceInput): Promise<Workspace | null> {
