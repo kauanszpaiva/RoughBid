@@ -5,7 +5,7 @@ export interface PlanPageInput {
 
 export interface PlanReadingFinding {
   page_number: number | null;
-  finding_type: 'measurement' | 'symbol' | 'room' | 'scope_note' | 'risk' | 'question' | 'material';
+  finding_type: 'measurement' | 'symbol' | 'room' | 'scope_note' | 'risk' | 'question' | 'material' | 'labor';
   label: string;
   value_text: string | null;
   quantity: number | null;
@@ -30,7 +30,7 @@ const findingSchema = {
   additionalProperties: false,
   properties: {
     page_number: { type: ['integer', 'null'] },
-    finding_type: { type: 'string', enum: ['measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material'] },
+    finding_type: { type: 'string', enum: ['measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material', 'labor'] },
     label: { type: 'string' },
     value_text: { type: ['string', 'null'] },
     quantity: { type: ['number', 'null'] },
@@ -99,7 +99,7 @@ export class OpenAiPlanReader {
             role: 'system',
             content: [{
               type: 'input_text',
-              text: 'You are RoughBid, an estimating assistant for construction plans. Extract only evidence visible on the provided plan pages. Do not invent quantities. Mark ambiguity as questions or risks. Every finding must include page evidence, confidence, and human review should remain required.',
+              text: 'You are RoughBid, an estimating assistant for construction plans. Extract only evidence visible on the provided plan pages. Do not invent quantities. For every material called out or shown in a schedule/legend, record a `material` finding with its measured quantity and unit (SF, LF, EA, CY, LS, etc.) so it can be priced. For every distinct service or labor task implied by the drawings (demolition, framing, electrical, plumbing, install labor, finishing, etc.), record a separate `labor` finding with its own quantity and unit (hours, LS, or the same measured unit as the work it covers) so labor can be priced independently of materials. Mark ambiguity as questions or risks instead of guessing. Every finding must include page evidence, confidence, and human review should remain required.',
             }],
           },
           {

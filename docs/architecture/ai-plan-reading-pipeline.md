@@ -22,7 +22,8 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 4. **Extraction targets**
    - Measurements and dimensions.
    - Rooms/areas and sheet/page references.
-   - Materials and fixture/symbol counts.
+   - Materials and fixture/symbol counts, each with a quantity and unit (`material` findings).
+   - Labor/service scope implied by the drawings — demolition, framing, install labor, trade rough-ins — each with its own quantity and unit (`labor` findings), priced independently of the material it goes with.
    - Scope notes and exclusions.
    - Ambiguous items that require estimator review.
    - Risk flags such as missing scale, conflicting revisions, unreadable pages, or incomplete schedules.
@@ -33,9 +34,15 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Default every finding to `needs_review`.
    - Allow accepted findings to generate draft takeoff quantities; rejected findings never affect estimate math.
 
-6. **Estimate integration**
+6. **Pricing**
+   - `apps/api/src/ai-plan/worker.ts` (`AiPlanReadingJobProcessor`) is the process that actually drains the `read-plan` queue: it loads the rendered page images, calls `OpenAiPlanReader`, and writes the resulting findings.
+   - `apps/api/src/ai-plan/pricing.ts` prices those findings with `calculateProject` (the same fixed-point engine `packages/domain` uses for estimates): every `material` finding produces a material line at its quantity plus a companion install-labor line, and every `labor` finding produces its own labor line. Rates come from a small keyword/unit fallback catalog until a workspace price book replaces it.
+   - The priced detail per finding is stored in that finding's `geometry.pricing`; the job's `output_summary.pricing` carries the material/labor/direct cost totals and how many findings were priced vs. left for manual pricing.
+   - Run the worker with `npm run worker` (needs `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, object storage credentials, and `OPENAI_API_KEY`) on a host that can stay running — a Vercel function cannot.
+
+7. **Estimate integration**
    - Accepted measurements map into RoughBid quantity groups.
-   - Accepted material findings can suggest assemblies or price-book items.
+   - Accepted material and labor findings carry a priced suggestion (see Pricing above) an estimator can accept, adjust, or reject before it becomes a real estimate line.
    - Proposal/export remains blocked until plan, quantity, estimate, and review gates are complete.
 
 ## Required Runtime Configuration
