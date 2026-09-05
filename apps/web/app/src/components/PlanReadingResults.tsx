@@ -47,7 +47,7 @@ export function PlanReadingResults({ project, workspaceId, onUpdateProject }: { 
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your review.'); }
     finally { setBusy(null); }
   };
-  if (!jobId) return <p className="text-sm text-slate-600">Upload a PDF and choose an AI provider and read the plan in Plans. Your saved findings will appear here for review.</p>;
+  if (!jobId) return null;
   const coverage = reading?.output_summary?.coverage;
   return <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4" aria-label="AI plan results">
     <div className="flex justify-between gap-3"><div><h3 className="font-bold text-slate-900">Plan findings</h3><p className="text-xs text-slate-500">Review the source page before accepting. Prices are entered by you.</p></div><button className="text-sm text-blue-700" onClick={() => setRefresh(n => n + 1)}>Refresh results</button></div>

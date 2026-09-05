@@ -232,10 +232,12 @@ export default function App() {
   };
 
   const handleUpdateProject = (updated: Project) => {
-    setActiveProject(updated);
-    const newProjects = projects.map((p) => (p.id === updated.id ? updated : p));
-    setProjects(newProjects);
-    saveScopedProjects(newProjects);
+    setActiveProject(current => current?.id === updated.id ? updated : current);
+    setProjects(current => {
+      const next = current.map(p => p.id === updated.id ? updated : p);
+      saveScopedProjects(next);
+      return next;
+    });
     if (workspace && updated.remoteId) {
       updateRemoteProject(workspace.id, updated.remoteId, projectPayload(updated)).catch((error) => {
         console.error("Could not persist this project to the backend.", error);
@@ -562,6 +564,7 @@ export default function App() {
           project={activeProject}
           isOpen={showAIModal}
           onClose={() => setShowAIModal(false)}
+          onOpenPlans={() => { setShowAIModal(false); setActiveStep("plans"); setActiveTab("projects"); }}
           workspaceId={workspace?.id ?? null}
           onUpdateProject={handleUpdateProject}
         />

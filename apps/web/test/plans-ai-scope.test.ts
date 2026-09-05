@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const plansPage = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+const plansPage = readFileSync(new URL('../app/src/components/PlanReadingControls.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../app/src/services/api.ts', import.meta.url), 'utf8');
 
 test('plans page exposes AI scope controls for whole plan or selected areas', () => {
