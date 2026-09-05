@@ -24,6 +24,18 @@ export async function handleDocumentRequest(request: Request, db: SupabaseLike, 
       const body = await request.json().catch(() => ({})) as { disposition?: unknown };
       return json(await service.download(parts[1], { disposition: body.disposition === 'inline' ? 'inline' : 'attachment' }));
     }
+    if (request.method === 'GET' && parts[0] === 'documents' && parts[1] && parts[2] === 'preview') {
+      const preview = await service.download(parts[1], { disposition: 'inline' });
+      const upstream = await fetch(preview.url, { method: preview.method, headers: preview.headers });
+      if (!upstream.ok || !upstream.body) throw new ProjectApiError(502, 'Could not open PDF preview');
+      return new Response(upstream.body, {
+        headers: {
+          'content-type': upstream.headers.get('content-type') || 'application/pdf',
+          'content-disposition': 'inline',
+          'cache-control': 'private, no-store',
+        },
+      });
+    }
     return json({ error: 'Not found' }, 404);
   } catch (error) {
     if (error instanceof ProjectApiError) return json({ error: error.message }, error.status);

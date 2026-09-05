@@ -120,7 +120,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     });
     return recalculate(request);
   }
-  if (/^\/api\/projects\/[^/]+\/documents\/upload-url$/.test(pathname) || /^\/api\/documents\/[^/]+\/(complete|download-url)$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/documents\/upload-url$/.test(pathname) || /^\/api\/documents\/[^/]+\/(complete|download-url|preview)$/.test(pathname)) {
     if (!process.env.REDIS_URL) return json({ error: 'Document processing is not configured.' }, 503);
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN

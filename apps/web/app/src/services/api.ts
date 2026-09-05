@@ -78,6 +78,27 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T;
 }
 
+async function requestBlob(path: string, options: Pick<RequestOptions, "workspaceId"> = {}): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (options.workspaceId) headers["x-workspace-id"] = options.workspaceId;
+  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { error?: unknown };
+      if (typeof parsed.error === "string") message = parsed.error;
+    } catch {
+      // Keep the raw text for non-JSON errors.
+    }
+    throw new ApiError(response.status, message || `GET ${path} failed with ${response.status}`);
+  }
+  return response.blob();
+}
+
 /** GET /api/health */
 export function getHealth() {
   return request<{ status: string; service: string }>("/api/health");
@@ -283,6 +304,11 @@ export function createDocumentPreviewUrl(workspaceId: string, fileId: string) {
     workspaceId,
     body: { disposition: "inline" },
   });
+}
+
+export async function createDocumentPreviewObjectUrl(workspaceId: string, fileId: string) {
+  const pdf = await requestBlob(`/api/documents/${fileId}/preview`, { workspaceId });
+  return URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
 }
 
 export type ClientProposalPayload = {

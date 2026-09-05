@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -65,11 +65,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       setPreviewError("This plan is saved locally only. Upload it to a workspace to preview it here.");
       return;
     }
+    let objectUrl: string | null = null;
     setPreviewUrl(null);
     setIsPreviewLoading(true);
-    createDocumentPreviewUrl(workspaceId, currentRevision.remoteFileId)
-      .then((preview) => {
-        if (!canceled) setPreviewUrl(preview.url);
+    createDocumentPreviewObjectUrl(workspaceId, currentRevision.remoteFileId)
+      .then((url) => {
+        objectUrl = url;
+        if (!canceled) setPreviewUrl(url);
       })
       .catch((error) => {
         if (!canceled) setPreviewError(readableApiError(error));
@@ -79,6 +81,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       });
     return () => {
       canceled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [workspaceId, currentRevision?.id, currentRevision?.fileUrl, currentRevision?.remoteFileId]);
   const handlePay = async () => {

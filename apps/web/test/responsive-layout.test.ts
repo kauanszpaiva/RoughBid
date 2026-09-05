@@ -34,8 +34,9 @@ test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(blueprint, /Blue marks and notes sit on top of the PDF you uploaded/);
   assert.doesNotMatch(blueprint, /PLAN SHEET A-1|EXISTING HOUSE|STAIRS \(4 RISERS\)/);
   assert.match(plans, /URL\.createObjectURL\(file\)/);
-  assert.match(plans, /createDocumentPreviewUrl/);
-  assert.match(api, /disposition: "inline"/);
+  assert.match(plans, /createDocumentPreviewObjectUrl/);
+  assert.match(api, /URL\.createObjectURL/);
+  assert.match(api, /application\/pdf/);
 });
 
 test('dashboard and projects stack dense metrics on phones', () => {
@@ -48,3 +49,4 @@ test('materials uses mobile cards instead of forcing a wide table', () => {
   assert.match(materials, /hidden md:block/);
   assert.match(materials, /min-w-\[780px\]/);
 });
+
