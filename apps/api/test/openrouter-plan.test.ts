@@ -15,6 +15,9 @@ test('OpenRouter pins zero-price inference and free PDF parser with the private 
     assert.equal((init?.headers as any).authorization, 'Bearer server-test-key');
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, OPENROUTER_FREE_MODEL);
+    assert.equal(body.response_format.type, 'json_schema');
+    assert.equal(body.response_format.json_schema.strict, true);
+    assert.equal(body.provider.require_parameters, true);
     assert.deepEqual(body.provider.max_price, { prompt: 0, completion: 0, request: 0, image: 0 });
     assert.deepEqual(body.plugins, [{ id: 'file-parser', pdf: { engine: 'cloudflare-ai' } }]);
     assert.equal(body.messages[1].content[1].file.file_data, `data:application/pdf;base64,${Buffer.from(bytes).toString('base64')}`);
@@ -35,6 +38,18 @@ test('missing OpenRouter credentials and invalid PDFs make no provider calls', a
   await assert.rejects(new OpenRouterFreePdfReader('', fetcher).readPdf(await pdf(), {}), /server API key/);
   await assert.rejects(new OpenRouterFreePdfReader('key', fetcher).readPdf(new TextEncoder().encode('not PDF'), {}), /valid PDF/);
   assert.equal(calls, 0);
+});
+
+test('a complete JSON fence is accepted but malformed or mixed prose is rejected', async () => {
+  const bytes = await pdf();
+  for (const content of ['```json\n' + JSON.stringify(output()) + '\n```', '```\n' + JSON.stringify(output()) + '\n```']) {
+    const reader = new OpenRouterFreePdfReader('key', async () => Response.json(completion({ choices: [{ finish_reason: 'stop', message: { content } }] })));
+    assert.equal((await reader.readPdf(bytes, {})).findings[0].quantity, 2);
+  }
+  for (const content of ['```json\n{broken\n```', 'Explanation\n' + JSON.stringify(output())]) {
+    const reader = new OpenRouterFreePdfReader('key', async () => Response.json(completion({ choices: [{ finish_reason: 'stop', message: { content } }] })));
+    await assert.rejects(reader.readPdf(bytes, {}), /unreadable JSON/);
+  }
 });
 
 test('free quota and payment errors stop without retry, paid OCR or another provider', async () => {

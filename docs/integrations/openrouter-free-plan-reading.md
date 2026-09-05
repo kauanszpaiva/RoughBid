@@ -32,17 +32,33 @@ and exposes configuration booleans, never credentials.
 Rebuild/deploy the shared Supabase function with `node scripts/build-plan-function.mjs`
 as described in [the deployment guide](gemini-free-plan-reading.md).
 
-## Validation and current limitation
+## Validation and current limitations
 
-155 automated tests pass, including fixed zero prices/free parser, inline PDF data,
+156 automated tests pass, including fixed zero prices/free parser, inline PDF data,
 missing credentials, quota/payment failures, malformed output, provider-specific
 caching and dispatch. API and frontend TypeScript checks pass.
 
-At implementation time no OpenRouter credential was configured. A successful live
-OpenRouter PDF extraction is **not yet verified**. The app shows the missing connection
-and keeps the read button disabled for that provider until a key is configured.
+On 2026-09-05 the user authorized signup and server-key configuration. The dedicated
+key is on the free tier, with a $0 total credit limit and no payment method or credits
+purchased. It is configured as a sensitive Vercel production variable.
+
+Live production browser validation in `OpenRouter Free validation`: private synthetic
+one-page PDF uploaded and read through the Supabase function. Job
+`a689ec27-8d28-407f-9a0a-af7a7ef99f3a` persisted five findings, including the explicit
+120 SF and 2 EA doors. The saved result reports `dots-studio/dots-3-note-preview:free`,
+`cloudflare-ai`, cost 0, partial coverage and mandatory human review. Independent direct
+API extraction also succeeded through a free NVIDIA model with cost 0.
+
+Initial live calls exposed inconsistent JSON formatting from the free router. Requests
+now require strict JSON Schema; the reader accepts a complete JSON Markdown wrapper
+while still rejecting malformed, truncated or mixed-prose output. The prompt states
+the actual page count to prevent confusing the 60-page limit with uploaded pages.
+Free capacity and model quality still vary. Failures remain visible and never trigger
+paid fallback. This synthetic text PDF does not establish accuracy on scanned plans,
+visual symbols or large commercial sets.
 
 Sources: [free router](https://openrouter.ai/openrouter/free),
 [PDF conversion](https://openrouter.ai/docs/guides/overview/multimodal/pdfs),
 [maximum prices](https://openrouter.ai/docs/guides/routing/provider-selection#max-price),
+[structured output](https://openrouter.ai/docs/guides/features/structured-outputs),
 [free limits](https://openrouter.ai/docs/faq).

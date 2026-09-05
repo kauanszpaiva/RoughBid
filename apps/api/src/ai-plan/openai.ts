@@ -158,7 +158,7 @@ export function buildPlanReadingRequestText(pages: PlanPageInput[], scope: PlanR
     `Trades requested: ${scope.trades.join(', ')}.`,
     scope.legacyScope ? `Legacy project context: ${scope.legacyScope}.` : '',
     'Return every material, room, schedule, measurement, symbol, scope note, risk, and question that is visible and relevant to the requested scope.',
-    'For a 60-page plan set, maintain page-level coverage. If any page is unreadable, missing, low confidence, lacks scale, or has conflicting evidence, list it in coverage.missing_or_unreadable_pages and coverage.limitations.',
+    `This PDF contains exactly ${pages.length} requested pages. Maintain page-level coverage. If any requested page is unreadable, missing, low confidence, lacks scale, or has conflicting evidence, list it in coverage.missing_or_unreadable_pages and coverage.limitations. Do not infer additional pages.`,
     'Do not claim completeness unless each requested page was inspected and every requested trade or selected area has evidence or an explicit no-visible-evidence note.',
   ].filter(Boolean).join('\n');
 }
