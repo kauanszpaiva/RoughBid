@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl } from "../services/api";
+import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -30,6 +30,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isStartingAi, setIsStartingAi] = useState<boolean>(false);
+  const [needsAiConsent, setNeedsAiConsent] = useState<boolean>(false);
+  const [isGrantingAiConsent, setIsGrantingAiConsent] = useState<boolean>(false);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
@@ -133,6 +135,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     }
     setIsStartingAi(true);
     setPlanNotice(null);
+    setNeedsAiConsent(false);
     try {
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
@@ -145,9 +148,28 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       onUpdateProject({ ...project, revisions: updatedRevisions });
       setPlanNotice("AI plan reading queued. Findings will require estimator review.");
     } catch (error) {
-      setPlanNotice(readableApiError(error));
+      if (error instanceof ApiError && error.status === 403) {
+        setNeedsAiConsent(true);
+        setPlanNotice("This workspace hasn't approved sending plan files to AI yet.");
+      } else {
+        setPlanNotice(readableApiError(error));
+      }
     } finally {
       setIsStartingAi(false);
+    }
+  };
+
+  const handleGrantAiConsent = async () => {
+    if (!workspaceId) return;
+    setIsGrantingAiConsent(true);
+    try {
+      await grantWorkspaceAiConsent(workspaceId);
+      setNeedsAiConsent(false);
+      setPlanNotice("AI processing approved for this workspace. Click Start AI Plan Reading again.");
+    } catch (error) {
+      setPlanNotice(readableApiError(error));
+    } finally {
+      setIsGrantingAiConsent(false);
     }
   };
 
@@ -363,6 +385,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}
               </span>
             </button>
+
+            {needsAiConsent && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
+                <p>Sending plans to AI for reading requires this workspace's owner to approve it once.</p>
+                <button
+                  onClick={handleGrantAiConsent}
+                  disabled={isGrantingAiConsent}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-semibold transition disabled:opacity-50"
+                >
+                  {isGrantingAiConsent ? "Approving..." : "Approve AI plan reading"}
+                </button>
+              </div>
+            )}
 
             {/* View Revisions */}
             <button

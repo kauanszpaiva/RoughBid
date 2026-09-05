@@ -1,7 +1,9 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
-import { AiPlanReadingService, type AiPlanQueue } from './service.ts';
+import { AiPlanReadingService, type AiPlanQueue, type PlanReadingFindingStatus } from './service.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
+
+const FINDING_STATUSES: readonly PlanReadingFindingStatus[] = ['needs_review', 'accepted', 'rejected'];
 
 export async function handleAiPlanRequest(request: Request, db: SupabaseLike, queue: AiPlanQueue): Promise<Response> {
   try {
@@ -20,6 +22,14 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, qu
     }
     if (request.method === 'GET' && parts[0] === 'ai-plan-readings' && parts[1]) {
       return json(await service.get(parts[1]));
+    }
+    if (request.method === 'PATCH' && parts[0] === 'ai-plan-readings' && parts[1] === 'findings' && parts[2]) {
+      const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+      const status = body.status;
+      if (typeof status !== 'string' || !FINDING_STATUSES.includes(status as PlanReadingFindingStatus)) {
+        throw new ProjectApiError(400, 'status must be needs_review, accepted, or rejected');
+      }
+      return json(await service.setFindingStatus(parts[2], status as PlanReadingFindingStatus));
     }
     return json({ error: 'Not found' }, 404);
   } catch (error) {

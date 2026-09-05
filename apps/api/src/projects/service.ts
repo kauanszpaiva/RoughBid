@@ -7,6 +7,7 @@ export interface SupabaseLike {
   auth: { getUser(): Promise<{ data: { user: { id: string } | null }; error: unknown }> };
   from(table: string): any;
   storage: { from(bucket: string): any };
+  rpc?(fn: string, args?: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message?: string } | null }>;
 }
 
 export class ProjectApiError extends Error {

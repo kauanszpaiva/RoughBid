@@ -33,12 +33,14 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Include confidence, page number, geometry/source excerpt, and review status.
    - Default every finding to `needs_review`.
    - Allow accepted findings to generate draft takeoff quantities; rejected findings never affect estimate math.
+   - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
 6. **Pricing**
    - `apps/api/src/ai-plan/worker.ts` (`AiPlanReadingJobProcessor`) is the process that actually drains the `read-plan` queue: it loads the rendered page images, calls `OpenAiPlanReader`, and writes the resulting findings.
    - `apps/api/src/ai-plan/pricing.ts` prices those findings with `calculateProject` (the same fixed-point engine `packages/domain` uses for estimates): every `material` finding produces a material line at its quantity plus a companion install-labor line, and every `labor` finding produces its own labor line. Rates come from a small keyword/unit fallback catalog until a workspace price book replaces it.
    - The priced detail per finding is stored in that finding's `geometry.pricing`; the job's `output_summary.pricing` carries the material/labor/direct cost totals and how many findings were priced vs. left for manual pricing.
-   - Run the worker with `npm run worker` (needs `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, object storage credentials, and `OPENAI_API_KEY`) on a host that can stay running — a Vercel function cannot.
+   - Run the worker with `npm run worker` (needs `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, object storage credentials, and `OPENAI_API_KEY`) on a host that can stay running — a Vercel function cannot. `Dockerfile.worker` builds a container for this (includes `poppler-utils`, which the PDF page-rendering step also shells out to).
+   - `AiPlanReadingService.create()` refuses to queue a job at all unless the workspace has `ai_processing_consented_at` set (see Security Rules) and enforces a basic per-workspace daily cap (`AI_PLAN_DAILY_JOB_LIMIT`, default 25) so a bug or abuse can't run away with OpenAI spend.
 
 7. **Estimate integration**
    - Accepted measurements map into RoughBid quantity groups.
@@ -55,7 +57,7 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 
 ## Security Rules
 
-- Do not send plan files to AI unless the workspace has accepted the data/AI policy.
+- Do not send plan files to AI unless the workspace has accepted the data/AI policy — enforced in code: `workspaces.ai_processing_consented_at` must be set (an owner grants this once via `POST /api/workspaces/:id/ai-consent`, surfaced as an approval prompt on the Plans page) before `AiPlanReadingService.create()` will queue a job.
 - Keep all plan objects private and tenant-scoped.
 - Never expose service-role, storage, Stripe, Resend, or AI keys to the web app.
 - Store model output as reviewable findings, not silently trusted estimate data.

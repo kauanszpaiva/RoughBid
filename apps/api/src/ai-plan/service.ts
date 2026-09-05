@@ -27,6 +27,12 @@ function optionalMode(value: unknown): 'quick' | 'detailed' {
   return value === 'detailed' ? 'detailed' : 'quick';
 }
 
+export type PlanReadingFindingStatus = 'needs_review' | 'accepted' | 'rejected';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Cheap guardrail against runaway AI spend; override per-deployment via env. */
+const DEFAULT_DAILY_JOB_LIMIT = 25;
+
 function dbResult<T>(result: { data: T; error: { message?: string } | null }, notFound = false): T {
   if (result.error) throw new ProjectApiError(500, result.error.message ?? 'Database operation failed');
   if (notFound && !result.data) throw new ProjectApiError(404, 'Resource not found');
@@ -51,12 +57,29 @@ export class AiPlanReadingService {
     const fileId = typeof input.file_id === 'string' ? input.file_id : '';
     if (!fileId) throw new ProjectApiError(400, 'file_id is required');
 
+    const workspaceRow = dbResult<any>(
+      await this.db.from('workspaces').select('ai_processing_consented_at').eq('id', this.workspaceId).maybeSingle(),
+      true,
+    );
+    if (!workspaceRow.ai_processing_consented_at) {
+      throw new ProjectApiError(403, 'This workspace must accept AI plan-reading data processing (workspace settings) before starting a job.');
+    }
+
     dbResult(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
     const file = dbResult<any>(
       await this.db.from('project_files').select('id, processing_status').eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', fileId).maybeSingle(),
       true,
     );
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'Plan file must finish PDF processing before AI reading can start');
+
+    const dailyLimit = Number(process.env.AI_PLAN_DAILY_JOB_LIMIT) || DEFAULT_DAILY_JOB_LIMIT;
+    const since = new Date(Date.now() - DAY_MS).toISOString();
+    const recentJobs = dbResult<any[]>(
+      await this.db.from('plan_reading_jobs').select('id').eq('workspace_id', this.workspaceId).gte('created_at', since),
+    );
+    if (recentJobs.length >= dailyLimit) {
+      throw new ProjectApiError(429, `This workspace has started ${recentJobs.length} AI plan readings in the last 24 hours, at its limit of ${dailyLimit}.`);
+    }
 
     const job = dbResult<any>(await this.db.from('plan_reading_jobs').insert({
       workspace_id: this.workspaceId,
@@ -87,5 +110,22 @@ export class AiPlanReadingService {
       true,
     );
     return job;
+  }
+
+  /**
+   * Lets an estimator accept or reject one finding. Goes through the
+   * set_plan_reading_finding_status RPC (see supabase/migrations/0015_...)
+   * because authenticated users have no direct table privilege on
+   * plan_reading_findings — only the worker's service-role connection does.
+   */
+  async setFindingStatus(findingId: string, status: PlanReadingFindingStatus) {
+    if (!this.db.rpc) throw new ProjectApiError(500, 'Supabase RPC support is required.');
+    const { data, error } = await this.db.rpc('set_plan_reading_finding_status', { finding_id: findingId, new_status: status });
+    if (error) throw new ProjectApiError(403, error.message ?? 'Could not update the finding.');
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || (row as { workspace_id?: string }).workspace_id !== this.workspaceId) {
+      throw new ProjectApiError(404, 'Finding not found');
+    }
+    return row;
   }
 }

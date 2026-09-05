@@ -59,7 +59,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
   }
-  if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
+  if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/(invites|ai-consent)$/.test(pathname)) {
     const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
     const inviteMailer = process.env.RESEND_API_KEY
       ? (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => sendWorkspaceInviteEmail(loadResendServerConfig(process.env), {
@@ -112,7 +112,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
     if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }

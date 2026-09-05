@@ -209,6 +209,32 @@ test('POST /api/workspace-invites/accept hashes the token before RPC', async () 
   assert.notEqual(rpcArgs?.invite_token_digest, token);
 });
 
+test('POST /api/workspaces/:id/ai-consent records the owner accepting AI plan reading', async () => {
+  let updated: Record<string, unknown> | undefined;
+  const client = {
+    auth: { getUser: async () => ({ data: { user: { id: 'owner-1' } }, error: null }) },
+    from: (table: string) => {
+      assert.equal(table, 'workspaces');
+      return {
+        update(value: Record<string, unknown>) { updated = value; return this; },
+        eq() { return this; },
+        select() { return this; },
+        single: async () => ({ data: { id: 'ws-1', name: 'Main Shop', created_by: 'owner-1', created_at: '2026-09-02T00:00:00Z', ...updated }, error: null }),
+      };
+    },
+  };
+
+  const response = await handleWorkspacesRequest(
+    new Request('https://roughbid.test/api/workspaces/ws-1/ai-consent', { method: 'POST' }),
+    client as never,
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as Record<string, unknown>;
+  assert.ok(typeof body.aiProcessingConsentedAt === 'string');
+  assert.ok(typeof updated?.ai_processing_consented_at === 'string');
+});
+
 test('rejects an unauthenticated request', async () => {
   const client = { auth: { getUser: async () => ({ data: { user: null }, error: null }) }, from: () => ({}) };
   const response = await handleWorkspacesRequest(new Request('https://roughbid.test/api/workspaces'), client as never);
