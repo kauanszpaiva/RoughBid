@@ -88,7 +88,7 @@ async function withManualDeployment(run: () => Promise<void>) {
   const config: Record<string, string | undefined> = {
     SUPABASE_URL: 'https://example.supabase.co',
     SUPABASE_PUBLISHABLE_KEY: 'test-anon-key',
-    SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
+    SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_local_test_fixture_not_a_real_key',
     SUPABASE_PLAN_FUNCTION: undefined,
     BLOB_READ_WRITE_TOKEN: undefined,
     OBJECT_STORAGE_ENDPOINT: 'https://storage.example',
@@ -139,6 +139,17 @@ test('disabled paid AI fails before a job can be reserved, while existing readin
     ]) {
       const review = await handleApiRequest(new Request('https://roughbid.test' + path, { method }));
       assert.equal(review.status, 401);
+    }
+  });
+});
+
+test('document completion rejects a public or masked key configured as the server writer', async () => {
+  await withManualDeployment(async () => {
+    for (const invalid of ['[sensitive]', 'sb_publishable_local_fixture', 'https://example.supabase.co/functions/v1/reader']) {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = invalid;
+      const response = await handleApiRequest(new Request('https://roughbid.test/api/documents/file-1/complete', { method: 'POST' }));
+      assert.equal(response.status, 503);
+      assert.equal((await response.json() as any).error, 'Document completion is not configured.');
     }
   });
 });
