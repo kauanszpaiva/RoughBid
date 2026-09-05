@@ -38,6 +38,7 @@ test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(plans, /createDocumentPreviewObjectUrl/);
   assert.match(api, /URL\.createObjectURL/);
   assert.match(api, /application\/pdf/);
+  assert.match(api, /fetch\(preview\.url/);
 });
 
 test('dashboard and projects stack dense metrics on phones', () => {
@@ -50,4 +51,3 @@ test('materials uses mobile cards instead of forcing a wide table', () => {
   assert.match(materials, /hidden md:block/);
   assert.match(materials, /min-w-\[780px\]/);
 });
-

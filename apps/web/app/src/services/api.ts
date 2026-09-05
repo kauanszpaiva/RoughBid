@@ -307,7 +307,12 @@ export function createDocumentPreviewUrl(workspaceId: string, fileId: string) {
 }
 
 export async function createDocumentPreviewObjectUrl(workspaceId: string, fileId: string) {
-  const pdf = await requestBlob(`/api/documents/${fileId}/preview`, { workspaceId });
+  const preview = await createDocumentPreviewUrl(workspaceId, fileId);
+  const response = await fetch(preview.url, { method: preview.method, headers: preview.headers });
+  if (!response.ok) {
+    throw new ApiError(response.status, `PDF preview failed with ${response.status}`);
+  }
+  const pdf = await response.blob();
   return URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
 }
 
