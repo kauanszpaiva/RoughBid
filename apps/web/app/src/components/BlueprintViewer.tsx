@@ -1,4 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import {
   FileText,
   Hand,
@@ -11,6 +13,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { PlanRevision } from "../types";
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface BlueprintViewerProps {
   currentRevision: PlanRevision;
@@ -76,9 +80,58 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [renderStatus, setRenderStatus] = useState<"idle" | "rendering" | "ready" | "failed">("idle");
+  const [renderError, setRenderError] = useState<string | null>(null);
 
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === activeHotspot) ?? null;
   const hasPreview = Boolean(previewUrl);
+  const displayedPreviewError = previewError || renderError;
+
+  useEffect(() => {
+    let canceled = false;
+    const canvas = canvasRef.current;
+    if (!previewUrl || !canvas) {
+      setRenderStatus("idle");
+      setRenderError(null);
+      return;
+    }
+
+    const renderPdf = async () => {
+      setRenderStatus("rendering");
+      setRenderError(null);
+      try {
+        const response = await fetch(previewUrl);
+        if (!response.ok) throw new Error(`PDF preview failed with ${response.status}`);
+        const data = await response.arrayBuffer();
+        const document = await pdfjs.getDocument({ data }).promise;
+        const page = await document.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const availableWidth = containerRef.current?.clientWidth ?? 900;
+        const scale = Math.min(2, Math.max(1, (availableWidth * 0.82) / baseViewport.width));
+        const viewport = page.getViewport({ scale });
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("PDF canvas is unavailable");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        canvas.style.width = `${Math.ceil(viewport.width)}px`;
+        canvas.style.height = `${Math.ceil(viewport.height)}px`;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
+        if (!canceled) setRenderStatus("ready");
+      } catch (error) {
+        if (!canceled) {
+          setRenderStatus("failed");
+          setRenderError(error instanceof Error ? error.message : "Could not render the uploaded PDF preview.");
+        }
+      }
+    };
+
+    void renderPdf();
+    return () => {
+      canceled = true;
+    };
+  }, [previewUrl]);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev + 25, 250));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev - 25, 50));
@@ -189,12 +242,23 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
           className="relative w-[min(920px,92%)] h-[min(1180px,92%)] min-h-[360px] bg-white border border-[#d1d5db] shadow-sm rounded-lg overflow-hidden select-none"
         >
           {hasPreview ? (
-            <iframe
-              key={previewUrl ?? currentRevision.id}
-              src={`${previewUrl}#view=FitH&page=1&toolbar=0&navpanes=0`}
-              title={`${currentRevision.fileName} PDF preview`}
-              className="absolute inset-0 h-full w-full bg-white"
-            />
+            <div className="absolute inset-0 flex items-center justify-center bg-white p-6" aria-label={`${currentRevision.fileName} PDF preview`}>
+              {renderStatus !== "ready" && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-8 text-center bg-white">
+                  <FileText className="w-10 h-10 text-[#94a3b8] mb-3" />
+                  <h3 className="text-sm font-bold text-[#111827]">
+                    {renderStatus === "failed" ? "PDF preview unavailable" : "Rendering uploaded PDF"}
+                  </h3>
+                  <p className="text-xs text-[#64748b] max-w-sm mt-1">
+                    {displayedPreviewError || "RoughBid is drawing the first page you uploaded so the blue marks can sit on top of it."}
+                  </p>
+                </div>
+              )}
+              <canvas
+                ref={canvasRef}
+                className={`max-h-full max-w-full bg-white transition-opacity ${renderStatus === "ready" ? "opacity-100" : "opacity-0"}`}
+              />
+            </div>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white">
               <FileText className="w-10 h-10 text-[#94a3b8] mb-3" />
@@ -202,7 +266,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
                 {isPreviewLoading ? "Opening PDF preview" : "PDF preview unavailable"}
               </h3>
               <p className="text-xs text-[#64748b] max-w-sm mt-1">
-                {previewError || "Upload a PDF through the workspace so RoughBid can show the real plan here."}
+                {displayedPreviewError || "Upload a PDF through the workspace so RoughBid can show the real plan here."}
               </p>
             </div>
           )}
@@ -287,3 +351,4 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({
     </div>
   );
 };
+

@@ -29,8 +29,9 @@ test('plan viewer fits smaller screens and uses a mobile bottom sheet for callou
 });
 
 test('plan viewer renders the uploaded PDF under the markup layer', () => {
-  assert.match(blueprint, /<iframe/);
-  assert.match(blueprint, /previewUrl/);
+  assert.match(blueprint, /<canvas/);
+  assert.match(blueprint, /pdfjs\.getDocument/);
+  assert.match(blueprint, /Rendering uploaded PDF/);
   assert.match(blueprint, /Blue marks and notes sit on top of the PDF you uploaded/);
   assert.doesNotMatch(blueprint, /PLAN SHEET A-1|EXISTING HOUSE|STAIRS \(4 RISERS\)/);
   assert.match(plans, /URL\.createObjectURL\(file\)/);
