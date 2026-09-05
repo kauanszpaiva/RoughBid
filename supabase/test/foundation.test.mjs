@@ -13,8 +13,7 @@ test('foundation migration encodes tenancy, entitlements, RLS and private plan s
     'create table public.billing_customers',
     'create table public.stripe_events',
     'enable row level security',
-    "'class_pass'",
-    "interval '60 days'",
+    "'access_grant'",
     "'plan-files'",
     'allowed_mime_types',
   ]) {

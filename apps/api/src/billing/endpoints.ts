@@ -1,6 +1,6 @@
 import {
   type BillingConfig, type BillingCustomerUpdate, type StripeEvent,
-  createCheckoutRequest, createPortalRequest, subscriptionUpdateFromEvent, verifyStripeWebhook,
+  createCheckoutRequest, createPortalRequest, isBillingPriceKey, subscriptionUpdateFromEvent, verifyStripeWebhook,
 } from './stripe.ts';
 
 export type AuthenticatedUser = { id: string; email: string };
@@ -45,10 +45,15 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
       const body = await input(request);
       const customerId = await deps.repository.customerIdForUser(user.id);
       if (path === '/api/billing/checkout') {
-        if (!deps.config.priceId) return json(503, { error: 'Checkout is not configured.' });
-        const session = await deps.stripe.createCheckoutSession(createCheckoutRequest(deps.config, {
+        const priceKey = isBillingPriceKey(body.priceKey) ? body.priceKey : undefined;
+        if (priceKey ? !deps.config.priceIds[priceKey] : !deps.config.priceId) return json(503, { error: 'Checkout is not configured.' });
+        const checkoutInput = {
           customerEmail: user.email, customerId, userId: user.id,
           successUrl: String(body.successUrl ?? ''), cancelUrl: String(body.cancelUrl ?? ''),
+        };
+        const session = await deps.stripe.createCheckoutSession(createCheckoutRequest(deps.config, {
+          ...checkoutInput,
+          ...(priceKey ? { priceKey } : {}),
         }));
         return json(200, { url: session.url });
       }

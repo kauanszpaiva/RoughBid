@@ -1,13 +1,18 @@
 import {
+  validateEmail,
+  normalizeInviteRole,
   normalizeWorkspaceName,
   type AddWorkspaceMemberInput,
   type CreateWorkspaceInput,
+  type CreateWorkspaceInviteInput,
   type UpdateWorkspaceInput,
   type UpdateWorkspaceMemberInput,
   type Workspace,
+  type WorkspaceInvite,
   type WorkspaceMembership,
   type WorkspaceRole,
 } from '../../../../packages/domain/src/index.ts';
+import { createHash, randomBytes } from 'node:crypto';
 import { requireUser, throwIfError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
 
 const workspace = (row: Record<string, unknown>): Workspace => ({
@@ -17,6 +22,22 @@ const membership = (row: Record<string, unknown>): WorkspaceMembership => ({
   workspaceId: String(row.workspace_id), userId: String(row.user_id),
   role: String(row.role) as WorkspaceRole, createdAt: String(row.created_at),
 });
+const invite = (row: Record<string, unknown>): WorkspaceInvite => ({
+  id: String(row.id), workspaceId: String(row.workspace_id), email: String(row.email),
+  role: String(row.role) as WorkspaceRole, expiresAt: String(row.expires_at),
+  acceptedAt: row.accepted_at === null ? null : String(row.accepted_at), createdAt: String(row.created_at),
+});
+const hashToken = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');
+
+function appInviteUrl(appUrl: string, token: string): string {
+  const url = new URL(appUrl);
+  const basePath = url.pathname.replace(/\/$/, '');
+  url.pathname = `${basePath}/app/`.replace(/\/{2,}/g, '/');
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('invite', token);
+  return url.toString();
+}
 
 export async function listWorkspaces(client: AuthenticatedSupabaseClient): Promise<Workspace[]> {
   await requireUser(client);
@@ -83,4 +104,60 @@ export async function removeWorkspaceMember(client: AuthenticatedSupabaseClient,
   await requireUser(client);
   const { error } = await client.from('workspace_members').delete().eq('workspace_id', workspaceId).eq('user_id', userId);
   throwIfError(error);
+}
+
+export async function createWorkspaceInvite(client: AuthenticatedSupabaseClient, workspaceId: string, input: CreateWorkspaceInviteInput): Promise<WorkspaceInvite & { token: string }> {
+  const user = await requireUser(client);
+  const email = validateEmail(input.email);
+  const role = normalizeInviteRole(input.role);
+  const token = randomBytes(32).toString('base64url');
+  const token_hash = hashToken(token);
+  const expires_at = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await client.from('workspace_invites')
+    .insert({ workspace_id: workspaceId, email, role, token_hash, expires_at, created_by: user.id })
+    .select('id, workspace_id, email, role, expires_at, accepted_at, created_at')
+    .single();
+  throwIfError(error);
+  if (!data) throw new Error('Invite insert returned no row.');
+  return { ...invite(data), token };
+}
+
+export async function createWorkspaceInviteWithEmail(
+  client: AuthenticatedSupabaseClient,
+  workspaceId: string,
+  input: CreateWorkspaceInviteInput & { appUrl?: string },
+  sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => Promise<unknown>,
+): Promise<WorkspaceInvite & { token: string; emailSent: boolean; emailError?: string }> {
+  const created = await createWorkspaceInvite(client, workspaceId, input);
+  let emailSent = false;
+  let emailError: string | undefined;
+  if (sendInviteEmail && input.appUrl) {
+    const workspaceRecord = await getWorkspace(client, workspaceId);
+    if (!workspaceRecord) throw new Error('Workspace not found.');
+    try {
+      await sendInviteEmail({
+        to: created.email,
+        workspaceName: workspaceRecord.name,
+        inviteUrl: appInviteUrl(input.appUrl, created.token),
+        role: created.role === 'admin' ? 'estimator' : created.role,
+        inviteId: created.id,
+      });
+      emailSent = true;
+    } catch (error) {
+      emailError = error instanceof Error ? error.message : 'Invite email could not be sent.';
+    }
+  }
+  return { ...created, emailSent, ...(emailError ? { emailError } : {}) };
+}
+
+export async function acceptWorkspaceInvite(client: AuthenticatedSupabaseClient, token: string): Promise<{ workspaceId: string; role: WorkspaceRole }> {
+  await requireUser(client);
+  if (!/^[A-Za-z0-9_-]{32,}$/.test(token)) throw new TypeError('Invalid invite token.');
+  if (!client.rpc) throw new Error('Supabase RPC support is required.');
+  const { data, error } = await client.rpc('accept_workspace_invite', { invite_token_digest: hashToken(token) });
+  throwIfError(error);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== 'object') throw new Error('Invite acceptance returned no row.');
+  const record = row as Record<string, unknown>;
+  return { workspaceId: String(record.workspace_id), role: String(record.role) as WorkspaceRole };
 }

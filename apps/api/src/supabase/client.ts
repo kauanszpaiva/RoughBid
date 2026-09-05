@@ -19,7 +19,8 @@ export interface SupabaseQuery {
 
 export interface AuthenticatedSupabaseClient {
   auth: { getUser(): Promise<{ data: { user: SupabaseUser | null }; error: { message: string } | null }> };
-  from(table: 'profiles' | 'workspaces' | 'workspace_members'): SupabaseQuery;
+  from(table: 'profiles' | 'workspaces' | 'workspace_members' | 'workspace_invites'): SupabaseQuery;
+  rpc?(fn: string, args?: Record<string, unknown>): QueryResult<unknown>;
 }
 
 export class ApiActionError extends Error {

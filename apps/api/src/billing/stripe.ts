@@ -2,30 +2,99 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export type StripeMode = 'test' | 'live';
 
-export type BillingConfigInput = { stripeMode: StripeMode; productId: string; priceId: string };
-export type BillingConfig = { mode: StripeMode; productId: string; priceId: string | null };
-export type CheckoutInput = { customerEmail: string; successUrl: string; cancelUrl: string; userId?: string; customerId?: string | null };
+export type BillingPriceKey =
+  | 'plan_starter'
+  | 'plan_pro'
+  | 'plan_team'
+  | 'project_small'
+  | 'project_standard'
+  | 'project_large'
+  | 'project_complex'
+  | 'marketplace_new_england_codes'
+  | 'marketplace_regional_material_prices'
+  | 'marketplace_labor_benchmarks'
+  | 'marketplace_supplier_import';
+
+export const BILLING_PRICE_KEYS: readonly BillingPriceKey[] = [
+  'plan_starter',
+  'plan_pro',
+  'plan_team',
+  'project_small',
+  'project_standard',
+  'project_large',
+  'project_complex',
+  'marketplace_new_england_codes',
+  'marketplace_regional_material_prices',
+  'marketplace_labor_benchmarks',
+  'marketplace_supplier_import',
+];
+
+export function isBillingPriceKey(value: unknown): value is BillingPriceKey {
+  return typeof value === 'string' && (BILLING_PRICE_KEYS as readonly string[]).includes(value);
+}
+
+export type BillingConfigInput = {
+  stripeMode: StripeMode;
+  productId: string;
+  priceId?: string;
+  priceIds?: Partial<Record<BillingPriceKey, string>>;
+};
+export type BillingConfig = {
+  mode: StripeMode;
+  productId: string;
+  priceId: string | null;
+  priceIds: Partial<Record<BillingPriceKey, string>>;
+};
+export type CheckoutInput = {
+  customerEmail: string;
+  successUrl: string;
+  cancelUrl: string;
+  userId?: string;
+  customerId?: string | null;
+  priceKey?: BillingPriceKey;
+};
 export type PortalInput = { customerId: string; returnUrl: string };
 
 export type HostedCheckoutRequest = {
-  mode: 'subscription'; ui_mode: 'hosted'; customer_email?: string;
+  mode: 'subscription' | 'payment'; ui_mode: 'hosted'; customer_email?: string;
   customer?: string; line_items: Array<{ price: string; quantity: 1 }>;
   success_url: string; cancel_url: string; client_reference_id?: string;
   subscription_data?: { metadata: { user_id: string } };
+  metadata?: { user_id?: string; price_key?: string };
 };
 
 export type PortalRequest = { customer: string; return_url: string };
 
 export function createBillingConfig(input: BillingConfigInput): BillingConfig {
   if (!input.productId.trim()) throw new Error('Stripe product ID is required.');
-  return { mode: input.stripeMode, productId: input.productId.trim(), priceId: input.priceId.trim() || null };
+  const priceIds = Object.fromEntries(
+    Object.entries(input.priceIds ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => [key, String(value).trim()]),
+  ) as Partial<Record<BillingPriceKey, string>>;
+  return { mode: input.stripeMode, productId: input.productId.trim(), priceId: input.priceId?.trim() || null, priceIds };
 }
 
 export function createBillingConfigFromEnv(env: Record<string, string | undefined>): BillingConfig {
+  const priceIds: Partial<Record<BillingPriceKey, string>> = {};
+  for (const [key, value] of Object.entries({
+    plan_starter: env.STRIPE_PRICE_PLAN_STARTER,
+    plan_pro: env.STRIPE_PRICE_PLAN_PRO,
+    plan_team: env.STRIPE_PRICE_PLAN_TEAM,
+    project_small: env.STRIPE_PRICE_PROJECT_SMALL,
+    project_standard: env.STRIPE_PRICE_PROJECT_STANDARD,
+    project_large: env.STRIPE_PRICE_PROJECT_LARGE,
+    project_complex: env.STRIPE_PRICE_PROJECT_COMPLEX,
+    marketplace_new_england_codes: env.STRIPE_PRICE_MARKETPLACE_NEW_ENGLAND_CODES,
+    marketplace_regional_material_prices: env.STRIPE_PRICE_MARKETPLACE_REGIONAL_MATERIAL_PRICES,
+    marketplace_labor_benchmarks: env.STRIPE_PRICE_MARKETPLACE_LABOR_BENCHMARKS,
+    marketplace_supplier_import: env.STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT,
+  }) as Array<[BillingPriceKey, string | undefined]>) {
+    if (value?.trim()) priceIds[key] = value.trim();
+  }
   return createBillingConfig({
     stripeMode: env.STRIPE_MODE === 'live' ? 'live' : 'test',
     productId: env.STRIPE_PRODUCT_ID ?? '',
     priceId: env.STRIPE_PRICE_ID ?? '',
+    priceIds,
   });
 }
 
@@ -36,17 +105,20 @@ function requireHttps(value: string, label: string): string {
 }
 
 export function createCheckoutRequest(config: BillingConfig, input: CheckoutInput): HostedCheckoutRequest {
-  if (!config.priceId) throw new Error('Checkout is disabled until an approved Stripe price is configured.');
+  const selectedPriceId = input.priceKey ? config.priceIds[input.priceKey] : config.priceId;
+  if (!selectedPriceId) throw new Error('Checkout is disabled until an approved Stripe price is configured.');
   if (!input.customerId && !input.customerEmail.includes('@')) throw new Error('A valid customer email is required.');
+  const checkoutMode = input.priceKey?.startsWith('project_') ? 'payment' : 'subscription';
   const request: HostedCheckoutRequest = {
-    mode: 'subscription', ui_mode: 'hosted', line_items: [{ price: config.priceId, quantity: 1 }],
+    mode: checkoutMode, ui_mode: 'hosted', line_items: [{ price: selectedPriceId, quantity: 1 }],
     success_url: requireHttps(input.successUrl, 'success URL'), cancel_url: requireHttps(input.cancelUrl, 'cancel URL'),
   };
   if (input.customerId) request.customer = input.customerId;
   else request.customer_email = input.customerEmail;
   if (input.userId) {
     request.client_reference_id = input.userId;
-    request.subscription_data = { metadata: { user_id: input.userId } };
+    if (checkoutMode === 'subscription') request.subscription_data = { metadata: { user_id: input.userId } };
+    else request.metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}) };
   }
   return request;
 }

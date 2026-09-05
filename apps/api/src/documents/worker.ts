@@ -4,11 +4,14 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DocumentDb, PdfJob } from './service.ts';
-import type { S3ObjectStorage } from '../storage/object-storage.ts';
+import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
 
 const exec = promisify(execFile);
 export interface ExtractedPdf { pageCount: number; title: string | null; author: string | null; pages: Array<{ bytes: Uint8Array; width?: number; height?: number }>; }
 export interface PdfConverter { convert(pdf: Uint8Array): Promise<ExtractedPdf>; }
+export interface WorkerObjectStorage {
+  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options?: { expiresIn?: number; contentType?: string; downloadName?: string }): PresignedObjectRequest | Promise<PresignedObjectRequest>;
+}
 
 /** Production converter backed by Poppler's pdfinfo and pdftoppm commands. */
 export class PopplerPdfConverter implements PdfConverter {
@@ -29,17 +32,17 @@ export class PopplerPdfConverter implements PdfConverter {
 
 export class PdfJobProcessor {
   private db: DocumentDb;
-  private storage: S3ObjectStorage;
+  private storage: WorkerObjectStorage;
   private converter: PdfConverter;
   private fetcher: typeof fetch;
-  constructor(db: DocumentDb, storage: S3ObjectStorage, converter: PdfConverter, fetcher: typeof fetch = fetch) {
+  constructor(db: DocumentDb, storage: S3ObjectStorage | WorkerObjectStorage, converter: PdfConverter, fetcher: typeof fetch = fetch) {
     this.db = db; this.storage = storage; this.converter = converter; this.fetcher = fetcher;
   }
 
   async process(job: PdfJob) {
     await this.setState(job, { processing_status: 'processing', processing_error: null });
     try {
-      const source = this.storage.presign('GET', job.sourceKey, { expiresIn: 300 });
+      const source = await this.storage.presign('GET', job.sourceKey, { expiresIn: 300 });
       const response = await this.fetcher(source.url);
       if (!response.ok) throw new Error(`Object download failed (${response.status})`);
       const converted = await this.converter.convert(new Uint8Array(await response.arrayBuffer()));
@@ -47,7 +50,7 @@ export class PdfJobProcessor {
       for (let index = 0; index < converted.pages.length; index += 1) {
         const page = converted.pages[index]!;
         const key = `${job.workspaceId}/${job.projectId}/${job.fileId}/pages/${String(index + 1).padStart(4, '0')}.jpg`;
-        const upload = this.storage.presign('PUT', key, { expiresIn: 300, contentType: 'image/jpeg' });
+        const upload = await this.storage.presign('PUT', key, { expiresIn: 300, contentType: 'image/jpeg' });
         const uploaded = await this.fetcher(upload.url, { method: 'PUT', headers: upload.headers, body: page.bytes });
         if (!uploaded.ok) throw new Error(`Page ${index + 1} upload failed (${uploaded.status})`);
         assets.push({ file_id: job.fileId, page_number: index + 1, storage_path: key, mime_type: 'image/jpeg', byte_size: page.bytes.byteLength, width: page.width ?? null, height: page.height ?? null });

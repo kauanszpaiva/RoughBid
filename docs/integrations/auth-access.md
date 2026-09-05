@@ -17,21 +17,21 @@ Workspace authorization is enforced by PostgreSQL row-level security, not UI sta
 | Viewer | Read projects, estimates, and plan files |
 
 Platform administrators remain a separate profile flag and do not implicitly join a
-tenant. Every query still requires workspace membership, preventing cross-class data
+tenant. Every query still requires workspace membership, preventing cross-organization data
 access.
 
-## Class Pass operations
+## Workspace access operations
 
-1. An admin-only server route calls `issueClassPass`. Persist the supplied digest and
-   dates in `class_pass_tokens` with a service-role client; display the returned secret
+1. An admin-only server route calls `issueAccessGrant`. Persist the supplied digest and
+   dates in `access_grant_tokens` with a service-role client; display the returned secret
    once and never log it.
-2. An authenticated student submits the secret. Hash it in the API and invoke
-   `redeem_class_pass` with the user's Supabase session (never the service role).
+2. An authenticated user submits the secret. Hash it in the API and invoke
+   `redeem_access_grant` with the user's Supabase session (never the service role).
 3. The database locks and consumes the token, creates a dedicated workspace with the
-   student as Admin, and creates the 60-day entitlement in one transaction.
+   user as Admin, and creates the configured entitlement in one transaction.
 4. RLS gates each project and storage object by both active entitlement and membership.
    At the expiration instant, product access ends automatically. Tokens are single-use.
 
-Treat Class Pass secrets like passwords: send them over HTTPS, redact request bodies
+Treat access grant secrets like passwords: send them over HTTPS, redact request bodies
 and query strings from logs, rate-limit redemption by user and IP, and revoke exposed
-passes server-side.
+grants server-side.

@@ -1,4 +1,4 @@
-import { calculateEstimate, createClassPassWindow, isClassPassActive, type EstimateInput, type EstimateResult } from '../../../../packages/domain/src/index.ts';
+import { calculateEstimate, createAccessWindow, isAccessWindowActive, type EstimateInput, type EstimateResult } from '../../../../packages/domain/src/index.ts';
 
 export type User = { id: string };
 export type Project = {
@@ -18,7 +18,7 @@ export type StoredEstimate = EstimateInput & EstimateResult & {
 /** A deterministic store used by the service and replaceable by a database adapter. */
 export class MemoryBackendStore {
   readonly workspaceMembers = new Map<string, Set<string>>();
-  readonly entitlements = new Map<string, ReturnType<typeof createClassPassWindow>>();
+  readonly entitlements = new Map<string, ReturnType<typeof createAccessWindow>>();
   readonly projects = new Map<string, Project>();
   readonly estimates = new Map<string, StoredEstimate>();
   readonly files = new Map<string, { workspaceId: string; projectId: string; private: true; mimeType: 'application/pdf' }>();
@@ -38,17 +38,17 @@ export class RoughBidService {
     this.store.workspaceMembers.set(workspaceId, members);
   }
 
-  grantClassPass(userId: string, startsAt: Date) {
-    const pass = createClassPassWindow(startsAt);
-    this.store.entitlements.set(userId, pass);
-    return pass;
+  grantWorkspaceEntitlement(userId: string, startsAt: Date, durationDays = 30) {
+    const access = createAccessWindow(startsAt, durationDays);
+    this.store.entitlements.set(userId, access);
+    return access;
   }
 
   #authorize(user: User | null, workspaceId: string, at: Date): User {
     if (!user) throw new Error('Authentication required.');
     if (!this.store.workspaceMembers.get(workspaceId)?.has(user.id)) throw new Error('Workspace access denied.');
     const entitlement = this.store.entitlements.get(user.id);
-    if (!entitlement || !isClassPassActive(entitlement, at)) throw new Error('Active entitlement required.');
+    if (!entitlement || !isAccessWindowActive(entitlement, at)) throw new Error('Active entitlement required.');
     return user;
   }
 

@@ -10,8 +10,8 @@ function fixture() {
   const service = new RoughBidService(store);
   service.grantWorkspaceAccess('workspace-a', 'alice');
   service.grantWorkspaceAccess('workspace-b', 'bob');
-  service.grantClassPass('alice', start);
-  service.grantClassPass('bob', start);
+  service.grantWorkspaceEntitlement('alice', start, 45);
+  service.grantWorkspaceEntitlement('bob', start, 45);
   return { store, service, alice: { id: 'alice' }, bob: { id: 'bob' } };
 }
 
@@ -50,11 +50,11 @@ test('calculated estimate values are persisted with inputs and tenant ownership'
   assert.deepEqual(store.estimates.get(estimate.id), estimate);
 });
 
-test('Class Pass lasts exactly 60 days, needs no card, and blocks access at expiration', () => {
+test('workspace entitlement uses configured duration, needs no card, and blocks access at expiration', () => {
   const { service, alice } = fixture();
-  const pass = service.grantClassPass(alice.id, start);
-  assert.equal(pass.expiresAt.getTime() - pass.startsAt.getTime(), 60 * 24 * 60 * 60 * 1000);
-  assert.equal(pass.requiresPaymentMethod, false);
-  service.createProject(alice, 'workspace-a', 'Before expiry', new Date(pass.expiresAt.getTime() - 1));
-  assert.throws(() => service.createProject(alice, 'workspace-a', 'At expiry', pass.expiresAt), /entitlement/i);
+  const access = service.grantWorkspaceEntitlement(alice.id, start, 45);
+  assert.equal(access.expiresAt.getTime() - access.startsAt.getTime(), 45 * 24 * 60 * 60 * 1000);
+  assert.equal(access.requiresPaymentMethod, false);
+  service.createProject(alice, 'workspace-a', 'Before expiry', new Date(access.expiresAt.getTime() - 1));
+  assert.throws(() => service.createProject(alice, 'workspace-a', 'At expiry', access.expiresAt), /entitlement/i);
 });

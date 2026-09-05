@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { createBillingEndpointHandler } from '../src/billing/endpoints.ts';
-import { createBillingConfig, createCheckoutRequest, createPortalRequest, verifyStripeWebhook } from '../src/billing/stripe.ts';
+import { createBillingConfig, createBillingConfigFromEnv, createCheckoutRequest, createPortalRequest, isBillingPriceKey, verifyStripeWebhook } from '../src/billing/stripe.ts';
 
 test('billing config is live-mode aware but refuses checkout without an approved price', () => {
   const config = createBillingConfig({
@@ -13,7 +13,7 @@ test('billing config is live-mode aware but refuses checkout without an approved
   assert.equal(config.mode, 'live');
   assert.equal(config.productId, 'prod_VB3s2SIgOAxwRR');
   assert.throws(() => createCheckoutRequest(config, {
-    customerEmail: 'student@example.com',
+    customerEmail: 'estimator@example.com',
     successUrl: 'https://app.example.com/billing/success',
     cancelUrl: 'https://app.example.com/billing/cancel',
   }), /approved Stripe price/i);
@@ -88,16 +88,99 @@ test('checkout request uses hosted subscription checkout only after price approv
     priceId: 'price_approved',
   });
   const request = createCheckoutRequest(config, {
-    customerEmail: 'student@example.com',
+    customerEmail: 'estimator@example.com',
     successUrl: 'https://app.example.com/billing/success',
     cancelUrl: 'https://app.example.com/billing/cancel',
   });
   assert.deepEqual(request, {
     mode: 'subscription',
     ui_mode: 'hosted',
-    customer_email: 'student@example.com',
+    customer_email: 'estimator@example.com',
     line_items: [{ price: 'price_approved', quantity: 1 }],
     success_url: 'https://app.example.com/billing/success',
     cancel_url: 'https://app.example.com/billing/cancel',
   });
+});
+
+test('billing config supports RoughBid plan, project-size, and marketplace price IDs', () => {
+  const config = createBillingConfigFromEnv({
+    STRIPE_MODE: 'test',
+    STRIPE_PRODUCT_ID: 'prod_roughbid',
+    STRIPE_PRICE_PLAN_STARTER: 'price_starter',
+    STRIPE_PRICE_PROJECT_STANDARD: 'price_project_standard',
+    STRIPE_PRICE_MARKETPLACE_REGIONAL_MATERIAL_PRICES: 'price_marketplace_regional',
+  });
+  assert.equal(config.priceIds.plan_starter, 'price_starter');
+  assert.equal(config.priceIds.project_standard, 'price_project_standard');
+  assert.equal(config.priceIds.marketplace_regional_material_prices, 'price_marketplace_regional');
+  assert.equal(config.priceId, null);
+});
+
+test('checkout can select an approved subscription price by RoughBid price key', () => {
+  const request = createCheckoutRequest(
+    createBillingConfig({
+      stripeMode: 'test',
+      productId: 'prod_roughbid',
+      priceIds: { plan_pro: 'price_pro' },
+    }),
+    {
+      customerEmail: 'estimator@example.com',
+      successUrl: 'https://app.example.com/billing/success',
+      cancelUrl: 'https://app.example.com/billing/cancel',
+      userId: 'user_1',
+      priceKey: 'plan_pro',
+    },
+  );
+  assert.equal(request.mode, 'subscription');
+  assert.deepEqual(request.line_items, [{ price: 'price_pro', quantity: 1 }]);
+  assert.deepEqual(request.subscription_data, { metadata: { user_id: 'user_1' } });
+});
+
+test('checkout can select one-time per-project prices without subscription metadata', () => {
+  const request = createCheckoutRequest(
+    createBillingConfig({
+      stripeMode: 'test',
+      productId: 'prod_roughbid',
+      priceIds: { project_large: 'price_project_large' },
+    }),
+    {
+      customerEmail: 'estimator@example.com',
+      successUrl: 'https://app.example.com/billing/success',
+      cancelUrl: 'https://app.example.com/billing/cancel',
+      userId: 'user_1',
+      priceKey: 'project_large',
+    },
+  );
+  assert.equal(request.mode, 'payment');
+  assert.deepEqual(request.line_items, [{ price: 'price_project_large', quantity: 1 }]);
+  assert.equal(request.subscription_data, undefined);
+  assert.deepEqual(request.metadata, { user_id: 'user_1', price_key: 'project_large' });
+});
+
+test('billing endpoint ignores invalid price keys instead of accepting arbitrary Stripe prices', async () => {
+  let requestPrice = '';
+  const handler = createBillingEndpointHandler({
+    config: createBillingConfig({ stripeMode: 'test', productId: 'prod_1', priceId: 'price_default' }),
+    webhookSecret: 'secret',
+    stripe: {
+      async createCheckoutSession(input) {
+        requestPrice = input.line_items[0]?.price ?? '';
+        return { url: 'https://checkout.stripe.com/default' };
+      },
+      async createPortalSession() { return { url: '' }; },
+    },
+    repository: { async customerIdForUser() { return null; }, async processStripeEvent() { return true; } },
+    async authenticate() { return { id: 'user_1', email: 'owner@example.com' }; },
+  });
+  const response = await handler(new Request('https://api.example.com/api/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({
+      successUrl: 'https://app.example.com/success',
+      cancelUrl: 'https://app.example.com/cancel',
+      priceKey: 'price_attacker_controlled',
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(requestPrice, 'price_default');
+  assert.equal(isBillingPriceKey('price_attacker_controlled'), false);
 });

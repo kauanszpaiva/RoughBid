@@ -3,7 +3,7 @@
 Status: approved working codename; final brand remains open.
 
 ## Goal
-Build a KSP Ventures-owned construction-estimating SaaS as a monorepo that lets nontechnical users move from plans/PDFs to quantities, costs, overhead, markup, margin, estimate totals, and export. Prime Bid class participants receive a fixed 60-day Class Pass with no card. Paid users subscribe separately through Stripe.
+Build a KSP Ventures-owned construction-estimating SaaS as a monorepo that lets nontechnical users move from plans/PDFs to quantities, costs, overhead, markup, margin, estimate totals, and export. Workspace access is managed directly by RoughBid; paid users subscribe separately through Stripe.
 
 ## Ownership boundaries
 - `apps/web/**`: Bruno — frontend, UX, responsive UI, public landing, authenticated UI.
@@ -17,7 +17,7 @@ Build a KSP Ventures-owned construction-estimating SaaS as a monorepo that lets 
 1. Public landing page.
 2. Supabase Auth foundation.
 3. Project record + estimate draft model.
-4. Class Pass entitlement independent of Stripe.
+4. Workspace access entitlement independent of Stripe.
 5. Stripe Billing architecture prepared for hosted Checkout + Customer Portal; no price created until approved.
 6. Resend transactional template foundation.
 7. AI excluded from critical path for v0.
@@ -30,14 +30,14 @@ Use npm workspaces with TypeScript. `apps/web` is a Next.js app deployable to Ve
 - No service-role key reaches client code.
 - No raw payment credentials are stored.
 - Stripe subscription state is mirrored from signed webhooks, not trusted from client callbacks.
-- Class Pass entitlement has explicit `starts_at` and `expires_at` and never auto-creates a Stripe subscription.
+- Workspace access entitlement has explicit `starts_at` and `expires_at` and never auto-creates a Stripe subscription.
 - Storage for plans is private by default.
 
 ## UX direction
 Blue/white blueprint-inspired visual language, clean and instructional rather than AI-futuristic. Primary flow language should be plain English: Plans → Quantities → Estimate → Export.
 
 ## Landing page
-The public landing communicates: construction estimating made understandable, classroom access for Prime Bid students, future paid subscription, and a coming AI-assist layer without claiming AI is active today.
+The public landing communicates: construction estimating made understandable, RoughBid-managed workspace access, future paid subscription, and a coming AI-assist layer without claiming AI is active today.
 
 ## Deployment
 - Supabase: separate project in us-east-1.
@@ -49,7 +49,7 @@ The public landing communicates: construction estimating made understandable, cl
 - Monorepo installs and builds.
 - Landing page renders on desktop/mobile without runtime errors.
 - Ownership boundaries are encoded in CODEOWNERS.
-- Domain tests cover the 60-day Class Pass and estimate math.
+- Domain tests cover configurable workspace access and estimate math.
 - Supabase migration enables RLS and policies for initial tables.
 - No secrets committed.
 - Stripe/Resend integrations are documented and staged without customer sends or charges.

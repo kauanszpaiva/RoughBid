@@ -1,36 +1,37 @@
-import { createClassPassWindow } from '../../../../packages/domain/src/index.ts';
+import { createAccessWindow } from '../../../../packages/domain/src/index.ts';
 
-export type ClassPassGrant = {
+export type AccessGrant = {
   userId: string;
-  kind: 'class_pass';
+  kind: 'access_grant';
   startsAt: Date;
   expiresAt: Date;
   paymentProvider: null;
   paymentMethodRequired: false;
 };
 
-export type ClassPassGrantStore = {
-  insert(grant: ClassPassGrant): Promise<ClassPassGrant>;
+export type AccessGrantStore = {
+  insert(grant: AccessGrant): Promise<AccessGrant>;
 };
 
 export type WelcomeEmailSender = (input: { to: string; appUrl: string }) => Promise<unknown>;
 
-export async function grantClassPass(input: {
+export async function grantWorkspaceAccess(input: {
   userId: string;
   email: string;
   appUrl: string;
   startsAt?: Date;
+  durationDays?: number;
 }, dependencies: {
-  store: ClassPassGrantStore;
+  store: AccessGrantStore;
   sendWelcomeEmail: WelcomeEmailSender;
   now?: () => Date;
-}): Promise<ClassPassGrant> {
+}): Promise<AccessGrant> {
   if (!input.userId.trim()) throw new Error('A user ID is required.');
   const startsAt = input.startsAt ?? dependencies.now?.() ?? new Date();
-  const window = createClassPassWindow(startsAt);
+  const window = createAccessWindow(startsAt, input.durationDays ?? 30);
   const grant = await dependencies.store.insert({
     userId: input.userId,
-    kind: 'class_pass',
+    kind: 'access_grant',
     startsAt: window.startsAt,
     expiresAt: window.expiresAt,
     paymentProvider: null,

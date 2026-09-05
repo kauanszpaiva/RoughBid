@@ -15,7 +15,7 @@
 - Bruno owns `apps/web/**` and `packages/ui/**`.
 - Kauan owns `apps/api/**` and `supabase/**`.
 - Shared `packages/domain/**` requires cross-review.
-- Class Pass is 60 days, no card, independent of Stripe.
+- Workspace access grants are independent of Stripe and use configured access windows.
 - No Stripe product/price/charge until commercial approval.
 - No AI dependency in the initial critical path.
 - No secrets committed.
@@ -24,8 +24,8 @@
 
 ### Task 1: Monorepo contracts and ownership
 **Files:** root workspace files, `packages/domain/**`, `.github/CODEOWNERS`.
-**Interfaces:** produces `calculateEstimate()` and `createClassPassWindow()`.
-- [ ] Write failing domain tests for estimate math and 60-day access.
+**Interfaces:** produces `calculateEstimate()` and `createAccessWindow()`.
+- [ ] Write failing domain tests for estimate math and configurable workspace access.
 - [ ] Run tests and observe missing implementation.
 - [ ] Implement minimal typed domain functions.
 - [ ] Add workspace/build scripts and ownership rules.
@@ -54,7 +54,7 @@
 **Interfaces:** server-only hosted Checkout/Portal/webhook adapter; Resend template references.
 - [ ] Write failing adapter tests with dependency injection.
 - [ ] Implement no-charge staging adapters.
-- [ ] Create Resend draft welcome/Class Pass template on verified KSP domain.
+- [ ] Create Resend draft workspace welcome template on verified KSP domain.
 - [ ] Verify Stripe LIVE account architecture only; create no products/prices/charges.
 - [ ] Commit.
 

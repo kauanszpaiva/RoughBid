@@ -1,0 +1,17 @@
+{
+  "name": "RoughBid",
+  "short_name": "RoughBid",
+  "description": "Construction estimating and takeoff SaaS.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fcfcfd",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/brand/roughbid-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

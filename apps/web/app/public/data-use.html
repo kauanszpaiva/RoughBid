@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RoughBid Data Use and AI Policy</title>
+  <link rel="icon" href="/brand/roughbid-icon.png" type="image/png" />
+  <style>
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; background: #fcfcfd; line-height: 1.6; }
+    main { max-width: 880px; margin: 0 auto; padding: 48px 20px 72px; }
+    a { color: #2563eb; }
+    h1 { font-size: 34px; line-height: 1.1; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin: 30px 0 8px; }
+    p, li { font-size: 14px; color: #374151; }
+    .note { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; color: #1e3a8a; }
+    .warning { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px; color: #7c2d12; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/">Back to RoughBid</a></p>
+    <h1>RoughBid Data Use and AI Policy</h1>
+    <p class="note">Operational draft. This page explains intended handling for construction plans, project data, and AI-assisted review. It is not legal advice.</p>
+
+    <h2>1. Plan Files and Project Data</h2>
+    <p>Plans, drawings, specifications, photos, notes, and proposals may contain confidential project, client, property, pricing, contractor, or trade information. RoughBid should store plan files privately, restrict access by organization role, and keep each project separated inside its organization workspace.</p>
+
+    <h2>2. AI Suggestions</h2>
+    <p>AI-generated scope, quantities, missing-trade flags, plan explanations, code prompts, price prompts, and markup suggestions are draft suggestions. The estimator must review and approve every item before it becomes part of an estimate, proposal, contract, purchase order, schedule, or field instruction.</p>
+
+    <h2>3. Machine Learning and Training Boundaries</h2>
+    <p>RoughBid may build internal evaluation datasets, benchmark prompts, extraction rules, pricing logic, and quality checks using approved data sources. Customer-owned plans should not be used to train a shared model unless the customer gives clear written permission or the data is processed through an approved de-identification and governance workflow.</p>
+    <p>Public code, public construction standards, public bid documents, and public price information may have license, copyright, scraping, access, or attribution restrictions. Sources must be reviewed before being used in datasets, marketplace tables, or model training.</p>
+
+    <h2>4. Regional Codes and Price Data</h2>
+    <p>RoughBid may reference federal, state, local, New England regional, vendor, or third-party pricing and code information. Such information can become stale quickly. Users must confirm current code, permit, labor, material, tax, and jurisdiction-specific requirements before relying on an estimate.</p>
+
+    <h2>5. Human Review Required</h2>
+    <ul>
+      <li>Confirm measurements against the latest plan revision.</li>
+      <li>Confirm unit costs, labor assumptions, overhead, markup, and target margin.</li>
+      <li>Confirm exclusions, alternates, taxes, permits, inspections, and local requirements.</li>
+      <li>Review client-facing proposals before sharing.</li>
+      <li>Confirm that any client signature language matches the actual project and jurisdiction.</li>
+    </ul>
+
+    <h2>6. Data Minimization</h2>
+    <p>Only upload files and enter project details needed for estimating and proposal workflows. Avoid unnecessary personal, payment, legal, medical, biometric, credential, or unrelated sensitive data.</p>
+
+    <h2>7. Provider Cost Controls</h2>
+    <p>RoughBid may route AI and document-processing work through different providers based on cost, quality, latency, and data handling requirements. Cheap providers should only be used where their reliability, security, privacy, and contractual terms are acceptable for the data being processed. More expensive providers may be used for internal verification, quality scoring, or high-risk review steps when needed.</p>
+
+    <h2>8. Approval Needed</h2>
+    <p class="warning">Approval needed: final AI training policy, subprocessor list, data retention schedule, public-data collection rules, model evaluation process, and jurisdiction-specific construction code disclaimer should be reviewed before commercial launch.</p>
+  </main>
+</body>
+</html>

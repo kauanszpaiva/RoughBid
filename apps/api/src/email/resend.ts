@@ -1,32 +1,56 @@
-export type ClassPassWelcomeInput = {
+export type WorkspaceWelcomeInput = {
   to: string;
   appUrl: string;
 };
 
-export type ClassPassWelcomeEmail = {
+export type WorkspaceInviteEmailInput = {
+  to: string;
+  workspaceName: string;
+  inviteUrl: string;
+  role: string;
+  idempotencyKey?: string;
+};
+
+export type ProposalNotificationEmailInput = {
+  to: string;
+  proposalTitle: string;
+  clientName: string;
+  projectName?: string;
+  proposalUrl: string;
+  idempotencyKey?: string;
+};
+
+export type WorkspaceWelcomeEmail = {
   from: 'RoughBid <hello@mail.kspdominion.group>';
   to: string;
-  templateAlias: 'roughbid-class-pass-welcome';
+  templateAlias: 'roughbid-workspace-welcome';
   variables: {
     APP_URL: string;
-    CLASS_PASS_DAYS: 60;
   };
 };
 
-export function createClassPassWelcomeEmail(input: ClassPassWelcomeInput): ClassPassWelcomeEmail {
-  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
-  const appUrl = new URL(input.appUrl);
-  if (appUrl.protocol !== 'https:') throw new Error('App URL must use HTTPS.');
-  return {
-    from: 'RoughBid <hello@mail.kspdominion.group>',
-    to: input.to,
-    templateAlias: 'roughbid-class-pass-welcome',
-    variables: {
-      APP_URL: appUrl.toString().replace(/\/$/, ''),
-      CLASS_PASS_DAYS: 60,
-    },
+export type WorkspaceInviteEmail = {
+  from: 'RoughBid <hello@mail.kspdominion.group>';
+  to: string;
+  templateAlias: 'roughbid-organization-invite';
+  variables: {
+    WORKSPACE_NAME: string;
+    INVITE_URL: string;
+    ROLE: string;
   };
-}
+};
+
+export type ProposalNotificationEmail = {
+  from: 'RoughBid <hello@mail.kspdominion.group>';
+  to: string;
+  templateAlias: 'roughbid-proposal-opened' | 'roughbid-proposal-signed';
+  variables: {
+    PROPOSAL_TITLE: string;
+    CLIENT_NAME: string;
+    PROJECT_NAME: string;
+    PROPOSAL_URL: string;
+  };
+};
 
 type Fetch = typeof globalThis.fetch;
 
@@ -40,19 +64,87 @@ export function loadResendServerConfig(env: NodeJS.ProcessEnv = process.env): Re
   return { apiKey };
 }
 
-export async function sendClassPassWelcomeEmail(
+export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): WorkspaceWelcomeEmail {
+  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
+  const appUrl = new URL(input.appUrl);
+  if (appUrl.protocol !== 'https:') throw new Error('App URL must use HTTPS.');
+  return {
+    from: 'RoughBid <hello@mail.kspdominion.group>',
+    to: input.to,
+    templateAlias: 'roughbid-workspace-welcome',
+    variables: {
+      APP_URL: appUrl.toString().replace(/\/$/, ''),
+    },
+  };
+}
+
+export function createWorkspaceInviteEmail(input: WorkspaceInviteEmailInput): WorkspaceInviteEmail {
+  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
+  const inviteUrl = new URL(input.inviteUrl);
+  if (inviteUrl.protocol !== 'https:') throw new Error('Invite URL must use HTTPS.');
+  const workspaceName = input.workspaceName.trim();
+  if (!workspaceName) throw new Error('Workspace name is required.');
+  return {
+    from: 'RoughBid <hello@mail.kspdominion.group>',
+    to: input.to,
+    templateAlias: 'roughbid-organization-invite',
+    variables: {
+      WORKSPACE_NAME: workspaceName,
+      INVITE_URL: inviteUrl.toString(),
+      ROLE: input.role.trim() || 'estimator',
+    },
+  };
+}
+
+export function createProposalNotificationEmail(
+  templateAlias: ProposalNotificationEmail['templateAlias'],
+  input: ProposalNotificationEmailInput,
+): ProposalNotificationEmail {
+  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
+  const proposalUrl = new URL(input.proposalUrl);
+  if (proposalUrl.protocol !== 'https:') throw new Error('Proposal URL must use HTTPS.');
+  const proposalTitle = input.proposalTitle.trim();
+  const clientName = input.clientName.trim();
+  const projectName = (input.projectName ?? input.proposalTitle).trim();
+  if (!proposalTitle) throw new Error('Proposal title is required.');
+  if (!clientName) throw new Error('Client name is required.');
+  if (!projectName) throw new Error('Project name is required.');
+  return {
+    from: 'RoughBid <hello@mail.kspdominion.group>',
+    to: input.to,
+    templateAlias,
+    variables: {
+      PROPOSAL_TITLE: proposalTitle,
+      CLIENT_NAME: clientName,
+      PROJECT_NAME: projectName,
+      PROPOSAL_URL: proposalUrl.toString(),
+    },
+  };
+}
+
+export function createProposalOpenedEmail(input: ProposalNotificationEmailInput): ProposalNotificationEmail {
+  return createProposalNotificationEmail('roughbid-proposal-opened', input);
+}
+
+export function createProposalSignedEmail(input: ProposalNotificationEmailInput): ProposalNotificationEmail {
+  return createProposalNotificationEmail('roughbid-proposal-signed', input);
+}
+
+async function sendTemplateEmail(
   config: ResendServerConfig,
-  input: ClassPassWelcomeInput,
-  fetchImpl: Fetch = globalThis.fetch,
+  email: WorkspaceWelcomeEmail | WorkspaceInviteEmail | ProposalNotificationEmail,
+  fetchImpl: Fetch,
+  idempotencyKey?: string,
 ): Promise<{ id: string }> {
   if (!config.apiKey.trim()) throw new Error('A Resend API key is required.');
-  const email = createClassPassWelcomeEmail(input);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${config.apiKey}`,
+    'Content-Type': 'application/json',
+  };
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   const response = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       from: email.from,
       to: [email.to],
@@ -64,9 +156,51 @@ export async function sendClassPassWelcomeEmail(
   });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`Resend rejected the Class Pass welcome email (${response.status}): ${detail}`);
+    throw new Error(`Resend rejected the email (${response.status}): ${detail}`);
   }
   const result = await response.json() as { id?: unknown };
   if (typeof result.id !== 'string') throw new Error('Resend returned an invalid email response.');
   return { id: result.id };
+}
+
+export function sendWorkspaceWelcomeEmail(
+  config: ResendServerConfig,
+  input: WorkspaceWelcomeInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  return sendTemplateEmail(config, createWorkspaceWelcomeEmail(input), fetchImpl);
+}
+
+export function sendWorkspaceInviteEmail(
+  config: ResendServerConfig,
+  input: WorkspaceInviteEmailInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  return sendTemplateEmail(config, createWorkspaceInviteEmail(input), fetchImpl, input.idempotencyKey);
+}
+
+export function sendProposalOpenedEmail(
+  config: ResendServerConfig,
+  input: ProposalNotificationEmailInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  return sendTemplateEmail(
+    config,
+    createProposalOpenedEmail(input),
+    fetchImpl,
+    input.idempotencyKey ?? `proposal-opened-${input.proposalUrl}`,
+  );
+}
+
+export function sendProposalSignedEmail(
+  config: ResendServerConfig,
+  input: ProposalNotificationEmailInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  return sendTemplateEmail(
+    config,
+    createProposalSignedEmail(input),
+    fetchImpl,
+    input.idempotencyKey ?? `proposal-signed-${input.proposalUrl}`,
+  );
 }
