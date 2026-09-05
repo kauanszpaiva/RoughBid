@@ -18,6 +18,10 @@ test('vercel routes client proposals to app without exposing app at root', () =>
 });
 
 test('content security policy allows local uploaded PDF previews', () => {
-  assert.match(vercelConfig, /frame-src 'self' blob: https:\/\/checkout\.stripe\.com/);
+  const headers = JSON.parse(vercelConfig).headers[0].headers;
+  const policy = headers.find((h: { key: string }) => h.key === 'Content-Security-Policy').value;
+  const frames = policy.split(';').find((directive: string) => directive.trim().startsWith('frame-src')).split(/\s+/);
+  assert.ok(frames.includes('blob:'));
+  assert.ok(frames.includes('https://*.blob.vercel-storage.com'));
   assert.match(vercelConfig, /frame-ancestors 'none'/);
 });

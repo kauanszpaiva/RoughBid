@@ -20,10 +20,10 @@ test('header and project stepper avoid mobile text crowding', () => {
   assert.doesNotMatch(header, /mx-auto justify-center/);
 });
 
-test('plan viewer fits smaller screens and uses a mobile bottom sheet for callouts', () => {
-  assert.match(blueprint, /window\.innerWidth < 640\) return 50/);
+test('plan viewer fits its container and scrolls original PDF pages on mobile', () => {
+  assert.match(blueprint, /ResizeObserver/);
   assert.match(blueprint, /h-\[68dvh\]/);
-  assert.match(blueprint, /bottom-20 sm:left-auto/);
+  assert.match(blueprint, /overflow-auto/);
 });
 
 test('dashboard and projects stack dense metrics on phones', () => {

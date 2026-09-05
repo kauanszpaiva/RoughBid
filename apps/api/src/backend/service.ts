@@ -83,7 +83,7 @@ export class RoughBidService {
     this.#authorize(user, workspaceId, at);
     this.#projectInWorkspace(projectId, workspaceId);
     if (file.mimeType !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Only PDF plans may be uploaded.');
-    if (file.bytes <= 0 || file.bytes > 52_428_800) throw new Error('PDF must be between 1 byte and 50 MB.');
+    if (file.bytes <= 0 || file.bytes > 104_857_600) throw new Error('PDF must be between 1 byte and 100 MB.');
     const path = `${workspaceId}/${projectId}/${++this.#sequence}-${file.name}`;
     const record = { workspaceId, projectId, private: true as const, mimeType: 'application/pdf' as const };
     this.store.files.set(path, record);

@@ -89,7 +89,7 @@ export class AiPlanReadingService {
 
   async get(jobId: string) {
     const job = dbResult<any>(
-      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings(*)').eq('workspace_id', this.workspaceId).eq('id', jobId).maybeSingle(),
+      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings!plan_reading_findings_job_id_fkey(*)').eq('workspace_id', this.workspaceId).eq('id', jobId).maybeSingle(),
       true,
     );
     return job;

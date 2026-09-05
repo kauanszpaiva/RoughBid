@@ -1,5 +1,10 @@
 # RoughBid Production Readiness
 
+**2026-09-04 update:** See [Gemini integration and current verification](../integrations/gemini-free-plan-reading.md).
+The historical AI/upload blockers below are superseded by direct PDF reading with Gemini.
+The sections below retain the earlier audit as a historical baseline; use the linked
+integration report for current routes, provider configuration, and validation results.
+
 RoughBid is an independent construction estimating SaaS. Its primary product goal is to make plan upload, AI-assisted plan review, takeoff, estimate math, and proposal export simple enough for nontechnical construction users.
 
 ## Agent Review Team

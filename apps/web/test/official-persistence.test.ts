@@ -37,8 +37,8 @@ test('uploaded PDFs render as the selected plan instead of the sample blueprint'
   assert.match(plansPage, /workspaceId=\{workspaceId\}/);
   assert.match(plansPage, /onEnsureProjectSynced\(project\)/);
   assert.match(plansPage, /effectiveProject\.remoteId/);
-  assert.match(blueprintViewer, /hasUploadedPdf/);
-  assert.match(blueprintViewer, /<iframe/);
+  assert.match(blueprintViewer, /getDocument/);
+  assert.match(blueprintViewer, /<canvas/);
   assert.match(blueprintViewer, /Uploaded PDF/);
   assert.match(blueprintViewer, /createDocumentDownloadUrl\(workspaceId, currentRevision\.remoteFileId!\)/);
 });
@@ -59,6 +59,11 @@ test('workspace loading is not blocked by delayed profile bootstrap', () => {
   assert.match(app, /isWorkspaceReady=\{workspace !== null\}/);
   assert.match(projectsPage, /workspaceNotice/);
   assert.match(projectsPage, /disabled=\{!isWorkspaceReady\}/);
+});
+
+test('workspace refresh keeps the selected project open', () => {
+  assert.match(app, /setActiveProject\(current => current \? cachedProjects\.find\(project => project\.id === current\.id \|\| project\.remoteId === current\.remoteId\) \?\? current : current\)/);
+  assert.match(app, /setActiveProject\(current => current \? mapped\.find\(project => project\.id === current\.id \|\| project\.remoteId === current\.remoteId\) \?\? current : current\)/);
 });
 
 test('project API exposes typed app state and validates size server-side', () => {

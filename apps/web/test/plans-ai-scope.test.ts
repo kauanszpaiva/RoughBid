@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const plansPage = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+const plansPage = readFileSync(new URL('../app/src/components/PlanReadingControls.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../app/src/services/api.ts', import.meta.url), 'utf8');
 
 test('plans page exposes AI scope controls for whole plan or selected areas', () => {
@@ -11,8 +11,8 @@ test('plans page exposes AI scope controls for whole plan or selected areas', ()
   assert.match(plansPage, /Pick area/);
   assert.match(plansPage, /Area, room, sheet, or zone/);
   assert.match(plansPage, /Trades to inspect/);
-  assert.match(plansPage, /commercial plan sets up to 60 rendered pages/);
-  assert.match(plansPage, /coverage, evidence, confidence/);
+  assert.match(plansPage, /Read uploaded PDFs with your selected free AI route/);
+  assert.match(plansPage, /page coverage and source evidence/);
 });
 
 test('plans page sends structured scope to the backend AI reading endpoint', () => {

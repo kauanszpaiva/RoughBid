@@ -3,15 +3,14 @@ import { handleAuthBootstrapRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
-import { createDocumentQueue } from '../documents/service.ts';
 import { createEstimateCalculationHandler } from '../estimates/routes.ts';
 import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
-import { handleAiPlanRequest } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
-import { createAiPlanQueue } from '../ai-plan/service.ts';
-import { createOpenAiPlanReadingProcessor } from '../ai-plan/processor.ts';
+import { GeminiPdfReader } from '../ai-plan/gemini.ts';
+import { OpenRouterFreePdfReader } from '../ai-plan/openrouter.ts';
+import { handleGeminiPlanRequest } from '../ai-plan/gemini-service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
 import { loadResendServerConfig, sendProposalOpenedEmail, sendProposalSignedEmail, sendWorkspaceInviteEmail } from '../email/resend.ts';
@@ -50,6 +49,32 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     return json({ status: 'ok', service: 'RoughBid API' });
   }
 
+  // Optional Supabase-hosted execution keeps its administrative key inside Supabase.
+  const planPath = /^\/api\/projects\/[^/]+\/(documents\/upload-url|ai-plan-readings)$/.test(pathname)
+    || /^\/api\/documents\/[^/]+\/(complete|download-url)$/.test(pathname)
+    || /^\/api\/ai-plan-readings\/[^/]+(\/process)?$/.test(pathname);
+  if (planPath && process.env.SUPABASE_PLAN_FUNCTION === 'roughbid-plans') {
+    if (!request.headers.get('authorization')) return json({ error: 'Authentication required' }, 401);
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_KEY || !process.env.BLOB_READ_WRITE_TOKEN) return json({ error: 'AI plan reading is not configured.' }, 503);
+    try {
+      const response = await fetch(`${process.env.SUPABASE_URL}/functions/v1/roughbid-plans`, {
+        method: request.method,
+        headers: {
+          authorization: request.headers.get('authorization')!, apikey: process.env.SUPABASE_PUBLISHABLE_KEY,
+          'content-type': 'application/json', 'x-workspace-id': request.headers.get('x-workspace-id') ?? '',
+          'x-roughbid-path': pathname,
+          ...(process.env.GEMINI_API_KEY ? { 'x-roughbid-gemini-key': process.env.GEMINI_API_KEY } : {}),
+          ...(process.env.OPENROUTER_API_KEY ? { 'x-roughbid-openrouter-key': process.env.OPENROUTER_API_KEY } : {}),
+          'x-roughbid-storage-token': process.env.BLOB_READ_WRITE_TOKEN,
+        },
+        ...(request.method === 'GET' ? {} : { body: await request.text() }),
+        signal: AbortSignal.timeout(115_000), redirect: 'error',
+      });
+      if (!response.headers.get('content-type')?.includes('application/json')) return json({ error: 'Plan processing is temporarily unavailable.' }, 502);
+      return new Response(await response.text(), { status: response.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    } catch { return json({ error: 'Plan processing did not respond. Refresh results before retrying.' }, 504); }
+  }
+
   let client: ReturnType<typeof clientForRequest>;
   try {
     client = clientForRequest(request);
@@ -59,6 +84,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
+  }
+  if (pathname === '/api/ai-plan-providers' && request.method === 'GET') {
+    const { data, error } = await client.auth.getUser();
+    if (error || !data.user) return json({ error: 'Authentication required' }, 401);
+    return new Response(JSON.stringify({ providers: [
+      { id: 'openrouter', name: 'OpenRouter Free', configured: Boolean(process.env.OPENROUTER_API_KEY), freeOnly: true },
+      { id: 'gemini', name: 'Gemini', configured: Boolean(process.env.GEMINI_API_KEY), freeOnly: false },
+    ] }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
   }
   if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
     const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
@@ -103,32 +136,37 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     return recalculate(request);
   }
   if (/^\/api\/projects\/[^/]+\/documents\/upload-url$/.test(pathname) || /^\/api\/documents\/[^/]+\/(complete|download-url)$/.test(pathname)) {
-    if (!process.env.REDIS_URL) return json({ error: 'Document processing is not configured.' }, 503);
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      return handleDocumentRequest(request, client as unknown as SupabaseLike, storage, await createDocumentQueue(process.env.REDIS_URL));
+      const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!secret) return json({ error: 'Private PDF processing needs the Supabase server key configured.' }, 503);
+      const writer = createClient(process.env.SUPABASE_URL!, secret, { auth: { persistSession: false, autoRefreshToken: false } });
+      return handleDocumentRequest(request, client as unknown as SupabaseLike, storage, null, writer as unknown as SupabaseLike);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
     }
   }
   if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+(\/process)?$/.test(pathname)) {
-    if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!secret) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      const serviceClient = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+      const serviceClient = createClient(process.env.SUPABASE_URL!, secret, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      return handleAiPlanRequest(
+      return handleGeminiPlanRequest(
         request,
         client as unknown as SupabaseLike,
-        await createAiPlanQueue(process.env.REDIS_URL),
-        (workspaceId) => createOpenAiPlanReadingProcessor(serviceClient as unknown as SupabaseLike, storage, workspaceId),
+        serviceClient as unknown as SupabaseLike,
+        storage,
+        new GeminiPdfReader(process.env.GEMINI_API_KEY ?? ''),
+        { openrouter: new OpenRouterFreePdfReader(process.env.OPENROUTER_API_KEY ?? '') },
       );
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);

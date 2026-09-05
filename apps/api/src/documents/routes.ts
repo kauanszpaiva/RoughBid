@@ -1,23 +1,26 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import { DocumentService, type DocumentObjectStorage, type JobQueue } from './service.ts';
+import { requireEditor } from '../ai-plan/gemini-service.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 /** Authenticated HTTP boundary for direct uploads, completion, and private retrieval. */
-export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue): Promise<Response> {
+export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue | null, writer: SupabaseLike = db): Promise<Response> {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400, 'x-workspace-id header is required');
-    const service = new DocumentService(db, storage, queue, data.user.id, workspaceId);
+    const service = new DocumentService(db, storage, queue, data.user.id, workspaceId, fetch, writer);
     const url = new URL(request.url);
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
 
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'documents' && parts[3] === 'upload-url') {
+      await requireEditor(db, workspaceId, data.user.id);
       return json(await service.beginUpload(parts[1], await request.json()), 201);
     }
     if (request.method === 'POST' && parts[0] === 'documents' && parts[1] && parts[2] === 'complete') {
+      await requireEditor(db, workspaceId, data.user.id);
       return json(await service.completeUpload(parts[1]), 202);
     }
     if (request.method === 'POST' && parts[0] === 'documents' && parts[1] && parts[2] === 'download-url') {

@@ -28,11 +28,11 @@ test('project CRUD requires authentication and remains isolated by workspace', (
   assert.deepEqual(service.listProjects(alice, 'workspace-a', active), []);
 });
 
-test('private plan uploads accept only non-empty PDFs up to 50 MB', () => {
+test('private plan uploads accept only non-empty PDFs up to 100 MB', () => {
   const { service, alice } = fixture();
   const project = service.createProject(alice, 'workspace-a', 'Plans', active);
   assert.throws(() => service.uploadPlan(alice, 'workspace-a', project.id, { name: 'virus.exe', mimeType: 'application/octet-stream', bytes: 20 }, active), /only pdf/i);
-  assert.throws(() => service.uploadPlan(alice, 'workspace-a', project.id, { name: 'huge.pdf', mimeType: 'application/pdf', bytes: 52_428_801 }, active), /50 MB/i);
+  assert.throws(() => service.uploadPlan(alice, 'workspace-a', project.id, { name: 'huge.pdf', mimeType: 'application/pdf', bytes: 104_857_601 }, active), /100 MB/i);
   const upload = service.uploadPlan(alice, 'workspace-a', project.id, { name: 'plans.pdf', mimeType: 'application/pdf', bytes: 4096 }, active);
   assert.equal(upload.private, true);
   assert.match(upload.path, /^workspace-a\/project-\d+\//);

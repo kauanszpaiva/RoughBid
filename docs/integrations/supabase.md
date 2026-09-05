@@ -16,7 +16,7 @@
   `supabase/migrations/0004_auth_rbac_access_grants.sql` (`access_grant_tokens` has
   no policies on purpose; `redeem_access_grant` is meant to be callable by
   signed-in users).
-- Plan PDFs: private `plan-files` bucket, PDF only, 50 MB object limit.
+- Plan PDFs: private `plan-files` bucket, PDF only, 100 MB object limit.
 - Product access: entitlement based (`access_grant`, `subscription`, `admin`).
 - AI plan reading: `plan_reading_jobs` and `plan_reading_findings` tables are live
   with RLS; findings remain `needs_review` until an estimator accepts them.

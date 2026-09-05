@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.115.0",
+    "@vercel/blob": "npm:@vercel/blob@2.8.0",
+    "pdf-lib": "npm:pdf-lib@1.17.1",
+    "bullmq": "npm:bullmq@5.81.4"
+  }
+}

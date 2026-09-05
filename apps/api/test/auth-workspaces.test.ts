@@ -23,7 +23,8 @@ test('auth bootstrap maps the trigger-created profile', async () => {
 test('workspace creation derives created_by from the authenticated user', async () => {
   let inserted: Record<string, unknown> | undefined;
   const query = {
-    insert(value: Record<string, unknown>) { inserted = value; return this; },
+    insert(value: Record<string, unknown>) { inserted = value; return Promise.resolve({ error: null }); },
+    eq() { return this; },
     select() { return this; },
     single: async () => ({ data: {
       id: 'workspace-1', ...inserted, created_at: '2026-09-02T00:00:00Z',
@@ -35,7 +36,9 @@ test('workspace creation derives created_by from the authenticated user', async 
   };
 
   const result = await createWorkspace(client as never, { name: '  Main Shop  ' });
-  assert.deepEqual(inserted, { name: 'Main Shop', created_by: 'user-1' });
+  assert.equal(inserted?.name, 'Main Shop');
+  assert.equal(inserted?.created_by, 'user-1');
+  assert.match(String(inserted?.id), /^[a-f0-9-]{36}$/);
   assert.equal(result.createdBy, 'user-1');
 });
 
