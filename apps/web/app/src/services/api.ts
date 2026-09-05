@@ -16,6 +16,9 @@
  *   POST /api/documents/:id/complete
  *   POST /api/documents/:id/download-url
  *   POST /api/projects/:id/ai-plan-readings
+ *   GET  /api/ai-plan-readings/:id
+ *   PATCH /api/ai-plan-readings/findings/:id
+ *   POST /api/workspaces/:id/ai-consent
  *
  * Requests default to same-origin relative paths, since /api and /app are
  * built and deployed together (see scripts/build.mjs, vercel.json). Set
@@ -91,7 +94,7 @@ export function bootstrapAuth() {
   return request<AuthBootstrap>("/api/auth/bootstrap");
 }
 
-export type Workspace = { id: string; name: string; createdBy: string; createdAt: string };
+export type Workspace = { id: string; name: string; createdBy: string; createdAt: string; aiProcessingConsentedAt: string | null };
 export type WorkspaceRole = "admin" | "estimator" | "viewer";
 export type WorkspaceInvite = {
   id: string;
@@ -194,12 +197,77 @@ export function completeDocumentUpload(workspaceId: string, fileId: string) {
   return request<RemoteProjectFile>(`/api/documents/${fileId}/complete`, { method: "POST", workspaceId });
 }
 
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; scope?: string }) {
-  return request<{ id: string; status: "queued" | "processing" | "needs_review" | "ready" | "failed" }>(`/api/projects/${projectId}/ai-plan-readings`, {
+export type PlanReadingJobStatus = "queued" | "processing" | "needs_review" | "ready" | "failed";
+export type PlanReadingFindingType = "measurement" | "symbol" | "room" | "scope_note" | "risk" | "question" | "material" | "labor";
+export type PlanReadingFindingStatus = "needs_review" | "accepted" | "rejected";
+
+export type PricedComponent = {
+  category: "material" | "labor";
+  quantity: number;
+  unit: string;
+  unitRate: number;
+  cost: number;
+};
+
+export type PlanReadingFinding = {
+  id: string;
+  page_number: number | null;
+  finding_type: PlanReadingFindingType;
+  label: string;
+  value_text: string | null;
+  quantity: number | null;
+  unit: string | null;
+  confidence: number;
+  geometry: { pricing?: PricedComponent[] } & Record<string, unknown>;
+  source_excerpt: string | null;
+  status: PlanReadingFindingStatus;
+};
+
+export type PlanReadingJob = {
+  id: string;
+  status: PlanReadingJobStatus;
+  processing_error: string | null;
+  output_summary: {
+    sheet_count?: number;
+    detected_trade_scope?: string[];
+    scale_status?: "detected" | "missing" | "conflicting";
+    pricing?: { materialCost: number; laborCost: number; directCost: number; pricedFindings: number; unpricedFindings: number };
+  };
+  plan_reading_findings: PlanReadingFinding[];
+};
+
+/**
+ * POST /api/projects/:id/ai-plan-readings — reads and prices the plan
+ * synchronously; the response already carries the finished job (status
+ * needs_review/failed) and every finding. There is nothing to poll for in
+ * the common case, but getAiPlanReading below still works for reloading a
+ * past job.
+ */
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+  return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,
     body: input,
   });
+}
+
+/** GET /api/ai-plan-readings/:id — job status plus every finding recorded so far. */
+export function getAiPlanReading(workspaceId: string, jobId: string) {
+  return request<PlanReadingJob>(`/api/ai-plan-readings/${jobId}`, { workspaceId });
+}
+
+/** PATCH /api/ai-plan-readings/findings/:id — accept or reject one finding. */
+export function setPlanReadingFindingStatus(workspaceId: string, findingId: string, status: PlanReadingFindingStatus) {
+  return request<PlanReadingFinding>(`/api/ai-plan-readings/findings/${findingId}`, {
+    method: "PATCH",
+    workspaceId,
+    body: { status },
+  });
+}
+
+/** POST /api/workspaces/:id/ai-consent — owner accepts sending plan files to AI. */
+export function grantWorkspaceAiConsent(workspaceId: string) {
+  return request<Workspace>(`/api/workspaces/${workspaceId}/ai-consent`, { method: "POST" });
 }
 
 export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {

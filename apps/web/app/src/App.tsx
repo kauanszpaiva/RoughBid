@@ -266,8 +266,15 @@ export default function App() {
     StorageService.saveUserProfile(updatedUser);
   };
 
-  // AI Confirmed item addition (Requires User Confirmation)
-  const handleAddQuantityFromAI = (item: Omit<QuantityItem, "id" | "itemNumber">) => {
+  // AI Confirmed item addition (Requires User Confirmation). `costOverride`
+  // carries the real priced material/labor cost from the AI plan-reading
+  // worker (see apps/api/src/ai-plan/pricing.ts) when the item came from a
+  // real finding; without it (the generic "missing trade scope" checklist)
+  // this falls back to a rough placeholder rate.
+  const handleAddQuantityFromAI = (
+    item: Omit<QuantityItem, "id" | "itemNumber">,
+    costOverride?: { materialCost: number; laborCost: number }
+  ) => {
     if (!activeProject) return;
 
     const newId = `qty-${Date.now()}`;
@@ -277,16 +284,20 @@ export default function App() {
       itemNumber: activeProject.quantities.length + 1,
     };
 
+    const materialCost = costOverride ? costOverride.materialCost : Number((item.quantity * 2.2).toFixed(2));
+    const laborCost = costOverride ? costOverride.laborCost : Number((item.quantity * 1.8).toFixed(2));
+    const equipmentCost = costOverride ? 0 : Number((item.quantity * 0.2).toFixed(2));
+
     const newEstItem = {
       id: `est-${Date.now()}`,
       quantityId: newId,
       name: item.name,
       quantity: item.quantity,
       unit: item.unit,
-      materialCost: Number((item.quantity * 2.2).toFixed(2)),
-      laborCost: Number((item.quantity * 1.8).toFixed(2)),
-      equipmentCost: Number((item.quantity * 0.2).toFixed(2)),
-      directCost: Number((item.quantity * 4.2).toFixed(2)),
+      materialCost,
+      laborCost,
+      equipmentCost,
+      directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
     };
 
     const updated: Project = {
@@ -489,6 +500,7 @@ export default function App() {
       {activeProject && (
         <AIPlanModal
           project={activeProject}
+          workspaceId={workspace?.id ?? null}
           isOpen={showAIModal}
           onClose={() => setShowAIModal(false)}
           onAddQuantityItem={handleAddQuantityFromAI}

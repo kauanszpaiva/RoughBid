@@ -63,29 +63,46 @@ test('billing routes are mounted but disabled until server billing credentials e
   }
 });
 
-test('AI plan reading route is mounted but disabled until AI runtime credentials exist', async () => {
+test('AI plan reading route is mounted but disabled until Supabase service-role credentials exist', async () => {
+  // GEMINI_API_KEY is deliberately NOT required here: GeminiPlanReader falls
+  // back to a synthetic takeoff when it's unset (see gemini.ts) rather than
+  // disabling the route. Only the service-role write path is a hard gate.
   const previous = {
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    REDIS_URL: process.env.REDIS_URL,
-    S3_BUCKET: process.env.S3_BUCKET,
-    S3_REGION: process.env.S3_REGION,
-    S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,
-    S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
   process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
-  delete process.env.OPENAI_API_KEY;
-  delete process.env.REDIS_URL;
-  delete process.env.S3_BUCKET;
-  delete process.env.S3_REGION;
-  delete process.env.S3_ACCESS_KEY_ID;
-  delete process.env.S3_SECRET_ACCESS_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   try {
     const response = await handleApiRequest(new Request('https://roughbid.test/api/projects/project-1/ai-plan-readings', { method: 'POST' }));
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), { error: 'AI plan reading is not configured.' });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('AI plan reading route falls through to 503 when object storage credentials are missing too', async () => {
+  const previous = {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    OBJECT_STORAGE_ENDPOINT: process.env.OBJECT_STORAGE_ENDPOINT,
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
+  };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
+  delete process.env.OBJECT_STORAGE_ENDPOINT;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  try {
+    const response = await handleApiRequest(new Request('https://roughbid.test/api/projects/project-1/ai-plan-readings', { method: 'POST' }));
+    assert.equal(response.status, 503);
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];

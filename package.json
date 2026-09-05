@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "dependencies": {
+    "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.45.4",
     "@vercel/blob": "^2.8.0",
     "bullmq": "^5.58.5",
@@ -24,6 +25,7 @@
     "build:app": "vite build --config apps/web/app/vite.config.ts",
     "test:mcp": "node --experimental-strip-types --test apps/mcp/mapify/*.test.ts",
     "build": "node scripts/build.mjs",
+    "worker": "node --experimental-strip-types scripts/worker.ts",
     "db:validate": "prisma validate --schema prisma/schema.prisma",
     "db:format": "prisma format --schema prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma"

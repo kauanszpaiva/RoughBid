@@ -19,21 +19,23 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Static operational drafts exist for Terms, Privacy, Data Use and AI, and Acceptable Use.
 - Favicon and in-app mark use a generated RoughBid logo image.
 - Export and review screens no longer claim readiness when a project has no plan, quantities, or priced estimate lines.
-- AI plan assistant is clearly marked as a plan-reading workflow preview until the live document AI pipeline is connected.
+- AI plan assistant is wired to the real pipeline: `AiPlanReadingService.create()` reads the uploaded PDF directly, synchronously, inline in the API request (no queue, no separately-deployed worker to forget to run) via `MultiProviderPlanReader` — Gemini first, Claude only as a fallback of last resort when Gemini itself comes back synthetic — prices materials and labor with a New England rate benchmark (`apps/api/src/ai-plan/pricing.ts`), and the modal renders real findings with per-finding Add/Ignore that call the estimator-approval RPC. What's left is operational, not code: set real `GEMINI_API_KEY`/`SUPABASE_SERVICE_ROLE_KEY`/object storage credentials in production (both `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` are optional — their absence just degrades toward the next provider, then a labeled synthetic takeoff, rather than disabling the feature).
+- A workspace must explicitly approve AI plan reading (`workspaces.ai_processing_consented_at`) before any of its files are sent to a model; an owner grants this once from the Plans page.
+- Every AI-suggested quantity requires estimator approval before it affects a bid: findings stay `needs_review` until an estimator calls `set_plan_reading_finding_status` (accept/reject) through the app.
 - Production security headers are configured in Vercel.
 - Product, tenanting, pricing, AI routing, data, marketplace, and legal gates are consolidated in `docs/product/roughbid-operating-model.md`.
 
 ## Must Finish Before Paid Launch
 
 - Connect real plan upload from the frontend to private storage, document processing, and page preview records.
-- Configure `OPENAI_API_KEY`, `REDIS_URL`, and the AI worker runtime so the mounted plan-reading endpoint can process jobs.
-- Require estimator approval before any AI-suggested quantity affects a bid.
+- Set real `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and object storage credentials in the production environment — AI plan reading runs inline in the API request, so there's no separate worker to deploy for it. `Dockerfile.worker`/`scripts/worker.ts` is still needed for the (unrelated) PDF page-rendering queue that feeds the blueprint viewer, and nothing runs that in production yet either.
+- Replace the New England benchmark rate table in `apps/api/src/ai-plan/pricing.ts` with a real, licensed, workspace-specific price book (see "New England ML Method" in the architecture doc).
 - Mount and validate Stripe Checkout, Portal, and webhook routes end-to-end before setting a live price.
 - Create and publish the Resend workspace welcome/invite templates after final copy approval.
 - Add account billing screens once Stripe pricing, limits, refund policy, and plan tiers are approved.
 - Replace proposal legal terms with jurisdiction/company-approved templates before real client delivery.
 - Add audit logs for invite creation, invite acceptance, export creation, and AI-assisted item approval.
-- Add rate limits for auth, invite creation, invite acceptance, upload URL creation, and estimate recalculation.
+- Add rate limits for auth, invite creation, invite acceptance, upload URL creation, and estimate recalculation. (AI plan-reading jobs already have a basic per-workspace daily cap — `AI_PLAN_DAILY_JOB_LIMIT`, default 25 — but no cost-based limit yet.)
 - Add admin controls for revoking pending invites and removing members.
 - Add workspace settings for company logo, address, license details, default overhead, markup, tax, and proposal footer.
 - Add onboarding states for first project, first plan upload, first quantity, first estimate, and first export.

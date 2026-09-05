@@ -17,6 +17,7 @@ import { requireUser, throwIfError, type AuthenticatedSupabaseClient } from '../
 
 const workspace = (row: Record<string, unknown>): Workspace => ({
   id: String(row.id), name: String(row.name), createdBy: String(row.created_by), createdAt: String(row.created_at),
+  aiProcessingConsentedAt: row.ai_processing_consented_at == null ? null : String(row.ai_processing_consented_at),
 });
 const membership = (row: Record<string, unknown>): WorkspaceMembership => ({
   workspaceId: String(row.workspace_id), userId: String(row.user_id),
@@ -66,6 +67,20 @@ export async function updateWorkspace(client: AuthenticatedSupabaseClient, id: s
   await requireUser(client);
   const { data, error } = await client.from('workspaces')
     .update({ name: normalizeWorkspaceName(input.name) }).eq('id', id).select('*').single();
+  throwIfError(error);
+  return data ? workspace(data) : null;
+}
+
+/**
+ * Records that the workspace owner has explicitly accepted sending plan
+ * files to AI for reading (see docs/architecture/ai-plan-reading-pipeline.md
+ * "Security Rules"). Relies on the existing workspaces_update_owner RLS
+ * policy — only the workspace's creator can call this successfully.
+ */
+export async function grantAiProcessingConsent(client: AuthenticatedSupabaseClient, id: string): Promise<Workspace | null> {
+  await requireUser(client);
+  const { data, error } = await client.from('workspaces')
+    .update({ ai_processing_consented_at: new Date().toISOString() }).eq('id', id).select('*').single();
   throwIfError(error);
   return data ? workspace(data) : null;
 }

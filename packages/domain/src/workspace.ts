@@ -8,6 +8,8 @@ export type Workspace = {
   name: string;
   createdBy: string;
   createdAt: string;
+  /** Null until an owner explicitly accepts sending plan files to AI for reading. */
+  aiProcessingConsentedAt: string | null;
 };
 
 export type WorkspaceMembership = {

@@ -8,9 +8,12 @@ import { createEstimateCalculationHandler } from '../estimates/routes.ts';
 import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapters.ts';
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
-import { handleAiPlanRequest } from '../ai-plan/routes.ts';
+import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
-import { createAiPlanQueue } from '../ai-plan/service.ts';
+import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
+import { ClaudePlanReader, HttpClaudeMessagesClient } from '../ai-plan/claude.ts';
+import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
+import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
 import { loadResendServerConfig, sendProposalOpenedEmail, sendProposalSignedEmail, sendWorkspaceInviteEmail } from '../email/resend.ts';
@@ -59,7 +62,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
   }
-  if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/invites$/.test(pathname)) {
+  if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/(invites|ai-consent)$/.test(pathname)) {
     const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
     const inviteMailer = process.env.RESEND_API_KEY
       ? (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => sendWorkspaceInviteEmail(loadResendServerConfig(process.env), {
@@ -112,11 +115,44 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname)) {
-    if (!process.env.OPENAI_API_KEY || !process.env.REDIS_URL) {
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    if (!supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
-    return handleAiPlanRequest(request, client as unknown as SupabaseLike, await createAiPlanQueue(process.env.REDIS_URL));
+    try {
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      // GEMINI_API_KEY is optional on purpose: GeminiPlanReader falls back to a
+      // clearly-labeled synthetic takeoff instead of failing the request when
+      // it's unset or the model call errors — see gemini.ts. Gemini is tried
+      // first (primary); ANTHROPIC_API_KEY is only touched when Gemini's own
+      // result comes back synthetic — see multi-provider.ts.
+      const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+      const geminiClient = geminiApiKey ? await createGeminiClient(geminiApiKey) : null;
+      const geminiModels = process.env.GEMINI_MODEL?.trim()
+        ? [process.env.GEMINI_MODEL.trim(), 'gemini-3.8-flash', 'gemini-3.6-flash']
+        : undefined;
+      const geminiReader = new GeminiPlanReader(geminiClient, geminiModels);
+
+      const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
+      const claudeClient = anthropicApiKey ? new HttpClaudeMessagesClient(anthropicApiKey) : null;
+      const claudeReader = new ClaudePlanReader(claudeClient, process.env.ANTHROPIC_MODEL?.trim() || undefined);
+
+      const reader = new MultiProviderPlanReader([
+        { name: 'gemini', read: (input) => geminiReader.read(input) },
+        { name: 'claude', read: (input) => claudeReader.read(input) },
+      ]);
+      const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      }) as unknown as PlanReadingFindingsWriter;
+      const deps: AiPlanRequestDependencies = { findingsWriter, storage, reader };
+      return handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);
+    }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {
     const resend = process.env.RESEND_API_KEY ? loadResendServerConfig(process.env) : null;

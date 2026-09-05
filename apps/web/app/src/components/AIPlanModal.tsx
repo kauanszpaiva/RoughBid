@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Sparkles,
   X,
@@ -8,19 +8,41 @@ import {
   HelpCircle,
   FileSearch,
   Layers,
+  Loader2,
 } from "lucide-react";
-import { Project, QuantityItem } from "../types";
+import { Project, QuantityItem, UnitType } from "../types";
+import {
+  ApiError,
+  getAiPlanReading,
+  setPlanReadingFindingStatus,
+  type PlanReadingFinding,
+  type PlanReadingJob,
+} from "../services/api";
 
 interface AIPlanModalProps {
   project: Project;
+  workspaceId: string | null;
   isOpen: boolean;
   onClose: () => void;
-  onAddQuantityItem: (item: Omit<QuantityItem, "id" | "itemNumber">) => void;
+  onAddQuantityItem: (
+    item: Omit<QuantityItem, "id" | "itemNumber">,
+    costOverride?: { materialCost: number; laborCost: number }
+  ) => void;
   initialTab?: "analyze" | "missing" | "explain" | "revisions";
 }
 
+const KNOWN_UNITS: readonly UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
+const normalizeUnit = (unit: string | null): UnitType => {
+  const upper = (unit ?? "").trim().toUpperCase();
+  return (KNOWN_UNITS as readonly string[]).includes(upper) ? (upper as UnitType) : "EA";
+};
+
+const readableError = (error: unknown, fallback: string) =>
+  error instanceof ApiError ? error.message : error instanceof Error ? error.message : fallback;
+
 export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   project,
+  workspaceId,
   isOpen,
   onClose,
   onAddQuantityItem,
@@ -29,35 +51,293 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const [activeTab, setActiveTab] = useState<"analyze" | "missing" | "explain" | "revisions">(
     initialTab
   );
-  const [addedItems, setAddedItems] = useState<Record<string, boolean>>({});
   const [ignoredItems, setIgnoredItems] = useState<Record<string, boolean>>({});
-
-  if (!isOpen) return null;
+  const [job, setJob] = useState<PlanReadingJob | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [pendingFindingIds, setPendingFindingIds] = useState<Record<string, boolean>>({});
+  const [findingActionError, setFindingActionError] = useState<string | null>(null);
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[0];
   const planLabel = currentRevision
     ? `${currentRevision.fileName} (Rev ${currentRevision.revisionNumber})`
     : "no uploaded plan";
+  const jobId = currentRevision?.aiPlanJobId ?? null;
 
-  const handleAddItem = (
-    key: string,
-    name: string,
-    quantity: number,
-    unit: any,
-    category: string = "AI Suggested Scope"
-  ) => {
-    onAddQuantityItem({
-      name,
-      quantity,
-      unit,
-      category,
+  // Poll the real plan-reading job while it's open and still in flight —
+  // there is no live-update channel, so short-interval polling is how the
+  // estimator sees the worker's progress (queued -> processing -> done).
+  useEffect(() => {
+    if (!isOpen || !workspaceId || !jobId) {
+      setJob(null);
+      setJobError(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const result = await getAiPlanReading(workspaceId, jobId);
+        if (cancelled) return;
+        setJob(result);
+        setJobError(null);
+        if (result.status === "queued" || result.status === "processing") {
+          timer = setTimeout(poll, 4000);
+        }
+      } catch (error) {
+        if (!cancelled) setJobError(readableError(error, "Could not load the AI plan reading job."));
+      }
+    };
+
+    setIsLoadingJob(true);
+    poll().finally(() => {
+      if (!cancelled) setIsLoadingJob(false);
     });
-    setAddedItems((prev) => ({ ...prev, [key]: true }));
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isOpen, workspaceId, jobId]);
+
+  if (!isOpen) return null;
+
+  const applyFindingStatus = (findingId: string, status: "accepted" | "rejected") => {
+    setJob((prev) =>
+      prev
+        ? { ...prev, plan_reading_findings: prev.plan_reading_findings.map((f) => (f.id === findingId ? { ...f, status } : f)) }
+        : prev
+    );
+  };
+
+  const handleAcceptFinding = async (finding: PlanReadingFinding) => {
+    if (!workspaceId) return;
+    setPendingFindingIds((prev) => ({ ...prev, [finding.id]: true }));
+    setFindingActionError(null);
+    try {
+      await setPlanReadingFindingStatus(workspaceId, finding.id, "accepted");
+      const pricing = finding.geometry?.pricing ?? [];
+      const materialCost = pricing.find((c) => c.category === "material")?.cost ?? 0;
+      const laborCost = pricing.find((c) => c.category === "labor")?.cost ?? 0;
+      onAddQuantityItem(
+        {
+          name: finding.label,
+          quantity: finding.quantity ?? 0,
+          unit: normalizeUnit(finding.unit),
+          category: finding.finding_type === "labor" ? "AI Plan Reading — Labor" : "AI Plan Reading — Material",
+        },
+        pricing.length ? { materialCost, laborCost } : undefined
+      );
+      applyFindingStatus(finding.id, "accepted");
+    } catch (error) {
+      setFindingActionError(readableError(error, "Could not accept this finding."));
+    } finally {
+      setPendingFindingIds((prev) => {
+        const next = { ...prev };
+        delete next[finding.id];
+        return next;
+      });
+    }
+  };
+
+  const handleRejectFinding = async (finding: PlanReadingFinding) => {
+    if (!workspaceId) return;
+    setPendingFindingIds((prev) => ({ ...prev, [finding.id]: true }));
+    setFindingActionError(null);
+    try {
+      await setPlanReadingFindingStatus(workspaceId, finding.id, "rejected");
+      applyFindingStatus(finding.id, "rejected");
+    } catch (error) {
+      setFindingActionError(readableError(error, "Could not ignore this finding."));
+    } finally {
+      setPendingFindingIds((prev) => {
+        const next = { ...prev };
+        delete next[finding.id];
+        return next;
+      });
+    }
   };
 
   const handleIgnore = (key: string) => {
     setIgnoredItems((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const findings = job?.plan_reading_findings ?? [];
+  const priceableFindings = findings.filter((f) => f.finding_type === "material" || f.finding_type === "labor");
+  const noteFindings = findings.filter((f) => f.finding_type !== "material" && f.finding_type !== "labor");
+  const pricingSummary = job?.output_summary?.pricing;
+
+  const renderAnalyzeTab = () => {
+    if (!workspaceId) {
+      return (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs">
+          AI plan reading requires a signed-in, synced workspace. Sign in and create a synced project first.
+        </div>
+      );
+    }
+    if (!jobId) {
+      return (
+        <div className="p-3.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg text-[#374151] text-xs">
+          No AI plan reading has been started for <strong>{planLabel}</strong> yet. Go to the Plans step, upload a PDF plan, wait
+          for it to finish processing, then click <strong>Start AI Plan Reading</strong>.
+        </div>
+      );
+    }
+    if (isLoadingJob && !job) {
+      return (
+        <div className="p-3.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg text-[#374151] text-xs flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>Loading the AI plan reading job…</span>
+        </div>
+      );
+    }
+    if (jobError) {
+      return <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{jobError}</div>;
+    }
+    if (!job) return null;
+    if (job.status === "queued" || job.status === "processing") {
+      return (
+        <div className="p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a] text-xs flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563eb]" />
+          <span>
+            {job.status === "queued" ? "Queued for AI plan reading…" : "Reading the plan…"} This updates automatically.
+          </span>
+        </div>
+      );
+    }
+    if (job.status === "failed") {
+      return (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
+          AI plan reading failed{job.processing_error ? `: ${job.processing_error}` : "."} Try starting a new reading from the
+          Plans step.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="p-3 sm:p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
+          <div className="font-semibold text-[#1e40af] mb-1 flex items-center gap-1.5">
+            <FileSearch className="w-4 h-4 text-[#2563eb]" />
+            <span>Takeoff review for {planLabel}</span>
+          </div>
+          <p className="text-xs text-[#3b82f6] leading-relaxed">
+            Every item below came from the AI reading of your uploaded plan. Nothing here is final — accept or ignore each one
+            before it becomes part of your estimate.
+          </p>
+          {pricingSummary && (
+            <p className="text-xs text-[#1e40af] mt-2 font-medium">
+              Priced so far: ${pricingSummary.materialCost.toLocaleString()} material + ${pricingSummary.laborCost.toLocaleString()}{" "}
+              labor across {pricingSummary.pricedFindings} item(s)
+              {pricingSummary.unpricedFindings > 0 ? ` (${pricingSummary.unpricedFindings} need a manual price)` : ""}.
+            </p>
+          )}
+        </div>
+
+        {findingActionError && (
+          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{findingActionError}</div>
+        )}
+
+        <div>
+          <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
+            Materials & Labor (Requires Your Confirmation)
+          </h4>
+          {priceableFindings.length === 0 ? (
+            <p className="text-xs text-[#6b7280]">No materials or labor were identified on this plan.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {priceableFindings.map((finding) => {
+                const isPending = Boolean(pendingFindingIds[finding.id]);
+                const pricing = finding.geometry?.pricing ?? [];
+                const materialCost = pricing.find((c) => c.category === "material")?.cost;
+                const laborCost = pricing.find((c) => c.category === "labor")?.cost;
+                return (
+                  <div
+                    key={finding.id}
+                    className="p-3 sm:p-3.5 border border-[#e5e7eb] rounded-lg bg-white hover:border-[#2563eb] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
+                  >
+                    <div>
+                      <div className="font-bold text-[#111827] flex items-center gap-1.5">
+                        <span>{finding.label}</span>
+                        <span className="text-[9px] font-mono uppercase bg-[#f3f4f6] text-[#6b7280] px-1.5 py-0.5 rounded">
+                          {finding.finding_type}
+                        </span>
+                      </div>
+                      <div className="text-xs text-[#6b7280] mt-0.5">
+                        {finding.quantity != null && finding.unit ? (
+                          <>
+                            Quantity: <strong className="text-[#111827]">{finding.quantity.toLocaleString()} {finding.unit}</strong>
+                            {" • "}
+                          </>
+                        ) : null}
+                        {materialCost != null || laborCost != null ? (
+                          <>
+                            {materialCost != null ? `$${materialCost.toLocaleString()} material` : ""}
+                            {materialCost != null && laborCost != null ? " + " : ""}
+                            {laborCost != null ? `$${laborCost.toLocaleString()} labor` : ""}
+                          </>
+                        ) : (
+                          <span className="italic">needs a manual price</span>
+                        )}
+                        {finding.source_excerpt ? ` • ${finding.source_excerpt}` : ""}
+                        {finding.page_number ? ` (Sheet ${finding.page_number})` : ""}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                      {finding.status === "accepted" ? (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">
+                          <Check className="w-3.5 h-3.5" /> Added
+                        </span>
+                      ) : finding.status === "rejected" ? (
+                        <span className="text-xs font-semibold text-[#9ca3af] px-2.5 py-1">Ignored</span>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleAcceptFinding(finding)}
+                            disabled={isPending}
+                            className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-50"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{isPending ? "Adding…" : "Add Item"}</span>
+                          </button>
+                          <button
+                            onClick={() => handleRejectFinding(finding)}
+                            disabled={isPending}
+                            className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md text-xs transition disabled:opacity-50"
+                          >
+                            Ignore
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {noteFindings.length > 0 && (
+          <div>
+            <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
+              Other Findings (Measurements, Notes & Risks)
+            </h4>
+            <div className="space-y-2">
+              {noteFindings.map((finding) => (
+                <div key={finding.id} className="p-2.5 border border-[#e5e7eb] rounded-lg bg-[#f9fafb] text-xs">
+                  <span className="font-semibold text-[#111827]">{finding.label}</span>
+                  {finding.value_text ? <span className="text-[#374151]"> — {finding.value_text}</span> : null}
+                  <span className="text-[#9ca3af]"> ({finding.finding_type})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -77,7 +357,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                 </span>
               </div>
               <div className="text-[10px] sm:text-xs text-[#6b7280]">
-                Plan-reading workflow preview • User approval required
+                Plan-reading workflow • User approval required
               </div>
             </div>
           </div>
@@ -128,109 +408,10 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
         {/* Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 text-xs">
-          {/* TAB 1: Plan Analysis */}
-          {activeTab === "analyze" && (
-            <div className="space-y-4">
-              <div className="p-3 sm:p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
-                <div className="font-semibold text-[#1e40af] mb-1 flex items-center gap-1.5">
-                  <FileSearch className="w-4 h-4 text-[#2563eb]" />
-                  <span>Sample takeoff review for {planLabel}</span>
-                </div>
-                <p className="text-xs text-[#3b82f6] leading-relaxed">
-                  These are sample suggestions until the live plan-reading pipeline is connected. Use them as a checklist, not an automatic takeoff result.
-                </p>
-              </div>
+          {/* TAB 1: Plan Analysis — driven by the real plan_reading_jobs/findings */}
+          {activeTab === "analyze" && renderAnalyzeTab()}
 
-              <div>
-                <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
-                  Suggested Takeoff Line Items (Requires Your Confirmation)
-                </h4>
-
-                <div className="space-y-2.5">
-                  {[
-                    {
-                      id: "sug-1",
-                      name: "Exterior Composite Decking Boards",
-                      qty: 450,
-                      unit: "SF",
-                      reason: "Calculated from 14' x 20' gross deck area minus stair penetration",
-                      category: "Finishes",
-                    },
-                    {
-                      id: "sug-2",
-                      name: "Perimeter Handrail & Balusters System",
-                      qty: 68,
-                      unit: "LF",
-                      reason: "Code-required edge fall protection around deck perimeter",
-                      category: "Carpentry",
-                    },
-                    {
-                      id: "sug-3",
-                      name: "6x6 Post Base Connectors & Joist Hangers",
-                      qty: 1,
-                      unit: "LS",
-                      reason: "Structural hardware package for ledger and joists",
-                      category: "Hardware",
-                    },
-                  ].map((sug) => {
-                    const isAdded = addedItems[sug.id];
-                    const isIgnored = ignoredItems[sug.id];
-                    if (isIgnored) return null;
-
-                    return (
-                      <div
-                        key={sug.id}
-                        className="p-3 sm:p-3.5 border border-[#e5e7eb] rounded-lg bg-white hover:border-[#2563eb] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
-                      >
-                        <div>
-                          <div className="font-bold text-[#111827]">
-                            {sug.name}
-                          </div>
-                          <div className="text-xs text-[#6b7280] mt-0.5">
-                            Suggested Quantity: <strong className="text-[#111827]">{sug.qty.toLocaleString()} {sug.unit}</strong> • {sug.reason}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                          {isAdded ? (
-                            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">
-                              <Check className="w-3.5 h-3.5" /> Added
-                            </span>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() =>
-                                  handleAddItem(
-                                    sug.id,
-                                    sug.name,
-                                    sug.qty,
-                                    sug.unit,
-                                    sug.category
-                                  )
-                                }
-                                className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Add Item</span>
-                              </button>
-                              <button
-                                onClick={() => handleIgnore(sug.id)}
-                                className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md text-xs transition"
-                              >
-                                Ignore
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: Missing Items */}
+          {/* TAB 2: Missing Items — a generic cross-trade completeness checklist, not tied to a specific plan reading */}
           {activeTab === "missing" && (
             <div className="space-y-4">
               <div className="p-3 sm:p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
@@ -249,7 +430,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                     id: "m-1",
                     name: "Batt Insulation (R-21)",
                     qty: 1200,
-                    unit: "SF",
+                    unit: "SF" as UnitType,
                     reason: "Often paired with Gypsum Board / Drywall assemblies",
                     category: "Thermal",
                   },
@@ -257,7 +438,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                     id: "m-2",
                     name: "Interior Primer & Finish Paint",
                     qty: 2400,
-                    unit: "SF",
+                    unit: "SF" as UnitType,
                     reason: "Standard finish trade following Drywall installation",
                     category: "Finishes",
                   },
@@ -265,12 +446,11 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                     id: "m-3",
                     name: "Vapor Barrier & Moisture Retarder",
                     qty: 1850,
-                    unit: "SF",
+                    unit: "SF" as UnitType,
                     reason: "Underlayment required prior to Flooring install",
                     category: "Finishes",
                   },
                 ].map((item) => {
-                  const isAdded = addedItems[item.id];
                   const isIgnored = ignoredItems[item.id];
                   if (isIgnored) return null;
 
@@ -287,29 +467,21 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                        {isAdded ? (
-                          <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">
-                            <Check className="w-3.5 h-3.5" /> Added
-                          </span>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() =>
-                                handleAddItem(item.id, item.name, item.qty, item.unit, item.category)
-                              }
-                              className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Add Scope</span>
-                            </button>
-                            <button
-                              onClick={() => handleIgnore(item.id)}
-                              className="px-2 py-1.5 text-[#6b7280] hover:text-[#111827] rounded-md text-xs"
-                            >
-                              Ignore
-                            </button>
-                          </>
-                        )}
+                        <button
+                          onClick={() =>
+                            onAddQuantityItem({ name: item.name, quantity: item.qty, unit: item.unit, category: item.category })
+                          }
+                          className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Scope</span>
+                        </button>
+                        <button
+                          onClick={() => handleIgnore(item.id)}
+                          className="px-2 py-1.5 text-[#6b7280] hover:text-[#111827] rounded-md text-xs"
+                        >
+                          Ignore
+                        </button>
                       </div>
                     </div>
                   );
