@@ -6,15 +6,7 @@ export interface NamedPlanReader {
   read(input: GeminiPlanReadInput): Promise<PlanReadingResult>;
 }
 
-/**
- * Tries each configured reader in order, stopping at the first real (non-
- * synthetic) reading. Built to put the cheaper primary provider first and a
- * fallback strictly last: Gemini primary, Claude (reads PDFs natively too)
- * only as a fallback of last resort — so the fallback is never touched
- * unless the primary path genuinely failed or isn't configured. If every
- * configured reader falls back to synthetic, returns the last one tried
- * (the most "final" attempt) rather than throwing.
- */
+/** Tries configured providers; all failures produce an error, never invented quantities. */
 export class MultiProviderPlanReader {
   private readonly readers: readonly NamedPlanReader[];
 
@@ -24,12 +16,12 @@ export class MultiProviderPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
-    let lastResult: PlanReadingResult | null = null;
     for (const { read } of this.readers) {
-      const result = await read(input);
-      if (!result.summary.synthetic) return result;
-      lastResult = result;
+      try {
+        const result = await read(input);
+        if (!result.summary.synthetic && result.findings.length) return result;
+      } catch { /* Try the next explicitly configured provider. */ }
     }
-    return lastResult!;
+    throw new Error('AI could not read this plan. No quantities were generated. Please retry or contact support.');
   }
 }

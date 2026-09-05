@@ -1,3 +1,4 @@
+import { ProjectPayments, handleProjectPayment } from '../billing/project-payments.ts';
 import { createClient } from '@supabase/supabase-js';
 import { handleAuthBootstrapRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
@@ -11,8 +12,6 @@ import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
-import { ClaudePlanReader, HttpClaudeMessagesClient } from '../ai-plan/claude.ts';
-import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
@@ -75,6 +74,16 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       ...(inviteMailer ? { sendInviteEmail: inviteMailer } : {}),
     });
   }
+  if (/^\/api\/projects\/[^/]+\/(reading-quote|reading-checkout)$/.test(pathname)) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.SUPABASE_URL) return json({error:'Project billing is not configured.'},503);
+    try {
+      const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false,autoRefreshToken:false}});
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      return handleProjectPayment(request,client as unknown as SupabaseLike,new ProjectPayments(admin,process.env),storage);
+    } catch { return json({error:'Project billing is not configured.'},503); }
+  }
   if (pathname === '/api/billing/checkout' || pathname === '/api/billing/portal' || pathname === '/api/webhooks/stripe') {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
     const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
@@ -85,7 +94,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
     const billing = createBillingEndpointHandler({
       config: createBillingConfigFromEnv(process.env),
+      membershipsEnabled: process.env.BILLING_MEMBERSHIPS_ENABLED === 'true',
       webhookSecret: stripeWebhookSecret,
+      reconcileProjectPayment: event => new ProjectPayments(createClient(supabaseUrl,supabaseServiceRoleKey,{auth:{persistSession:false,autoRefreshToken:false}}),process.env).reconcile(event),
       stripe: new StripeHttpGateway(stripeSecretKey),
       repository: new SupabaseBillingRepository(supabaseUrl, supabaseServiceRoleKey),
       authenticate: async () => {
@@ -125,26 +136,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      // GEMINI_API_KEY is optional on purpose: GeminiPlanReader falls back to a
-      // clearly-labeled synthetic takeoff instead of failing the request when
-      // it's unset or the model call errors — see gemini.ts. Gemini is tried
-      // first (primary); ANTHROPIC_API_KEY is only touched when Gemini's own
-      // result comes back synthetic — see multi-provider.ts.
       const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
       const geminiClient = geminiApiKey ? await createGeminiClient(geminiApiKey) : null;
-      const geminiModels = process.env.GEMINI_MODEL?.trim()
-        ? [process.env.GEMINI_MODEL.trim(), 'gemini-3.8-flash', 'gemini-3.6-flash']
-        : undefined;
-      const geminiReader = new GeminiPlanReader(geminiClient, geminiModels);
-
-      const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
-      const claudeClient = anthropicApiKey ? new HttpClaudeMessagesClient(anthropicApiKey) : null;
-      const claudeReader = new ClaudePlanReader(claudeClient, process.env.ANTHROPIC_MODEL?.trim() || undefined);
-
-      const reader = new MultiProviderPlanReader([
-        { name: 'gemini', read: (input) => geminiReader.read(input) },
-        { name: 'claude', read: (input) => claudeReader.read(input) },
-      ]);
+      const reader = new GeminiPlanReader(geminiClient, [process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash']);
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;

@@ -160,8 +160,8 @@ export const AuthGate: React.FC = () => {
             <div className="flex items-center gap-2 min-w-0">
               <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="min-w-0">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-blue-900">Free trial access</div>
-                <p className="text-[11px] text-blue-700 truncate">No card required. Project usage stays cost-limited.</p>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-blue-900">Secure workspace access</div>
+                <p className="text-[11px] text-blue-700 truncate">Company projects stay private. AI plan reading is paid per project.</p>
               </div>
             </div>
           </div>

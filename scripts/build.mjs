@@ -25,7 +25,7 @@ await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/st
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/landing/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/landing/styles.css', import.meta.url));
 
-const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY'];
+const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'RESEND_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY'];
 async function assertNoServerSecrets(directory) {
   for (const name of await readdir(directory)) {
     const file = new URL(name, directory);

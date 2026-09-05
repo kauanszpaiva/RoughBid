@@ -243,7 +243,7 @@ export type PlanReadingJob = {
  * the common case, but getAiPlanReading below still works for reloading a
  * past job.
  */
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,
@@ -361,4 +361,14 @@ export function createBillingCheckout(priceKey: BillingPriceKey) {
       cancelUrl: `${window.location.origin}/app/`,
     },
   });
+}
+
+export type ReadingQuote = { id: string; project_id: string; file_id: string; amount_cents: number; currency: string;
+  page_count: number; trades: string[]; scope: string; status: 'quoted'|'paid'|'processing'|'complete'|'failed'|'revoked';
+  attempts: number; max_attempts: number; job_id: string|null; expires_at: string; membership: string };
+export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string) {
+  return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope}});
+}
+export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
+  return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
 }

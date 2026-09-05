@@ -1,5 +1,4 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { syntheticPlanReadingResult } from './fallback.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 
 /** The subset of the Anthropic Messages API this reader needs — narrow enough to fake in tests. */
@@ -63,14 +62,7 @@ function extractJson(text: string): unknown {
   return JSON.parse(fenced ? fenced[1]! : text);
 }
 
-/**
- * Reads a plan PDF directly (inline, like GeminiPlanReader — no page
- * rendering) with Claude, via the Anthropic Messages API's native PDF
- * `document` content block. A single attempt only (no multi-model retry
- * chain): this is meant as a paid fallback of last resort behind a free
- * primary provider, so it should never burn more than one call. Falls back
- * to a clearly-labeled synthetic takeoff on any failure rather than erroring.
- */
+/** Optional reader for future explicitly budgeted use. Failure never substitutes quantities. */
 export class ClaudePlanReader {
   private readonly client: ClaudeMessagesClient | null;
   private readonly model: string;
@@ -98,17 +90,15 @@ export class ClaudePlanReader {
         if (response.text) {
           const parsed = extractJson(response.text) as { findings?: unknown };
           if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
-            return sanitizePlanReadingResult(parsed);
+            const result = sanitizePlanReadingResult(parsed);
+            if (result.findings.length) return result;
           }
         }
       } catch {
-        // Fall through to the synthetic result below.
+        // Fail explicitly below.
       }
     }
 
-    const notice = this.client
-      ? 'Claude returned no usable findings (temporary outage or an unreadable plan). Showing a synthesized placeholder takeoff — verify every line against the actual plan.'
-      : 'ANTHROPIC_API_KEY is not configured. Showing a synthesized placeholder takeoff — verify every line against the actual plan.';
-    return syntheticPlanReadingResult(input.requestedTrades, notice);
+    throw new Error('Claude could not read this plan. No quantities were generated. Please retry or contact support.');
   }
 }

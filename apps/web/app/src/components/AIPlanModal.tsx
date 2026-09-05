@@ -409,84 +409,19 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         {/* Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 text-xs">
           {/* TAB 1: Plan Analysis — driven by the real plan_reading_jobs/findings */}
+          {activeTab === "analyze" && <p className="rounded-lg bg-amber-50 p-3 text-amber-900">Check every quantity against its source page. Any reference prices shown are provisional; confirm supplier and labor rates before bidding.</p>}
           {activeTab === "analyze" && renderAnalyzeTab()}
 
-          {/* TAB 2: Missing Items — a generic cross-trade completeness checklist, not tied to a specific plan reading */}
           {activeTab === "missing" && (
-            <div className="space-y-4">
-              <div className="p-3 sm:p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
-                <div className="font-semibold text-amber-900 mb-1 flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span>Cross-Trade Scope Completeness Check</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  Comparing the current estimate against common construction scope patterns. Confirm every item before using it in a bid.
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                {[
-                  {
-                    id: "m-1",
-                    name: "Batt Insulation (R-21)",
-                    qty: 1200,
-                    unit: "SF" as UnitType,
-                    reason: "Often paired with Gypsum Board / Drywall assemblies",
-                    category: "Thermal",
-                  },
-                  {
-                    id: "m-2",
-                    name: "Interior Primer & Finish Paint",
-                    qty: 2400,
-                    unit: "SF" as UnitType,
-                    reason: "Standard finish trade following Drywall installation",
-                    category: "Finishes",
-                  },
-                  {
-                    id: "m-3",
-                    name: "Vapor Barrier & Moisture Retarder",
-                    qty: 1850,
-                    unit: "SF" as UnitType,
-                    reason: "Underlayment required prior to Flooring install",
-                    category: "Finishes",
-                  },
-                ].map((item) => {
-                  const isIgnored = ignoredItems[item.id];
-                  if (isIgnored) return null;
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="p-3 sm:p-3.5 border border-[#e5e7eb] rounded-lg bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
-                    >
-                      <div>
-                        <div className="font-bold text-[#111827]">{item.name}</div>
-                        <div className="text-xs text-[#6b7280]">
-                          {item.qty.toLocaleString()} {item.unit} • {item.reason}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                        <button
-                          onClick={() =>
-                            onAddQuantityItem({ name: item.name, quantity: item.qty, unit: item.unit, category: item.category })
-                          }
-                          className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Add Scope</span>
-                        </button>
-                        <button
-                          onClick={() => handleIgnore(item.id)}
-                          className="px-2 py-1.5 text-[#6b7280] hover:text-[#111827] rounded-md text-xs"
-                        >
-                          Ignore
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="space-y-3">
+              <h3 className="font-bold">Questions to check against your plan</h3>
+              <p>These are general reminders, not findings from your drawing. Enter quantities only after checking the source.</p>
+              <ul className="list-disc pl-5 space-y-2">
+                <li>Are insulation and moisture protection specified?</li>
+                <li>Are painting and finishes included in the scope?</li>
+                <li>Are demolition, disposal and temporary works required?</li>
+                <li>Have you confirmed supplier prices and installation labor?</li>
+              </ul>
             </div>
           )}
 

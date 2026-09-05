@@ -1,5 +1,4 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { syntheticPlanReadingResult } from './fallback.ts';
 
 /** Shared by every PDF-native reader (Gemini, Claude) — both take the raw uploaded PDF inline, no page-rendering step. */
 export interface GeminiPlanReadInput {
@@ -48,14 +47,7 @@ Sheet: "${sheetName}". Requested trade scope: ${requestedTrades.join(', ') || 'a
 const userPrompt = (scope: string | null) =>
   `Read this plan for takeoff preparation.${scope ? ` Project scope: ${scope}.` : ''} Extract only evidence visible on the provided pages.`;
 
-/**
- * Reads a plan PDF directly (inline, no separate page-rendering step) with
- * Gemini. Tries each candidate model in order; if every attempt fails or
- * returns no findings (including when no API key is configured), falls back
- * to a deterministic, clearly-labeled synthetic takeoff rather than failing
- * the request outright — the model is an assistant, and a temporary outage
- * shouldn't block an estimator from getting *something* to review.
- */
+/** Reads only the supplied PDF. Provider failure never generates substitute quantities. */
 export class GeminiPlanReader {
   private readonly client: GeminiGenerateContentClient | null;
   private readonly models: readonly string[];
@@ -83,6 +75,8 @@ export class GeminiPlanReader {
               systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
               responseMimeType: 'application/json',
               temperature: 0.1,
+              maxOutputTokens: 8000,
+              httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
             },
           });
           const parsed = JSON.parse(response.text || '{}') as { findings?: unknown };
@@ -96,11 +90,11 @@ export class GeminiPlanReader {
       }
     }
 
-    if (rawResult) return sanitizePlanReadingResult(rawResult);
+    if (rawResult) {
+      const result = sanitizePlanReadingResult(rawResult);
+      if (result.findings.length) return result;
+    }
 
-    const notice = this.client
-      ? 'Gemini returned no usable findings (temporary outage or rate limit). Showing a synthesized placeholder takeoff — verify every line against the actual plan.'
-      : 'GEMINI_API_KEY is not configured. Showing a synthesized placeholder takeoff — verify every line against the actual plan.';
-    return syntheticPlanReadingResult(input.requestedTrades, notice);
+    throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
   }
 }

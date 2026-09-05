@@ -19,7 +19,8 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Static operational drafts exist for Terms, Privacy, Data Use and AI, and Acceptable Use.
 - Favicon and in-app mark use a generated RoughBid logo image.
 - Export and review screens no longer claim readiness when a project has no plan, quantities, or priced estimate lines.
-- AI plan assistant is wired to the real pipeline: `AiPlanReadingService.create()` reads the uploaded PDF directly, synchronously, inline in the API request (no queue, no separately-deployed worker to forget to run) via `MultiProviderPlanReader` — Gemini first, Claude only as a fallback of last resort when Gemini itself comes back synthetic — prices materials and labor with a New England rate benchmark (`apps/api/src/ai-plan/pricing.ts`), and the modal renders real findings with per-finding Add/Ignore that call the estimator-approval RPC. What's left is operational, not code: set real `GEMINI_API_KEY`/`SUPABASE_SERVICE_ROLE_KEY`/object storage credentials in production (both `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` are optional — their absence just degrades toward the next provider, then a labeled synthetic takeoff, rather than disabling the feature).
+- AI plan reading now requires a paid project-reading quote before Gemini receives a plan. The API prices the read from measured cost settings, applies the configured membership margin, opens Stripe Checkout, waits for the signed Stripe webhook, then reserves a reading job with the paid quote. Missing payment, changed files, unapproved workspace AI consent, or missing cost configuration stop the read before any model call.
+- Gemini is the configured production reader. If Gemini is not configured, fails, or returns no usable source-backed quantities, RoughBid stores no substitute takeoff and asks the estimator to retry with a valid paid quote. Historical simulated readings are blocked from approval.
 - A workspace must explicitly approve AI plan reading (`workspaces.ai_processing_consented_at`) before any of its files are sent to a model; an owner grants this once from the Plans page.
 - Every AI-suggested quantity requires estimator approval before it affects a bid: findings stay `needs_review` until an estimator calls `set_plan_reading_finding_status` (accept/reject) through the app.
 - Production security headers are configured in Vercel.
@@ -28,14 +29,14 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 ## Must Finish Before Paid Launch
 
 - Connect real plan upload from the frontend to private storage, document processing, and page preview records.
-- Set real `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and object storage credentials in the production environment — AI plan reading runs inline in the API request, so there's no separate worker to deploy for it. `Dockerfile.worker`/`scripts/worker.ts` is still needed for the (unrelated) PDF page-rendering queue that feeds the blueprint viewer, and nothing runs that in production yet either.
+- Set real `SUPABASE_SERVICE_ROLE_KEY`, Stripe secrets, Stripe webhook secret, object storage credentials, and measured project cost settings in production. `GEMINI_API_KEY` is already staged as a Vercel production secret for the next deployment; keep it server-only.
 - Replace the New England benchmark rate table in `apps/api/src/ai-plan/pricing.ts` with a real, licensed, workspace-specific price book (see "New England ML Method" in the architecture doc).
-- Mount and validate Stripe Checkout, Portal, and webhook routes end-to-end before setting a live price.
+- Apply the paid-reading Supabase migration together with the API deploy, then validate Stripe Checkout and webhook flow end-to-end before switching to live paid reads.
 - Create and publish the Resend workspace welcome/invite templates after final copy approval.
-- Add account billing screens once Stripe pricing, limits, refund policy, and plan tiers are approved.
+- Approve membership monthly prices before enabling subscription checkout. Project reads can be charged dynamically from measured costs; membership discounts only apply after the user's Stripe subscription is active.
 - Replace proposal legal terms with jurisdiction/company-approved templates before real client delivery.
 - Add audit logs for invite creation, invite acceptance, export creation, and AI-assisted item approval.
-- Add rate limits for auth, invite creation, invite acceptance, upload URL creation, and estimate recalculation. (AI plan-reading jobs already have a basic per-workspace daily cap — `AI_PLAN_DAILY_JOB_LIMIT`, default 25 — but no cost-based limit yet.)
+- Add rate limits for auth, invite creation, invite acceptance, upload URL creation, and estimate recalculation. Paid AI plan reading has a payment gate, two-attempt quote cap, and a database hard cap of 25 jobs per workspace per day.
 - Add admin controls for revoking pending invites and removing members.
 - Add workspace settings for company logo, address, license details, default overhead, markup, tax, and proposal footer.
 - Add onboarding states for first project, first plan upload, first quantity, first estimate, and first export.
@@ -47,7 +48,7 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Vercel: production project is connected; runtime errors must be rechecked after each deploy.
 - Supabase: RLS-backed tables are active; workspace invites and legacy access cleanup are applied.
 - GitHub: PR #14 carries the RoughBid readiness work.
-- Stripe: live and test accounts are connected; TEST product `prod_VCHSqTxw7RucUe` exists; no price or live charge should be created without commercial approval.
+- Stripe: project-reading Checkout is implemented behind measured cost settings and webhooks. Membership checkout remains disabled until monthly Stripe prices are approved and configured.
 - Resend: approval template draft `6db15836-91a2-4b31-b08f-abcd2355d135` exists; publish/send only after sender and copy approval.
 - Tavily: useful for research and benchmarking; connector still returned reauthentication errors on 2026-09-04 and is not connected to the app runtime today.
 - DocuSign: not needed for current RoughBid scope unless signed contracts/proposals become a product requirement.

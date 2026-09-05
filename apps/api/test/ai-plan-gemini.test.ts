@@ -53,25 +53,15 @@ test('tries the next candidate model when the first returns no findings, before 
   assert.equal(result.findings.length, 1);
 });
 
-test('falls back to a clearly-labeled synthetic takeoff when no client is configured', async () => {
-  const reader = new GeminiPlanReader(null);
-  const result = await reader.read(baseInput);
-
-  assert.ok(result.findings.length > 0);
-  assert.ok(result.summary.limitations.some((l) => l.includes('GEMINI_API_KEY is not configured')));
-  // The synthetic fallback still exercises both finding types the pricing pipeline expects.
-  assert.ok(result.findings.some((f) => f.finding_type === 'material'));
-  assert.ok(result.findings.some((f) => f.finding_type === 'labor'));
+test('missing Gemini credentials fail without invented output', async () => {
+  await assert.rejects(new GeminiPlanReader(null).read(baseInput), /No quantities were generated/);
 });
-
-test('falls back to a clearly-labeled synthetic takeoff when every model call throws', async () => {
-  const client = { generateContent: async () => { throw new Error('rate limited'); } };
-  const reader = new GeminiPlanReader(client, ['model-a']);
-  const result = await reader.read(baseInput);
-
-  assert.ok(result.summary.limitations.some((l) => l.includes('temporary outage or rate limit')));
+test('Gemini outage fails without invented output', async () => {
+  let calls=0;
+  const client = { generateContent: async () => { calls++; throw new Error('rate limited'); } };
+  await assert.rejects(new GeminiPlanReader(client, ["model-a"]).read(baseInput), /No quantities were generated/);
+  assert.equal(calls,1);
 });
-
 test('sanitizePlanReadingResult drops a quantity without a verbatim source excerpt', () => {
   const result = sanitizePlanReadingResult({
     summary: { sheet_count: 1 },
