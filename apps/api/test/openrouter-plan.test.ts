@@ -68,7 +68,7 @@ test('incomplete or invalid free-model output is rejected before findings are st
   }
 });
 
-function database(provider: 'openrouter' | 'gemini' = 'openrouter') {
+function database(provider: 'openrouter' | 'gemini' = 'openrouter', byteSize = 1024) {
   const writes: any[] = [];
   const queriedModels: string[] = [];
   const db: any = {
@@ -82,7 +82,7 @@ function database(provider: 'openrouter' | 'gemini' = 'openrouter') {
         limit: async () => ({ data: [], error: null }),
         single: async () => ({ data: { id: 'job', ...changes }, error: null }),
         maybeSingle: async () => ({ error: null, data: table === 'workspace_members' ? { role: 'estimator' }
-          : table === 'project_files' ? { id: 'file', processing_status: 'ready', storage_path: 'private/test.pdf' }
+          : table === 'project_files' ? { id: 'file', processing_status: 'ready', storage_path: 'private/test.pdf', byte_size: byteSize }
           : table === 'plan_reading_jobs' ? changes ? { id: 'job' } : { id: 'job', project_id: 'project', file_id: 'file', status: 'queued', model: provider === 'openrouter' ? OPENROUTER_FREE_MODEL : 'gemini-3.5-flash-lite', input_summary: { provider }, plan_reading_findings: [] }
           : { id: 'project' } }),
         then(resolve: any) { return Promise.resolve({ data: changes, count: 0, error: null }).then(resolve); },
@@ -109,6 +109,18 @@ test('missing free provider configuration does not create a job or use Gemini', 
   const service = new GeminiPlanService(db, db, {} as any, { readPdf: async () => { throw Error('Gemini must not run'); } }, 'workspace', 'user');
   await assert.rejects(service.create('project', { file_id: 'file', provider: 'openrouter' }), /server API key/);
   assert.equal(writes.length, 0);
+});
+
+test('large PDFs selected with Gemini are routed through the zero-cost OpenRouter pool', async () => {
+  const { db, queriedModels } = database('openrouter', 13 * 1024 * 1024);
+  const gemini: any = { configured: true, readPdf: async () => { throw Error('Gemini must not run for a large PDF'); } };
+  const openrouter: any = { configured: true, readPdf: async () => output() };
+  const service = new GeminiPlanService(db, db, {} as any, gemini, 'workspace', 'user', { openrouter });
+  const job = await service.create('project', { file_id: 'file', provider: 'gemini' });
+  assert.equal(job.model, OPENROUTER_FREE_MODEL);
+  assert.equal(job.input_summary.provider, 'openrouter');
+  assert.equal(job.input_summary.requested_provider, 'gemini');
+  assert.deepEqual(queriedModels, [OPENROUTER_FREE_MODEL]);
 });
 
 test('processing dispatches the stored OpenRouter job without calling Gemini', async () => {

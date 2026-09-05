@@ -1,6 +1,6 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import type { AiPlanStorage } from './processor.ts';
-import { fetchPrivatePdf, GEMINI_MODEL, GeminiPdfReader } from './gemini.ts';
+import { fetchPrivatePdf, GEMINI_MODEL, GeminiPdfReader, MAX_GEMINI_PDF_BYTES } from './gemini.ts';
 import { OPENROUTER_FREE_MODEL } from './openrouter.ts';
 import { normalizePlanReadingScope } from './openai.ts';
 
@@ -43,10 +43,11 @@ export class GeminiPlanService {
     result(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
     const file = result<any>(await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', input.file_id).maybeSingle(), true);
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'Complete the PDF upload before starting AI reading.');
-    const provider = input.provider ?? 'gemini';
-    if (provider !== 'gemini' && provider !== 'openrouter') throw new ProjectApiError(400, 'Choose Gemini or OpenRouter Free.');
+    const requestedProvider = input.provider ?? 'gemini';
+    if (requestedProvider !== 'gemini' && requestedProvider !== 'openrouter') throw new ProjectApiError(400, 'Choose Gemini or OpenRouter Free.');
+    const provider: PlanProvider = requestedProvider === 'gemini' && file.byte_size > MAX_GEMINI_PDF_BYTES ? 'openrouter' : requestedProvider;
     const reader = this.readers[provider];
-    if (!reader || reader.configured === false) throw new ProjectApiError(503, `${provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini'} needs its server API key before reading. No other provider was called.`);
+    if (!reader || reader.configured === false) throw new ProjectApiError(503, `${provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini'} needs its server API key before reading. No paid provider was called.`);
     const model = models[provider];
     const scope = normalizePlanReadingScope(input);
     if (scope.mode === 'selected_scope' && !scope.requestedAreas.length) throw new ProjectApiError(400, 'Select at least one area, room, sheet, or zone.');
@@ -57,7 +58,7 @@ export class GeminiPlanService {
     return result<any>(await this.db.from('plan_reading_jobs').insert({
       workspace_id: this.workspaceId, project_id: projectId, file_id: file.id, requested_by: this.userId,
       status: 'queued', mode: input.mode === 'detailed' ? 'detailed' : 'quick', model,
-      input_summary: { scope_mode: scope.mode, requested_areas: scope.requestedAreas, requested_trades: scope.trades, requested_scope: scope.legacyScope, provider, human_review_required: true },
+      input_summary: { scope_mode: scope.mode, requested_areas: scope.requestedAreas, requested_trades: scope.trades, requested_scope: scope.legacyScope, provider, requested_provider: requestedProvider, human_review_required: true },
     }).select('*').single());
   }
 

@@ -4,6 +4,8 @@ The Plans screen now offers **OpenRouter Free Pool** and **Gemini**. The choice 
 with the job; cached Gemini results do not substitute for an OpenRouter request.
 OpenRouter's free router can rotate across currently available free models while the
 request remains capped at zero price.
+If Gemini is selected for a PDF that is too large for Gemini's direct inline request,
+RoughBid routes that job through OpenRouter Free Pool so the read can still run at $0.
 
 ## Free API boundary
 

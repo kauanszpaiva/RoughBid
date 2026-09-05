@@ -14,8 +14,13 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
   const [provider, setProvider] = useState<'openrouter' | 'gemini'>('openrouter');
   const [providers, setProviders] = useState<PlanAiProvider[]>([]);
   const [providerError, setProviderError] = useState('');
-  const providerName = provider === 'openrouter' ? 'OpenRouter Free Pool' : 'Gemini';
-  const providerConfigured = providers.find(p => p.id === provider)?.configured === true;
+  const currentRevision =
+    project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
+  const fileSizeMb = Number(currentRevision?.fileSize.match(/([\d.]+)\s*MB/i)?.[1] ?? 0);
+  const needsLargeFreeRoute = provider === 'gemini' && fileSizeMb > 12;
+  const effectiveProvider = needsLargeFreeRoute ? 'openrouter' : provider;
+  const effectiveProviderName = effectiveProvider === 'openrouter' ? 'OpenRouter Free Pool' : 'Gemini';
+  const providerConfigured = providers.find(p => p.id === effectiveProvider)?.configured === true;
   useEffect(() => {
     let cancelled = false;
     void getPlanAiProviders().then(data => { if (!cancelled) setProviders(data.providers); }).catch(() => { if (!cancelled) setProviderError('Could not check AI availability. Refresh the page.'); });
@@ -24,9 +29,6 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
   const [aiScopeMode, setAiScopeMode] = useState<"all_trades" | "selected_scope">("all_trades");
   const [aiAreaText, setAiAreaText] = useState<string>("");
   const [selectedTrades, setSelectedTrades] = useState<AiPlanReadingTrade[]>(["architectural", "structural", "mep"]);
-
-  const currentRevision =
-    project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
 
   const tradeOptions: Array<{ value: AiPlanReadingTrade; label: string }> = [
     { value: "architectural", label: "Architectural" },
@@ -74,7 +76,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
       if (currentRevision.processingStatus !== 'ready') await completeDocumentUpload(workspaceId, currentRevision.remoteFileId);
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
-        provider,
+        provider: effectiveProvider,
         mode: "quick",
         scope: project.projectType,
         scopeMode: aiScopeMode,
@@ -85,7 +87,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
       updateRevision({ aiPlanJobId: job.id, aiPlanStatus: job.status });
       const processed = await processAiPlanReading(workspaceId, job.id);
       const readingNotice = processed.status === 'failed'
-        ? `${providerName} could not read this PDF. Check the coverage limitations below before retrying.`
+        ? `${effectiveProviderName} could not read this PDF. Check the coverage limitations below before retrying.`
         : `AI plan reading finished for review. Findings stored: ${processed.findingsStored}. Check page coverage and source evidence below.`;
       updateRevision({ aiPlanJobId: job.id, aiPlanStatus: processed.status, notes: readingNotice });
       setNotice(readingNotice);
@@ -122,6 +124,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
                   <option value="gemini">Gemini — Google quota</option>
                 </select>
               </label>
+            {needsLargeFreeRoute && <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-800">This PDF is larger than Gemini's direct free request size, so RoughBid will run it through OpenRouter Free Pool at $0.</p>}
             <button
               onClick={handleStartAiReading}
               disabled={!workspaceId || !project.remoteId || !currentRevision?.remoteFileId || isStartingAi || isUploading || !providerConfigured}
@@ -129,7 +132,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Read with {providerName}</span>
+                <span>Read with {effectiveProviderName}</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
                 {isStartingAi ? "Reading..." : currentRevision?.aiPlanStatus?.replaceAll("_", " ") || "Ready"}
@@ -137,7 +140,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
             </button>
               {!providers.length && !providerError && <p role="status" className="text-xs text-slate-500">Checking AI availability…</p>}
               {providerError && <p role="alert" className="text-xs text-amber-800">{providerError}</p>}
-              {providers.length > 0 && !providerConfigured && <p role="status" className="text-xs text-amber-800">{providerName} needs to be connected by the workspace owner before testing.</p>}
+              {providers.length > 0 && !providerConfigured && <p role="status" className="text-xs text-amber-800">{effectiveProviderName} needs to be connected by the workspace owner before testing.</p>}
               <details className="space-y-3">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-700">Choose areas and trades</summary>
               <div className="grid grid-cols-2 gap-1 rounded-md bg-white p-1 border border-[#e5e7eb]">
@@ -199,7 +202,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
               </p>
               <p className="text-[11px] text-[#6b7280]">{provider === 'openrouter'
                 ? 'OpenRouter Free Pool sends this PDF through Cloudflare text conversion and a rotating free AI route. API price is locked at $0 and paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
-                : 'Gemini sends this PDF to Google. Google may use free-tier input to improve its products.'} Only submit plans you are authorized to share.</p>
+                : 'Gemini sends PDFs up to its direct free request size to Google. Larger PDFs use OpenRouter Free Pool at $0 so testing can continue.'} Only submit plans you are authorized to share.</p>
             </div>
 
 
