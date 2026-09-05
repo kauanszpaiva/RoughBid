@@ -136,7 +136,11 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         try { queue = await createDocumentQueue(process.env.REDIS_URL); }
         catch { /* Original PDF uploads do not depend on optional page rendering. */ }
       }
-      return await handleDocumentRequest(request, client as unknown as SupabaseLike, storage, queue);
+      const isCompletion = request.method === 'POST' && pathname.endsWith('/complete');
+      const writerKey = isCompletion ? loadSupabaseServiceRoleKey() : null;
+      if (isCompletion && (!writerKey || !process.env.SUPABASE_URL)) return json({ error: 'Document completion is not configured.' }, 503);
+      const completionWriter = writerKey ? createClient(process.env.SUPABASE_URL!, writerKey, { auth: { persistSession: false, autoRefreshToken: false } }) : undefined;
+      return await handleDocumentRequest(request, client as unknown as SupabaseLike, storage, queue, completionWriter);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'Document processing is not configured.' }, 503);
     } finally {

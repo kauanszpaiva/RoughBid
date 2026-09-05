@@ -20,10 +20,10 @@ function fixture(queue: JobQueue | null = null, responseBytes = 15, initialStatu
       insert: (input: any) => { row = { ...input, page_count: null, metadata: {} }; return query; },
       single: () => query, maybeSingle: () => query,
       then: (resolve: any, reject: any) => {
-        const target = table === 'projects' ? { id: 'project-1', workspace_id: 'workspace-1' } : row;
+        const target = table === 'workspace_members' ? { user_id: 'user-1', workspace_id: 'workspace-1', role: 'admin' } : table === 'projects' ? { id: 'project-1', workspace_id: 'workspace-1' } : row;
         const matches = filters.every(([column, value]) => target[column] === value);
         if (matches && changes) row = { ...row, ...changes };
-        return Promise.resolve({ data: matches ? (table === 'projects' ? target : row) : null, error: null }).then(resolve, reject);
+        return Promise.resolve({ data: matches ? (table === 'project_files' ? row : target) : null, error: null }).then(resolve, reject);
       },
     };
     return query;
@@ -79,6 +79,37 @@ test('manual mode still rejects mismatched uploads and another workspace before 
   f.signed.length = 0;
   const other = new DocumentService(f.db, f.storage, null, 'user-2', 'workspace-2', f.fetcher);
   await assert.rejects(other.download('file-1'), (error: any) => error.status === 404);
-  await assert.rejects(other.beginUpload('project-1', { name: 'plan.pdf', contentType: 'application/pdf', byteSize: 15 }), (error: any) => error.status === 404);
+  await assert.rejects(other.beginUpload('project-1', { name: 'plan.pdf', contentType: 'application/pdf', byteSize: 15 }), (error: any) => error.status === 403);
+  assert.deepEqual(f.signed, []);
+});
+
+test('completion uses a server writer after scoped browser reads and storage verification', async () => {
+  const f = fixture();
+  const scopedDb = { from: (table: string) => {
+    const query = f.db.from(table);
+    query.update = () => { throw new Error('Browser roles cannot update file metadata'); };
+    return query;
+  } };
+  const service = new DocumentService(scopedDb, f.storage, null, 'user-1', 'workspace-1', f.fetcher, f.db);
+  assert.equal((await service.completeUpload('file-1')).processing_status, 'ready');
+  assert.equal((await service.completeUpload('file-1')).processing_status, 'ready');
+  assert.deepEqual(f.signed, ['HEAD']);
+});
+
+test('server writer is never reached for missing membership or an unverified object', async () => {
+  const f = fixture(null, 16);
+  let writes = 0;
+  const writer = { from: () => { writes++; throw new Error('Unexpected write'); } };
+  const denied = new DocumentService(f.db, f.storage, null, 'viewer', 'workspace-1', f.fetcher, writer);
+  await assert.rejects(denied.completeUpload('file-1'), (error: any) => error.status === 403);
+  assert.deepEqual(f.signed, []);
+  const mismatch = new DocumentService(f.db, f.storage, null, 'user-1', 'workspace-1', f.fetcher, writer);
+  await assert.rejects(mismatch.completeUpload('file-1'), (error: any) => error.status === 422);
+  assert.equal(writes, 0);
+});
+
+test('upload size limit matches the production database constraint', async () => {
+  const f = fixture();
+  await assert.rejects(f.service.beginUpload('project-1', { name: 'large.pdf', contentType: 'application/pdf', byteSize: 50 * 1024 * 1024 + 1 }), (error: any) => error.status === 413);
   assert.deepEqual(f.signed, []);
 });

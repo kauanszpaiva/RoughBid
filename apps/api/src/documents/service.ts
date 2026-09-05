@@ -1,7 +1,7 @@
 import { ProjectApiError, assertPlanStoragePath } from '../projects/service.ts';
 import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
 
-export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
+export const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
 export interface PdfJob { fileId: string; workspaceId: string; projectId: string; sourceKey: string; }
 export interface JobQueue {
@@ -33,13 +33,21 @@ export class DocumentService {
   private userId: string;
   private workspaceId: string;
   private fetcher: typeof fetch;
-  constructor(db: DocumentDb, storage: S3ObjectStorage | DocumentObjectStorage, queue: JobQueue | null, userId: string, workspaceId: string, fetcher: typeof fetch = fetch) {
+  private completionWriter: DocumentDb;
+  constructor(db: DocumentDb, storage: S3ObjectStorage | DocumentObjectStorage, queue: JobQueue | null, userId: string, workspaceId: string, fetcher: typeof fetch = fetch, completionWriter: DocumentDb = db) {
     this.db = db; this.storage = storage; this.queue = queue; this.userId = userId; this.workspaceId = workspaceId; this.fetcher = fetcher;
+    this.completionWriter = completionWriter;
+  }
+
+  private async assertWriteAccess() {
+    const membership = await this.db.from('workspace_members').select('role').eq('workspace_id', this.workspaceId).eq('user_id', this.userId).maybeSingle();
+    if (membership.error || !['admin', 'estimator'].includes(membership.data?.role)) throw new ProjectApiError(403, 'Your workspace role cannot upload or complete plan files.');
   }
 
   async beginUpload(projectId: string, input: { name: string; contentType: string; byteSize: number }) {
+    await this.assertWriteAccess();
     if (input.contentType !== 'application/pdf' || !input.name.toLowerCase().endsWith('.pdf')) throw new ProjectApiError(415, 'Only PDF files are accepted');
-    if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 100 MB');
+    if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 50 MB');
     const project = await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle();
     if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
     const id = crypto.randomUUID();
@@ -50,8 +58,10 @@ export class DocumentService {
   }
 
   async completeUpload(fileId: string) {
+    await this.assertWriteAccess();
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
+    if (result.data.processing_status === 'ready') return result.data;
     if (result.data.processing_status !== 'uploading' && result.data.processing_status !== 'queued') throw new ProjectApiError(409, 'Upload has already been completed');
     assertPlanStoragePath(result.data.storage_path,this.workspaceId,result.data.project_id,fileId);
     const head = await this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
@@ -62,7 +72,9 @@ export class DocumentService {
     if (storedBytes !== result.data.byte_size || storedType !== 'application/pdf') throw new ProjectApiError(422, 'Uploaded object does not match the declared PDF');
     let file = result.data;
     if (result.data.processing_status === 'uploading') {
-      const updated = await this.db.from('project_files').update({
+      // Browser roles cannot update file metadata directly. The server writes
+      // only after authenticated tenant/role checks and storage verification.
+      const updated = await this.completionWriter.from('project_files').update({
         processing_status: this.queue ? 'queued' : 'ready',
         processing_error: null,
         ...(!this.queue ? { metadata: { ...result.data.metadata, page_processing: 'not_requested' } } : {}),
@@ -81,7 +93,7 @@ export class DocumentService {
       }
     }
     if (file.processing_status === 'queued') {
-      const fallback = await this.db.from('project_files').update({
+      const fallback = await this.completionWriter.from('project_files').update({
         processing_status: 'ready', processing_error: null,
         metadata: { ...file.metadata, page_processing: this.queue ? 'unavailable' : 'not_requested' },
       }).eq('workspace_id', this.workspaceId).eq('id', fileId).eq('processing_status', 'queued').select('*').maybeSingle();

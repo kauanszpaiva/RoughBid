@@ -136,8 +136,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       input.value = "";
       return;
     }
-    if (file.size > 100 * 1024 * 1024) {
-      setPlanNotice("Choose a PDF smaller than 100 MB.");
+    if (file.size > 50 * 1024 * 1024) {
+      setPlanNotice("Choose a PDF no larger than 50 MB.");
       input.value = "";
       return;
     }
