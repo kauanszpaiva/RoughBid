@@ -79,7 +79,11 @@ export class DocumentService {
         processing_error: null,
         ...(!this.queue ? { metadata: { ...result.data.metadata, page_processing: 'not_requested' } } : {}),
       }).eq('workspace_id', this.workspaceId).eq('id', fileId).eq('processing_status', 'uploading').select('*').maybeSingle();
-      if (updated.error || !updated.data) throw new ProjectApiError(409, 'Upload completion conflict');
+      if (updated.error) {
+        console.error('document_completion_failed', { code: updated.error.code, message: updated.error.message });
+        throw new ProjectApiError(500, 'Could not save upload completion. The original file remains stored.');
+      }
+      if (!updated.data) throw new ProjectApiError(409, 'Upload completion conflict');
       file = updated.data;
     }
     // The browser renders the original PDF. Optional server page images must

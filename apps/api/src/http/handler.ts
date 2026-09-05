@@ -42,7 +42,14 @@ function clientForRequest(request: Request) {
 }
 
 function loadSupabaseServiceRoleKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_PLAN_FUNCTION?.trim() || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_PLAN_FUNCTION?.trim() || '';
+  if (key.startsWith('sb_secret_')) return key;
+  try {
+    const claims = JSON.parse(Buffer.from(key.split('.')[1] ?? '', 'base64url').toString('utf8'));
+    if (claims.role === 'service_role') return key;
+  } catch { /* Invalid server configuration, never log the credential. */ }
+  if (key) console.error('supabase_server_writer_not_configured', { reason: 'Configured value is not a service role or server secret key.' });
+  return '';
 }
 
 /**
