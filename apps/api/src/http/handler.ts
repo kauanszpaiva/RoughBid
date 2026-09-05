@@ -39,6 +39,10 @@ function clientForRequest(request: Request) {
   });
 }
 
+function loadSupabaseServiceRoleKey() {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_PLAN_FUNCTION?.trim() || '';
+}
+
 /**
  * Single entrypoint for every RoughBid API route, mounted at the repo root by
  * /api/[...path].ts (a thin Vercel Edge Function adapter — see that file).
@@ -75,9 +79,10 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     });
   }
   if (/^\/api\/projects\/[^/]+\/(reading-quote|reading-checkout)$/.test(pathname)) {
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.SUPABASE_URL) return json({error:'Project billing is not configured.'},503);
+    const serviceRoleKey = loadSupabaseServiceRoleKey();
+    if (!serviceRoleKey || !process.env.SUPABASE_URL) return json({error:'Project billing is not configured.'},503);
     try {
-      const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false,autoRefreshToken:false}});
+      const admin = createClient(process.env.SUPABASE_URL, serviceRoleKey, {auth:{persistSession:false,autoRefreshToken:false}});
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
@@ -87,7 +92,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/billing/checkout' || pathname === '/api/billing/portal' || pathname === '/api/webhooks/stripe') {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
     const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!stripeSecretKey || !stripeWebhookSecret || !supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'Billing is not configured.' }, 503);
@@ -127,7 +132,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
   }
   if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
