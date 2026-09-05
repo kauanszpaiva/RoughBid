@@ -1,4 +1,4 @@
-export const MAX_PLAN_BYTES = 50 * 1024 * 1024;
+export const MAX_PLAN_BYTES = 100 * 1024 * 1024;
 export const PLAN_BUCKET = 'plan-files';
 
 export type ProjectStatus = 'draft' | 'active' | 'archived';
@@ -54,7 +54,7 @@ export async function validatePlanFile(file: File): Promise<void> {
   if (!(file instanceof Blob) || file.type.toLowerCase() !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) {
     throw new ProjectApiError(415, 'Only PDF files are accepted');
   }
-  if (file.size < 1 || file.size > MAX_PLAN_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 50 MB');
+  if (file.size < 1 || file.size > MAX_PLAN_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 100 MB');
   const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
   if (new TextDecoder().decode(signature) !== '%PDF-') throw new ProjectApiError(415, 'File content is not a valid PDF');
 }

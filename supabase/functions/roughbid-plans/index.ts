@@ -2,7 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 // apps/api/src/projects/service.ts
-var MAX_PLAN_BYTES = 50 * 1024 * 1024;
+var MAX_PLAN_BYTES = 100 * 1024 * 1024;
 var ProjectApiError = class extends Error {
   status;
   constructor(status, message) {
@@ -101,8 +101,14 @@ function buildPlanReadingRequestText(pages, scope) {
 var GEMINI_MODEL = "gemini-3.5-flash-lite";
 var MAX_GEMINI_PDF_BYTES = 12 * 1024 * 1024;
 var MAX_GEMINI_PAGES = 60;
-async function inspectPdf(bytes) {
-  if (!bytes.length || bytes.length > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, "PDF must be no larger than 12 MB for AI reading.");
+var MAX_FREE_AI_PDF_BYTES = 100 * 1024 * 1024;
+var MAX_FREE_AI_PAGES = 500;
+async function inspectPdf(bytes, options = {}) {
+  const maxBytes = options.maxBytes ?? MAX_FREE_AI_PDF_BYTES;
+  const maxPages = options.maxPages ?? MAX_FREE_AI_PAGES;
+  const label = options.label ?? "PDF";
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
+  if (!bytes.length || bytes.length > maxBytes) throw new ProjectApiError(413, `${label} must be no larger than ${maxMb} MB.`);
   if (new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") throw new ProjectApiError(415, "File content is not a valid PDF.");
   let pages;
   try {
@@ -110,13 +116,14 @@ async function inspectPdf(bytes) {
   } catch {
     throw new ProjectApiError(422, "PDF is damaged or password protected. Upload an unlocked PDF.");
   }
-  if (pages < 1 || pages > MAX_GEMINI_PAGES) throw new ProjectApiError(413, "AI reading supports PDF plan sets from 1 to 60 pages.");
+  if (pages < 1 || pages > maxPages) throw new ProjectApiError(413, `${label} supports PDF plan sets from 1 to ${maxPages} pages.`);
   return pages;
 }
-async function fetchPrivatePdf(url, headers = {}, fetcher = fetch) {
+async function fetchPrivatePdf(url, headers = {}, fetcher = fetch, maxBytes = MAX_FREE_AI_PDF_BYTES) {
   const response = await fetcher(url, { headers, signal: AbortSignal.timeout(3e4), redirect: "error" });
   if (!response.ok || !response.body) throw new ProjectApiError(502, "Could not retrieve the private PDF.");
-  if (Number(response.headers.get("content-length")) > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, "PDF exceeds the 12 MB AI reading limit.");
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
+  if (Number(response.headers.get("content-length")) > maxBytes) throw new ProjectApiError(413, `PDF exceeds the ${maxMb} MB free AI request limit.`);
   const chunks = [];
   const reader = response.body.getReader();
   let length = 0;
@@ -125,9 +132,9 @@ async function fetchPrivatePdf(url, headers = {}, fetcher = fetch) {
       const { done, value } = await reader.read();
       if (done) break;
       length += value.length;
-      if (length > MAX_GEMINI_PDF_BYTES) {
+      if (length > maxBytes) {
         await reader.cancel();
-        throw new ProjectApiError(413, "PDF exceeds the 12 MB AI reading limit.");
+        throw new ProjectApiError(413, `PDF exceeds the ${maxMb} MB free AI request limit.`);
       }
       chunks.push(value);
     }
@@ -170,7 +177,7 @@ var GeminiPdfReader = class {
   }
   async readPdf(bytes, scopeInput) {
     if (!this.apiKey) throw new ProjectApiError(503, "Gemini plan reading is not configured.");
-    const pageCount = await inspectPdf(bytes);
+    const pageCount = await inspectPdf(bytes, { maxBytes: MAX_GEMINI_PDF_BYTES, maxPages: MAX_GEMINI_PAGES, label: "Gemini AI reading" });
     const scope = normalizePlanReadingScope(scopeInput);
     const schema = structuredClone(outputSchema);
     schema.properties.findings.items.properties.geometry = { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, additionalProperties: false };
@@ -231,7 +238,6 @@ var DocumentService = class {
     if (!input || typeof input.name !== "string") throw new ProjectApiError(400, "PDF name is required");
     if (input.contentType !== "application/pdf" || !input.name.toLowerCase().endsWith(".pdf")) throw new ProjectApiError(415, "Only PDF files are accepted");
     if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, "PDF must be no larger than 100 MB");
-    if (!this.queue && input.byteSize > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, "PDF must be no larger than 12 MB for AI reading.");
     const project = await this.db.from("projects").select("id").eq("workspace_id", this.workspaceId).eq("id", projectId).maybeSingle();
     if (project.error || !project.data) throw new ProjectApiError(404, "Project not found");
     const id = crypto.randomUUID();
@@ -393,9 +399,6 @@ var GeminiPlanService = class {
     const existing = result(await this.db.from("plan_reading_jobs").select("*").eq("workspace_id", this.workspaceId).eq("file_id", file.id).eq("model", model).order("created_at", { ascending: false }).limit(20));
     const matching = existing.find((j) => j.status !== "failed" && JSON.stringify(normalizePlanReadingScope(j.input_summary)) === JSON.stringify(scope));
     if (matching) return matching;
-    const recent = await this.db.from("plan_reading_jobs").select("id", { count: "exact", head: true }).eq("workspace_id", this.workspaceId).gte("created_at", new Date(Date.now() - 864e5).toISOString());
-    if (recent.error) throw new ProjectApiError(503, "Could not verify the daily AI limit.");
-    if ((recent.count ?? 0) >= 20) throw new ProjectApiError(429, "This workspace has reached its daily limit of 20 AI readings.");
     return result(await this.db.from("plan_reading_jobs").insert({
       workspace_id: this.workspaceId,
       project_id: projectId,

@@ -11,7 +11,7 @@ test('plans page exposes AI scope controls for whole plan or selected areas', ()
   assert.match(plansPage, /Pick area/);
   assert.match(plansPage, /Area, room, sheet, or zone/);
   assert.match(plansPage, /Trades to inspect/);
-  assert.match(plansPage, /PDF plan sets up to 60 pages and 12 MB/);
+  assert.match(plansPage, /Read uploaded PDFs with your selected free AI route/);
   assert.match(plansPage, /page coverage and source evidence/);
 });
 

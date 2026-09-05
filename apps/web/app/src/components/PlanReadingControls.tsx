@@ -14,7 +14,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
   const [provider, setProvider] = useState<'openrouter' | 'gemini'>('openrouter');
   const [providers, setProviders] = useState<PlanAiProvider[]>([]);
   const [providerError, setProviderError] = useState('');
-  const providerName = provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini';
+  const providerName = provider === 'openrouter' ? 'OpenRouter Free Pool' : 'Gemini';
   const providerConfigured = providers.find(p => p.id === provider)?.configured === true;
   useEffect(() => {
     let cancelled = false;
@@ -112,13 +112,13 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
               <div>
                 <div className="text-xs font-bold text-[#111827]">AI Reading Scope</div>
                 <p className="mt-0.5 text-[11px] text-[#6b7280]">
-                  Read PDF plan sets up to 60 pages and 12 MB with your selected AI.
+                  Read uploaded PDFs with your selected free AI route.
                 </p>
               </div>
 
               <label className="block text-xs font-semibold text-slate-700">AI provider
                 <select aria-label="AI provider" value={provider} disabled={isStartingAi} onChange={e => setProvider(e.target.value as 'openrouter' | 'gemini')} className="mt-1 w-full rounded border bg-white p-2">
-                  <option value="openrouter">OpenRouter Free — $0 API</option>
+                  <option value="openrouter">OpenRouter Free Pool — $0 API</option>
                   <option value="gemini">Gemini — Google quota</option>
                 </select>
               </label>
@@ -198,7 +198,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
                 Results include source page, confidence, takeoff notes, risks, and missing evidence for human review.
               </p>
               <p className="text-[11px] text-[#6b7280]">{provider === 'openrouter'
-                ? 'OpenRouter Free sends this PDF through Cloudflare text conversion and a free AI provider. API price is $0; daily limits apply and paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
+                ? 'OpenRouter Free Pool sends this PDF through Cloudflare text conversion and a rotating free AI route. API price is locked at $0 and paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
                 : 'Gemini sends this PDF to Google. Google may use free-tier input to improve its products.'} Only submit plans you are authorized to share.</p>
             </div>
 

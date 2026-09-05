@@ -68,7 +68,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 12 * 1024 * 1024) { setPlanNotice("Upload a PDF up to 12 MB and 60 pages for AI reading."); e.target.value = ""; return; }
+    if (file.size > 100 * 1024 * 1024) { setPlanNotice("Upload a PDF up to 100 MB."); e.target.value = ""; return; }
     if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
       setPlanNotice("Upload a PDF plan file. Images can be attached later as support files.");
       e.target.value = "";

@@ -1,8 +1,9 @@
 # OpenRouter Free plan reading
 
-The Plans screen now offers **OpenRouter Free** and **Gemini**. The choice is stored
+The Plans screen now offers **OpenRouter Free Pool** and **Gemini**. The choice is stored
 with the job; cached Gemini results do not substitute for an OpenRouter request.
-There is no automatic fallback between providers.
+OpenRouter's free router can rotate across currently available free models while the
+request remains capped at zero price.
 
 ## Free API boundary
 
@@ -10,6 +11,8 @@ There is no automatic fallback between providers.
   prices set to zero. No user-supplied model or paid router can replace it.
 - Explicit `file-parser` / `cloudflare-ai` PDF conversion, documented as free.
   Do not omit this setting: OpenRouter's default OCR can be paid.
+- RoughBid no longer applies its own daily AI-reading limit; free-provider rate limits
+  are still enforced by the outside provider account.
 - Quota, authentication, payment and unavailable-provider errors stop processing.
   RoughBid does not buy credits, upgrade plans or retry with a paid model.
 - Free capacity has daily limits and availability constraints; this is not unlimited
@@ -52,7 +55,7 @@ API extraction also succeeded through a free NVIDIA model with cost 0.
 Initial live calls exposed inconsistent JSON formatting from the free router. Requests
 now require strict JSON Schema; the reader accepts a complete JSON Markdown wrapper
 while still rejecting malformed, truncated or mixed-prose output. The prompt states
-the actual page count to prevent confusing the 60-page limit with uploaded pages.
+the actual page count to prevent confusing provider constraints with uploaded pages.
 Free capacity and model quality still vary. Failures remain visible and never trigger
 paid fallback. This synthetic text PDF does not establish accuracy on scanned plans,
 visual symbols or large commercial sets.

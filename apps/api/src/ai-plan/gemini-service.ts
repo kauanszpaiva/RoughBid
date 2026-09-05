@@ -54,9 +54,6 @@ export class GeminiPlanService {
     const existing = result<any[]>(await this.db.from('plan_reading_jobs').select('*').eq('workspace_id', this.workspaceId).eq('file_id', file.id).eq('model', model).order('created_at', { ascending: false }).limit(20));
     const matching = existing.find(j => j.status !== 'failed' && JSON.stringify(normalizePlanReadingScope(j.input_summary)) === JSON.stringify(scope));
     if (matching) return matching;
-    const recent = await this.db.from('plan_reading_jobs').select('id', { count: 'exact', head: true }).eq('workspace_id', this.workspaceId).gte('created_at', new Date(Date.now() - 86400_000).toISOString());
-    if (recent.error) throw new ProjectApiError(503, 'Could not verify the daily AI limit.');
-    if ((recent.count ?? 0) >= 20) throw new ProjectApiError(429, 'This workspace has reached its daily limit of 20 AI readings.');
     return result<any>(await this.db.from('plan_reading_jobs').insert({
       workspace_id: this.workspaceId, project_id: projectId, file_id: file.id, requested_by: this.userId,
       status: 'queued', mode: input.mode === 'detailed' ? 'detailed' : 'quick', model,

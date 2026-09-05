@@ -14,7 +14,7 @@ test('plan upload validation rejects renamed files and non-PDF MIME types', asyn
   await assert.rejects(validatePlanFile(wrongType), (error: unknown) => error instanceof ProjectApiError && error.status === 415);
 });
 
-test('plan upload validation enforces the 50 MB boundary before reading contents', async () => {
+test('plan upload validation enforces the 100 MB boundary before reading contents', async () => {
   const oversized = new File([new Uint8Array(MAX_PLAN_BYTES + 1)], 'plans.pdf', { type: 'application/pdf' });
   await assert.rejects(validatePlanFile(oversized), (error: unknown) => error instanceof ProjectApiError && error.status === 413);
 });

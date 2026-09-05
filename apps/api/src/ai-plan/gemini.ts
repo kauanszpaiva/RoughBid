@@ -7,21 +7,28 @@ export const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 // Inline base64 plus instructions stays under Gemini's 20 MB request limit.
 export const MAX_GEMINI_PDF_BYTES = 12 * 1024 * 1024;
 export const MAX_GEMINI_PAGES = 60;
+export const MAX_FREE_AI_PDF_BYTES = 100 * 1024 * 1024;
+export const MAX_FREE_AI_PAGES = 500;
 
-export async function inspectPdf(bytes: Uint8Array) {
-  if (!bytes.length || bytes.length > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 12 MB for AI reading.');
+export async function inspectPdf(bytes: Uint8Array, options: { maxBytes?: number; maxPages?: number; label?: string } = {}) {
+  const maxBytes = options.maxBytes ?? MAX_FREE_AI_PDF_BYTES;
+  const maxPages = options.maxPages ?? MAX_FREE_AI_PAGES;
+  const label = options.label ?? 'PDF';
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
+  if (!bytes.length || bytes.length > maxBytes) throw new ProjectApiError(413, `${label} must be no larger than ${maxMb} MB.`);
   if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw new ProjectApiError(415, 'File content is not a valid PDF.');
   let pages: number;
   try { pages = (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount(); }
   catch { throw new ProjectApiError(422, 'PDF is damaged or password protected. Upload an unlocked PDF.'); }
-  if (pages < 1 || pages > MAX_GEMINI_PAGES) throw new ProjectApiError(413, 'AI reading supports PDF plan sets from 1 to 60 pages.');
+  if (pages < 1 || pages > maxPages) throw new ProjectApiError(413, `${label} supports PDF plan sets from 1 to ${maxPages} pages.`);
   return pages;
 }
 
-export async function fetchPrivatePdf(url: string, headers: Record<string, string> = {}, fetcher: typeof fetch = fetch) {
+export async function fetchPrivatePdf(url: string, headers: Record<string, string> = {}, fetcher: typeof fetch = fetch, maxBytes = MAX_FREE_AI_PDF_BYTES) {
   const response = await fetcher(url, { headers, signal: AbortSignal.timeout(30_000), redirect: 'error' });
   if (!response.ok || !response.body) throw new ProjectApiError(502, 'Could not retrieve the private PDF.');
-  if (Number(response.headers.get('content-length')) > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, 'PDF exceeds the 12 MB AI reading limit.');
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
+  if (Number(response.headers.get('content-length')) > maxBytes) throw new ProjectApiError(413, `PDF exceeds the ${maxMb} MB free AI request limit.`);
   const chunks: Uint8Array[] = [];
   const reader = response.body.getReader();
   let length = 0;
@@ -30,7 +37,7 @@ export async function fetchPrivatePdf(url: string, headers: Record<string, strin
       const { done, value } = await reader.read();
       if (done) break;
       length += value.length;
-      if (length > MAX_GEMINI_PDF_BYTES) { await reader.cancel(); throw new ProjectApiError(413, 'PDF exceeds the 12 MB AI reading limit.'); }
+      if (length > maxBytes) { await reader.cancel(); throw new ProjectApiError(413, `PDF exceeds the ${maxMb} MB free AI request limit.`); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -80,7 +87,7 @@ export class GeminiPdfReader {
   }
   async readPdf(bytes: Uint8Array, scopeInput: unknown): Promise<PlanReadingResult> {
     if (!this.apiKey) throw new ProjectApiError(503, 'Gemini plan reading is not configured.');
-    const pageCount = await inspectPdf(bytes);
+    const pageCount = await inspectPdf(bytes, { maxBytes: MAX_GEMINI_PDF_BYTES, maxPages: MAX_GEMINI_PAGES, label: 'Gemini AI reading' });
     const scope = normalizePlanReadingScope(scopeInput);
     const schema = structuredClone(outputSchema);
     // Gemini requires explicit properties for object schemas.

@@ -49,14 +49,15 @@ export function PlanReadingResults({ project, workspaceId, onUpdateProject }: { 
   };
   if (!jobId) return null;
   const coverage = reading?.output_summary?.coverage;
+  const coverageLabel = coverage?.completeness_status === 'complete' ? 'complete' : coverage ? 'manual check needed' : '';
   return <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4" aria-label="AI plan results">
     <div className="flex justify-between gap-3"><div><h3 className="font-bold text-slate-900">Plan findings</h3><p className="text-xs text-slate-500">Review the source page before accepting. Prices are entered by you.</p></div><button className="text-sm text-blue-700" onClick={() => setRefresh(n => n + 1)}>Refresh results</button></div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {!reading && !error && <p role="status">Loading saved reading…</p>}
-    {reading && <p className="text-sm text-slate-700">Status: {reading.status.replaceAll('_', ' ')}{coverage && ` · Pages inspected: ${coverage.pages_analyzed}/${coverage.pages_requested} · Coverage: ${coverage.completeness_status}`}</p>}
-    {reading && <p className="text-xs text-slate-500">Saved reading: {reading.model === 'openrouter/free' ? 'OpenRouter Free' : 'Gemini'}{reading.output_summary?.routed_model && ` · ${reading.output_summary.routed_model}`}{reading.output_summary?.reported_cost === 0 && ' · Reported API cost: $0'}</p>}
+    {reading && <p className="text-sm text-slate-700">Status: {reading.status.replaceAll('_', ' ')}{coverage && ` · Pages inspected: ${coverage.pages_analyzed}/${coverage.pages_requested} · Review: ${coverageLabel}`}</p>}
+    {reading && <p className="text-xs text-slate-500">Saved reading: {reading.model === 'openrouter/free' ? 'OpenRouter Free Pool' : 'Gemini'}{reading.output_summary?.routed_model && ` · ${reading.output_summary.routed_model}`}{reading.output_summary?.reported_cost === 0 && ' · Reported API cost: $0'}</p>}
     {reading?.processing_error && <p role="alert" className="text-sm text-amber-800">{reading.processing_error}</p>}
-    {coverage?.limitations?.length ? <ul className="list-disc pl-5 text-sm text-amber-800">{coverage.limitations.map((s, i) => <li key={i}>{s}</li>)}</ul> : null}
+    {coverage?.limitations?.length ? <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><p className="font-semibold">Manual checks</p><ul className="mt-1 list-disc pl-5">{coverage.limitations.map((s, i) => <li key={i}>{s}</li>)}</ul></div> : null}
     {reading && !['queued', 'processing'].includes(reading.status) && !reading.plan_reading_findings.length && <p className="text-sm text-slate-600">No findings were returned. Review the PDF and the coverage limitations.</p>}
     <div className="grid gap-3 md:grid-cols-2">{reading?.plan_reading_findings.map(f => {
       const added = project.quantities.some(q => q.id === `ai-${f.id}`);

@@ -9,9 +9,10 @@ at `d272fe9`, not the older main branch or the original Bruno ZIP.
 
 1. Confirm email and create a workspace. Workspace insertion and read-back use separate
    requests so the owner-membership trigger finishes before the SELECT policy runs.
-2. Upload a private PDF, up to 12 MB and 60 pages. Validate actual byte count, PDF content,
+2. Upload a private PDF, up to 100 MB. Validate actual byte count, PDF content,
    encryption, and page count. No Redis, Poppler, rendered-page worker, or paid OpenAI call.
-3. Select areas/trades and click **Read with Gemini**. The app discloses transmission to
+3. Select areas/trades and click **Read with Gemini**. Gemini reading still uses Google's
+   inline request limits, so larger uploads should use OpenRouter Free Pool first. The app discloses transmission to
    Google and free-tier data handling. Only authorized documents should be submitted.
 4. Gemini 3.5 Flash-Lite reads the original PDF. Unknown quantities remain null. Invalid
    output, missing numeric evidence, truncated responses and quota failures fail visibly.

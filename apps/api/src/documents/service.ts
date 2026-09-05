@@ -1,6 +1,6 @@
 import { ProjectApiError } from '../projects/service.ts';
 import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
-import { fetchPrivatePdf, inspectPdf, MAX_GEMINI_PDF_BYTES } from '../ai-plan/gemini.ts';
+import { fetchPrivatePdf, inspectPdf } from '../ai-plan/gemini.ts';
 
 export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
@@ -37,7 +37,6 @@ export class DocumentService {
     if (!input || typeof input.name !== 'string') throw new ProjectApiError(400, 'PDF name is required');
     if (input.contentType !== 'application/pdf' || !input.name.toLowerCase().endsWith('.pdf')) throw new ProjectApiError(415, 'Only PDF files are accepted');
     if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 100 MB');
-    if (!this.queue && input.byteSize > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 12 MB for AI reading.');
     const project = await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle();
     if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
     const id = crypto.randomUUID();

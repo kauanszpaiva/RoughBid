@@ -34,8 +34,8 @@ test('invalid and oversized PDFs never reach Gemini', async () => {
   assert.equal(calls, 0);
 });
 
-test('private PDF downloads enforce byte cap even when Content-Length is missing', async () => {
-  await assert.rejects(fetchPrivatePdf('https://storage.test/pdf', {}, async () => new Response(new Uint8Array(12 * 1024 * 1024 + 1))), /12 MB/);
+test('private PDF downloads enforce the free AI byte cap even when Content-Length is missing', async () => {
+  await assert.rejects(fetchPrivatePdf('https://storage.test/pdf', {}, async () => new Response(new Uint8Array(100 * 1024 * 1024 + 1))), /100 MB/);
 });
 
 test('Gemini quota errors are clear and never retry with a paid provider', async () => {
