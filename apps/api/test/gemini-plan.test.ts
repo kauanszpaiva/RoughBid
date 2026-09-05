@@ -26,6 +26,33 @@ test('Gemini reads PDF inline, uses server header and restores requested scope',
   assert.deepEqual(result.summary.coverage.requested_areas, ['Lobby']);
 });
 
+test('Gemini uses Files API for PDFs above the inline request size', async () => {
+  const bytes = Buffer.concat([Buffer.from(await pdf()), Buffer.alloc(13 * 1024 * 1024)]);
+  const calls: string[] = [];
+  const reader = new GeminiPdfReader('test-secret', async (url, init) => {
+    calls.push(String(url));
+    if (String(url).includes('/upload/v1beta/files')) {
+      assert.equal((init?.headers as any)['x-goog-upload-protocol'], 'resumable');
+      assert.equal((init?.headers as any)['x-goog-upload-header-content-type'], 'application/pdf');
+      return new Response(null, { headers: { 'x-goog-upload-url': 'https://upload.gemini.test/session' } });
+    }
+    if (String(url) === 'https://upload.gemini.test/session') {
+      assert.equal((init?.headers as any)['x-goog-upload-command'], 'upload, finalize');
+      assert.equal((init?.headers as any)['content-length'], String(bytes.length));
+      return Response.json({ file: { name: 'files/roughbid', uri: 'gemini://files/roughbid', mimeType: 'application/pdf' } });
+    }
+    assert.match(String(url), /gemini-3\.5-flash-lite:generateContent$/);
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.contents[0].parts[1].fileData.fileUri, 'gemini://files/roughbid');
+    assert.equal(body.contents[0].parts[1].fileData.mimeType, 'application/pdf');
+    assert.equal(body.contents[0].parts[1].inlineData, undefined);
+    return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(output()) }] } }] });
+  });
+  const result = await reader.readPdf(bytes, {});
+  assert.equal(result.findings[0]?.quantity, 120);
+  assert.equal(calls.length, 3);
+});
+
 test('invalid and oversized PDFs never reach Gemini', async () => {
   let calls = 0;
   const reader = new GeminiPdfReader('test', async () => { calls++; throw Error(); });
