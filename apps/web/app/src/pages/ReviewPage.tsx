@@ -162,7 +162,19 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="sm:hidden divide-y divide-slate-100">
+            {breakdown.length === 0 ? <p className="p-4 text-xs text-slate-500">No estimate lines added.</p> : breakdown.map(row => (
+              <div key={row.csiCode} className="p-4 space-y-2">
+                <p className="text-[10px] font-mono text-slate-500">{row.csiCode}</p>
+                <p className="text-sm font-semibold text-slate-900 break-words">{row.trade}</p>
+                <div className="flex justify-between text-sm">
+                  <span className="font-mono font-semibold">{formatCurrency(row.directCost)}</span>
+                  <span className="text-slate-500">{formatPercentage(row.percentOfTotal)} of total</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-left text-xs min-w-[320px]">
               <thead className="bg-[#f9fafb] text-[#6b7280] font-bold text-[10px] uppercase tracking-wider border-b border-[#e5e7eb]">
                 <tr>

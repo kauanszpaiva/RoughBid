@@ -154,6 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <button
               onClick={onOpenNewProject}
+              aria-label="New Project"
               disabled={!canWrite}
               className="flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
             >

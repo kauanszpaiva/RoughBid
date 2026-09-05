@@ -76,6 +76,10 @@ export default function App() {
   const [localCacheWarning, setLocalCacheWarning] = useState(false);
   const [operationCount, setOperationCount] = useState(0);
   const projectsRef = useRef<Project[]>([]);
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [activeTab, activeStep, activeProject?.id]);
   const scopeRef = useRef<StorageScope | null>(null);
   const saveQueueRef = useRef<ProjectSaveQueue<Project> | null>(null);
   const deletingIds = useRef(new Set<string>());
@@ -542,7 +546,7 @@ export default function App() {
         {saveErrors.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 sm:px-6 py-2 text-xs text-amber-900" role="alert">{saveErrors[0]?.[1].message ?? "Changes remain in this browser. Retry saving before leaving."}</div>}
 
         {/* Dynamic Page Views */}
-        <main className="flex-1 overflow-y-auto">
+        <main ref={mainRef} className="flex-1 overflow-y-auto min-w-0">
           {activeTab === "dashboard" && (
             <DashboardPage
               canWrite={canWrite}

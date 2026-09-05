@@ -19,7 +19,7 @@ export const Stepper: React.FC<StepperProps> = ({ currentStep, onSelectStep }) =
   const currentIdx = steps.findIndex((s) => s.id === currentStep);
 
   return (
-    <div className="flex items-center gap-3 py-2 select-none text-xs">
+    <div className="hidden md:flex items-center gap-3 py-2 select-none text-xs">
       {steps.map((step, idx) => {
         const isCompleted = idx < currentIdx;
         const isActive = idx === currentIdx;
