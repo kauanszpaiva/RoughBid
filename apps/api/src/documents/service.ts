@@ -63,10 +63,13 @@ export class DocumentService {
     return file;
   }
 
-  async download(fileId: string) {
+  async download(fileId: string, options: { disposition?: 'attachment' | 'inline' } = {}) {
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
     assertPlanStoragePath(result.data.storage_path,this.workspaceId,result.data.project_id,fileId);
-    return this.storage.presign('GET', result.data.storage_path, { expiresIn: 60, downloadName: result.data.original_name });
+    return this.storage.presign('GET', result.data.storage_path, {
+      expiresIn: options.disposition === 'inline' ? 300 : 60,
+      ...(options.disposition === 'inline' ? {} : { downloadName: result.data.original_name }),
+    });
   }
 }

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -35,6 +35,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [needsAiConsent, setNeedsAiConsent] = useState<boolean>(false);
   const [isGrantingAiConsent, setIsGrantingAiConsent] = useState<boolean>(false);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
 
@@ -42,6 +45,42 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
 
   useEffect(() => { setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+
+  useEffect(() => {
+    let canceled = false;
+    setPreviewError(null);
+    if (!currentRevision) {
+      setPreviewUrl(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+    if (currentRevision.fileUrl) {
+      setPreviewUrl(currentRevision.fileUrl);
+      setIsPreviewLoading(false);
+      return;
+    }
+    if (!workspaceId || !currentRevision.remoteFileId) {
+      setPreviewUrl(null);
+      setIsPreviewLoading(false);
+      setPreviewError("This plan is saved locally only. Upload it to a workspace to preview it here.");
+      return;
+    }
+    setPreviewUrl(null);
+    setIsPreviewLoading(true);
+    createDocumentPreviewUrl(workspaceId, currentRevision.remoteFileId)
+      .then((preview) => {
+        if (!canceled) setPreviewUrl(preview.url);
+      })
+      .catch((error) => {
+        if (!canceled) setPreviewError(readableApiError(error));
+      })
+      .finally(() => {
+        if (!canceled) setIsPreviewLoading(false);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [workspaceId, currentRevision?.id, currentRevision?.fileUrl, currentRevision?.remoteFileId]);
   const handlePay = async () => {
     if (!workspaceId || !project.remoteId || !readingQuote) return;
     setIsPaying(true);
@@ -90,8 +129,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     try {
       const nextRevNum = String(project.revisions.length + 1).padStart(2, "0");
+      const localPreviewUrl = URL.createObjectURL(file);
       const canUseBackend = Boolean(workspaceId && project.remoteId);
       let remoteFileId: string | undefined;
+      let pageCount = 0;
       let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
       let notes = canUseBackend
         ? `Revision ${nextRevNum} uploading to private storage.`
@@ -111,6 +152,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
         const completed = await completeDocumentUpload(workspaceId, remote.file.id);
         remoteFileId = completed.id;
+        pageCount = completed.page_count ?? 0;
         processingStatus = completed.processing_status;
         notes = `Revision ${nextRevNum} uploaded to private storage and queued for PDF page processing.`;
       }
@@ -120,11 +162,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         revisionNumber: nextRevNum,
         fileName: file.name,
         fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        pages: 0,
+        pages: pageCount,
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         uploadedBy: "Estimator",
         isCurrent: true,
         notes,
+        fileUrl: localPreviewUrl,
         ...(remoteFileId ? { remoteFileId } : {}),
         ...(processingStatus ? { processingStatus } : {}),
       };
@@ -291,6 +334,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <BlueprintViewer
               currentRevision={currentRevision}
               projectName={project.name}
+              previewUrl={previewUrl}
+              isPreviewLoading={isPreviewLoading}
+              previewError={previewError}
             />
           ) : (
             <div className="h-[520px] bg-white border-2 border-dashed border-[#e5e7eb] rounded-xl flex flex-col items-center justify-center p-8 text-center">

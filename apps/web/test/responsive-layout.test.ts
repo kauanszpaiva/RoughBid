@@ -8,6 +8,8 @@ const blueprint = readFileSync(new URL('../app/src/components/BlueprintViewer.ts
 const materials = readFileSync(new URL('../app/src/pages/MaterialsPage.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../app/src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
 const projects = readFileSync(new URL('../app/src/pages/ProjectsPage.tsx', import.meta.url), 'utf8');
+const plans = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+const api = readFileSync(new URL('../app/src/services/api.ts', import.meta.url), 'utf8');
 
 test('app shell uses mobile viewport height and tablet-friendly collapsed sidebar default', () => {
   assert.match(app, /h-dvh/);
@@ -24,6 +26,16 @@ test('plan viewer fits smaller screens and uses a mobile bottom sheet for callou
   assert.match(blueprint, /window\.innerWidth < 640\) return 50/);
   assert.match(blueprint, /h-\[68dvh\]/);
   assert.match(blueprint, /bottom-20 sm:left-auto/);
+});
+
+test('plan viewer renders the uploaded PDF under the markup layer', () => {
+  assert.match(blueprint, /<iframe/);
+  assert.match(blueprint, /previewUrl/);
+  assert.match(blueprint, /Blue marks and notes sit on top of the PDF you uploaded/);
+  assert.doesNotMatch(blueprint, /PLAN SHEET A-1|EXISTING HOUSE|STAIRS \(4 RISERS\)/);
+  assert.match(plans, /URL\.createObjectURL\(file\)/);
+  assert.match(plans, /createDocumentPreviewUrl/);
+  assert.match(api, /disposition: "inline"/);
 });
 
 test('dashboard and projects stack dense metrics on phones', () => {

@@ -21,7 +21,8 @@ export async function handleDocumentRequest(request: Request, db: SupabaseLike, 
       return json(await service.completeUpload(parts[1]), 202);
     }
     if (request.method === 'POST' && parts[0] === 'documents' && parts[1] && parts[2] === 'download-url') {
-      return json(await service.download(parts[1]));
+      const body = await request.json().catch(() => ({})) as { disposition?: unknown };
+      return json(await service.download(parts[1], { disposition: body.disposition === 'inline' ? 'inline' : 'attachment' }));
     }
     return json({ error: 'Not found' }, 404);
   } catch (error) {

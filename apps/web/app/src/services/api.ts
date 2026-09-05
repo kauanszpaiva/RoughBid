@@ -277,6 +277,14 @@ export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
   });
 }
 
+export function createDocumentPreviewUrl(workspaceId: string, fileId: string) {
+  return request<{ url: string; method: "GET"; headers: Record<string, string>; expiresAt: string }>(`/api/documents/${fileId}/download-url`, {
+    method: "POST",
+    workspaceId,
+    body: { disposition: "inline" },
+  });
+}
+
 export type ClientProposalPayload = {
   projectName: string;
   projectAddress?: string;
