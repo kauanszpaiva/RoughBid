@@ -4,6 +4,9 @@ RoughBid is a tenant-isolated estimating platform backed by Supabase. Authentica
 workspace RBAC, and configurable RoughBid access/invite provisioning are documented in
 [`docs/integrations/auth-access.md`](docs/integrations/auth-access.md).
 
+PDF upload and Gemini plan reading now work without Redis or an OpenAI subscription.
+See [setup, verified flow, and remaining launch work](docs/integrations/gemini-free-plan-reading.md).
+
 ## Layout
 
 - `apps/web/` — static marketing landing page, plus the product app at `apps/web/app/` (served at `/app/`).

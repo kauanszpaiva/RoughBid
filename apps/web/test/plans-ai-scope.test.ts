@@ -11,8 +11,8 @@ test('plans page exposes AI scope controls for whole plan or selected areas', ()
   assert.match(plansPage, /Pick area/);
   assert.match(plansPage, /Area, room, sheet, or zone/);
   assert.match(plansPage, /Trades to inspect/);
-  assert.match(plansPage, /commercial plan sets up to 60 rendered pages/);
-  assert.match(plansPage, /coverage, evidence, confidence/);
+  assert.match(plansPage, /PDF plan sets up to 60 pages and 12 MB/);
+  assert.match(plansPage, /page coverage and source evidence/);
 });
 
 test('plans page sends structured scope to the backend AI reading endpoint', () => {

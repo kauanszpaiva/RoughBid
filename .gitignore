@@ -9,6 +9,8 @@ coverage/
 .DS_Store
 
 dist/
+artifacts/
+supabase/.temp/
 .vercel
 .env.local
 .env.*.local

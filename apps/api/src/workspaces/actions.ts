@@ -55,8 +55,12 @@ export async function getWorkspace(client: AuthenticatedSupabaseClient, id: stri
 
 export async function createWorkspace(client: AuthenticatedSupabaseClient, input: CreateWorkspaceInput): Promise<Workspace> {
   const user = await requireUser(client);
-  const { data, error } = await client.from('workspaces')
-    .insert({ name: normalizeWorkspaceName(input.name), created_by: user.id }).select('*').single();
+  const id = crypto.randomUUID();
+  // INSERT RETURNING checks the membership SELECT policy before the AFTER INSERT
+  // owner trigger is visible. Read back in a separate request after it commits.
+  const inserted = await client.from('workspaces').insert({ id, name: normalizeWorkspaceName(input.name), created_by: user.id });
+  throwIfError(inserted.error);
+  const { data, error } = await client.from('workspaces').select('*').eq('id', id).single();
   throwIfError(error);
   if (!data) throw new Error('Workspace insert returned no row.');
   return workspace(data);

@@ -19,13 +19,16 @@ execFileSync(
 
 await mkdir(new URL('../dist/app', import.meta.url), { recursive: true });
 await cp(new URL('../dist/index.html', import.meta.url), new URL('../dist/app/index.html', import.meta.url));
+for (const asset of ['cmaps', 'standard_fonts', 'wasm']) {
+  await cp(new URL(`../node_modules/pdfjs-dist/${asset}`, import.meta.url), new URL(`../dist/app/pdfjs/${asset}`, import.meta.url), { recursive: true });
+}
 await mkdir(new URL('../dist/landing', import.meta.url), { recursive: true });
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/styles.css', import.meta.url));
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/landing/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/landing/styles.css', import.meta.url));
 
-const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY'];
+const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEY', 'STRIPE_SECRET_KEY', 'RESEND_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'BLOB_READ_WRITE_TOKEN'];
 async function assertNoServerSecrets(directory) {
   for (const name of await readdir(directory)) {
     const file = new URL(name, directory);

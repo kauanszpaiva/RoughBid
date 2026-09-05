@@ -1,5 +1,6 @@
 import { ProjectApiError } from '../projects/service.ts';
 import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
+import { fetchPrivatePdf, inspectPdf, MAX_GEMINI_PDF_BYTES } from '../ai-plan/gemini.ts';
 
 export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
@@ -22,17 +23,21 @@ const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(
 export class DocumentService {
   private db: DocumentDb;
   private storage: DocumentObjectStorage;
-  private queue: JobQueue;
+  private queue: JobQueue | null;
+  private writer: DocumentDb;
   private userId: string;
   private workspaceId: string;
   private fetcher: typeof fetch;
-  constructor(db: DocumentDb, storage: S3ObjectStorage | DocumentObjectStorage, queue: JobQueue, userId: string, workspaceId: string, fetcher: typeof fetch = fetch) {
+  constructor(db: DocumentDb, storage: S3ObjectStorage | DocumentObjectStorage, queue: JobQueue | null, userId: string, workspaceId: string, fetcher: typeof fetch = fetch, writer: DocumentDb = db) {
     this.db = db; this.storage = storage; this.queue = queue; this.userId = userId; this.workspaceId = workspaceId; this.fetcher = fetcher;
+    this.writer = writer;
   }
 
   async beginUpload(projectId: string, input: { name: string; contentType: string; byteSize: number }) {
+    if (!input || typeof input.name !== 'string') throw new ProjectApiError(400, 'PDF name is required');
     if (input.contentType !== 'application/pdf' || !input.name.toLowerCase().endsWith('.pdf')) throw new ProjectApiError(415, 'Only PDF files are accepted');
     if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 100 MB');
+    if (!this.queue && input.byteSize > MAX_GEMINI_PDF_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 12 MB for AI reading.');
     const project = await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle();
     if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
     const id = crypto.randomUUID();
@@ -45,13 +50,23 @@ export class DocumentService {
   async completeUpload(fileId: string) {
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
+    if (!this.queue && result.data.processing_status === 'ready') return result.data;
     if (result.data.processing_status !== 'uploading' && result.data.processing_status !== 'queued') throw new ProjectApiError(409, 'Upload has already been completed');
     const head = await this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
-    const object = await this.fetcher(head.url, { method: 'HEAD' });
+    const object = await this.fetcher(head.url, { method: 'HEAD', headers: head.headers, signal: AbortSignal.timeout(15_000) });
     const storedBytes = Number(object.headers.get('content-length'));
     const storedType = object.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
     if (!object.ok) throw new ProjectApiError(409, 'Upload is not present in object storage');
     if (storedBytes !== result.data.byte_size || storedType !== 'application/pdf') throw new ProjectApiError(422, 'Uploaded object does not match the declared PDF');
+    if (!this.queue) {
+      const signed = await this.storage.presign('GET', result.data.storage_path, { expiresIn: 120 });
+      const bytes = await fetchPrivatePdf(signed.url, signed.headers, this.fetcher);
+      if (bytes.length !== result.data.byte_size) throw new ProjectApiError(422, 'Uploaded PDF size changed.');
+      const pageCount = await inspectPdf(bytes);
+      const updated = await this.writer.from('project_files').update({ processing_status: 'ready', processing_error: null, page_count: pageCount }).eq('workspace_id', this.workspaceId).eq('id', fileId).in('processing_status', ['uploading', 'queued']).select('*').maybeSingle();
+      if (updated.error || !updated.data) throw new ProjectApiError(409, 'Could not finalize the PDF upload. Please retry.');
+      return updated.data;
+    }
     let file = result.data;
     if (result.data.processing_status === 'uploading') {
       const updated = await this.db.from('project_files').update({ processing_status: 'queued', processing_error: null }).eq('workspace_id', this.workspaceId).eq('id', fileId).eq('processing_status', 'uploading').select('*').maybeSingle();

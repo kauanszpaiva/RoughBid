@@ -63,6 +63,19 @@ export default function App() {
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!session) return;
+    const stored = StorageService.getUserProfile();
+    const email = session.user.email ?? '';
+    const profile: UserProfile = stored.id === session.user.id ? { ...stored, email } : {
+      id: session.user.id,
+      name: String(session.user.user_metadata?.full_name ?? email.split('@')[0] ?? 'Estimator'),
+      email, role: 'Estimator', plan: 'RoughBid', company: '', defaultOverhead: 12, defaultMarkup: 20,
+    };
+    StorageService.saveUserProfile(profile);
+    setUser(profile);
+  }, [session?.user.id]);
+
   // Modal States
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showAIModal, setShowAIModal] = useState<boolean>(false);
@@ -294,10 +307,10 @@ export default function App() {
       alert(workspaceNotice ?? "Your RoughBid workspace is still loading. Try again in a moment.");
       return;
     }
+    const { remoteId: _remoteId, ...sourceProject } = project;
     const duplicated: Project = {
-      ...project,
+      ...sourceProject,
       id: `proj-${Date.now()}`,
-      remoteId: undefined,
       name: `${project.name} (Copy)`,
       updatedAt: "Just now",
     };
@@ -549,14 +562,8 @@ export default function App() {
           project={activeProject}
           isOpen={showAIModal}
           onClose={() => setShowAIModal(false)}
-          onAddQuantityItem={handleAddQuantityFromAI}
-          initialTab={
-            activeStep === "plans"
-              ? "analyze"
-              : activeStep === "quantities"
-              ? "missing"
-              : "explain"
-          }
+          workspaceId={workspace?.id ?? null}
+          onUpdateProject={handleUpdateProject}
         />
       )}
 

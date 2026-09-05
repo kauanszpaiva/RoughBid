@@ -235,6 +235,23 @@ export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
   });
 }
 
+export type AiFinding = {
+  id: string; page_number: number | null; finding_type: string; label: string;
+  value_text: string | null; quantity: number | null; unit: string | null;
+  source_excerpt: string | null; confidence: number; status: 'needs_review' | 'accepted' | 'rejected';
+};
+export type AiReading = {
+  id: string; status: string; processing_error: string | null; model: string;
+  output_summary: { sheet_count?: number; scale_status?: string; coverage?: { pages_analyzed: number; pages_requested: number; completeness_status: string; limitations: string[] } };
+  plan_reading_findings: AiFinding[];
+};
+export function getAiPlanReading(workspaceId: string, jobId: string) {
+  return request<AiReading>(`/api/ai-plan-readings/${jobId}`, { workspaceId });
+}
+export function reviewAiFinding(workspaceId: string, jobId: string, findingId: string, status: 'accepted' | 'rejected') {
+  return request<AiFinding>(`/api/ai-plan-readings/${jobId}`, { method: 'PATCH', workspaceId, body: { finding_id: findingId, status } });
+}
+
 export type ClientProposalPayload = {
   projectName: string;
   projectAddress?: string;

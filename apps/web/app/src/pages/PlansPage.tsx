@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
+import { PlanReadingResults } from "../components/PlanReadingResults";
 import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, processAiPlanReading, type AiPlanReadingTrade } from "../services/api";
 
 interface PlansPageProps {
@@ -85,6 +86,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 12 * 1024 * 1024) { setPlanNotice("Upload a PDF up to 12 MB and 60 pages for Gemini reading."); e.target.value = ""; return; }
     if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
       setPlanNotice("Upload a PDF plan file. Images can be attached later as support files.");
       e.target.value = "";
@@ -102,6 +104,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       const nextRevNum = String(effectiveProject.revisions.length + 1).padStart(2, "0");
       const canUseBackend = Boolean(workspaceId && effectiveProject.remoteId);
       let remoteFileId: string | undefined;
+      let pageCount = 0;
       let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
       let notes = canUseBackend
         ? `Revision ${nextRevNum} uploading to private storage.`
@@ -122,7 +125,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         const completed = await completeDocumentUpload(workspaceId, remote.file.id);
         remoteFileId = completed.id;
         processingStatus = completed.processing_status;
-        notes = `Revision ${nextRevNum} uploaded to private storage and queued for PDF page processing.`;
+        pageCount = completed.page_count ?? 0;
+        notes = `Revision ${nextRevNum} uploaded to private storage. ${pageCount} PDF pages ready for reading.`;
       }
 
       const newRev: PlanRevision = {
@@ -130,7 +134,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         revisionNumber: nextRevNum,
         fileName: file.name,
         fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        pages: 0,
+        pages: pageCount,
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         uploadedBy: "Estimator",
         isCurrent: true,
@@ -163,6 +167,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setIsStartingAi(true);
     setPlanNotice(null);
     try {
+      if (currentRevision.processingStatus !== 'ready') await completeDocumentUpload(workspaceId, currentRevision.remoteFileId);
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
         mode: "quick",
@@ -171,12 +176,16 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         requestedAreas,
         trades: selectedTrades,
       });
+      onUpdateProject({ ...project, revisions: project.revisions.map(r => r.id === currentRevision.id ? { ...r, aiPlanJobId: job.id, aiPlanStatus: job.status } : r) });
       const processed = await processAiPlanReading(workspaceId, job.id);
+      const readingNotice = processed.status === 'failed'
+        ? 'Gemini could not read this PDF. Check the coverage limitations below before retrying.'
+        : `AI plan reading finished for review. Findings stored: ${processed.findingsStored}. Check page coverage and source evidence below.`;
       const updatedRevisions = project.revisions.map((revision) =>
-        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: processed.status, notes: "AI plan reading finished with page coverage, evidence, confidence, and estimator review required." } : revision
+        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: processed.status, notes: readingNotice } : revision
       );
       onUpdateProject({ ...project, revisions: updatedRevisions });
-      setPlanNotice(`AI plan reading finished for review. Findings stored: ${processed.findingsStored}. RoughBid reports coverage, evidence, confidence, and unreadable pages.`);
+      setPlanNotice(readingNotice);
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -388,7 +397,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <div>
                 <div className="text-xs font-bold text-[#111827]">AI Reading Scope</div>
                 <p className="mt-0.5 text-[11px] text-[#6b7280]">
-                  Built for commercial plan sets up to 60 rendered pages.
+                  Read PDF plan sets up to 60 pages and 12 MB with Gemini.
                 </p>
               </div>
 
@@ -448,19 +457,20 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <p className="text-[11px] text-[#6b7280]">
                 Results include source page, confidence, takeoff notes, risks, and missing evidence for human review.
               </p>
+              <p className="text-[11px] text-[#6b7280]">Choosing “Read with Gemini” sends this PDF to Google. Google may use free-tier input to improve its products. Only submit plans you are authorized to share.</p>
             </div>
 
             <button
               onClick={handleStartAiReading}
-              disabled={!currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              disabled={!currentRevision?.remoteFileId || isStartingAi || isUploading}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Start AI Plan Reading</span>
+                <span>Read with Gemini</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
-                {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}
+                {isStartingAi ? "Reading..." : currentRevision?.aiPlanStatus || "Ready"}
               </span>
             </button>
 
@@ -517,6 +527,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       </div>
 
       {/* Bottom Next Step Button */}
+      {currentRevision?.aiPlanJobId && <PlanReadingResults project={project} workspaceId={workspaceId} onUpdateProject={onUpdateProject} />}
       <div className="flex justify-end pt-4 border-t border-[#e5e7eb]">
         <button
           onClick={onContinue}

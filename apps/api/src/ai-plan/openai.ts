@@ -72,7 +72,7 @@ const findingSchema = {
   required: ['page_number', 'finding_type', 'label', 'value_text', 'quantity', 'unit', 'confidence', 'geometry', 'source_excerpt'],
 };
 
-const outputSchema = {
+export const outputSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -123,14 +123,17 @@ const planReadingTrades: PlanReadingTrade[] = ['architectural', 'structural', 'm
 
 export function normalizePlanReadingScope(input: unknown): PlanReadingScopeInput {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-  const mode = record.scopeMode === 'selected_scope' ? 'selected_scope' : 'all_trades';
-  const requestedAreas = Array.isArray(record.requestedAreas)
-    ? record.requestedAreas.filter((area): area is string => typeof area === 'string').map((area) => area.trim()).filter(Boolean).slice(0, 20)
+  const mode = (record.scopeMode ?? record.scope_mode) === 'selected_scope' ? 'selected_scope' : 'all_trades';
+  const areas = record.requestedAreas ?? record.requested_areas;
+  const trades = record.trades ?? record.requested_trades;
+  const requestedAreas = Array.isArray(areas)
+    ? areas.filter((area): area is string => typeof area === 'string').map((area) => area.trim().slice(0, 200)).filter(Boolean).slice(0, 20)
     : [];
-  const requestedTrades = Array.isArray(record.trades)
-    ? record.trades.filter((trade): trade is PlanReadingTrade => typeof trade === 'string' && planReadingTrades.includes(trade as PlanReadingTrade)).slice(0, 10)
+  const requestedTrades = Array.isArray(trades)
+    ? trades.filter((trade): trade is PlanReadingTrade => typeof trade === 'string' && planReadingTrades.includes(trade as PlanReadingTrade)).slice(0, 10)
     : [];
-  const legacyScope = typeof record.scope === 'string' && record.scope.trim() ? record.scope.trim().slice(0, 500) : null;
+  const context = record.scope ?? record.requested_scope;
+  const legacyScope = typeof context === 'string' && context.trim() ? context.trim().slice(0, 500) : null;
   return {
     mode,
     requestedAreas: mode === 'selected_scope' ? requestedAreas : [],

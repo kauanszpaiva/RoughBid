@@ -37,8 +37,8 @@ test('uploaded PDFs render as the selected plan instead of the sample blueprint'
   assert.match(plansPage, /workspaceId=\{workspaceId\}/);
   assert.match(plansPage, /onEnsureProjectSynced\(project\)/);
   assert.match(plansPage, /effectiveProject\.remoteId/);
-  assert.match(blueprintViewer, /hasUploadedPdf/);
-  assert.match(blueprintViewer, /<iframe/);
+  assert.match(blueprintViewer, /getDocument/);
+  assert.match(blueprintViewer, /<canvas/);
   assert.match(blueprintViewer, /Uploaded PDF/);
   assert.match(blueprintViewer, /createDocumentDownloadUrl\(workspaceId, currentRevision\.remoteFileId!\)/);
 });

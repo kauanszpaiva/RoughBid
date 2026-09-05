@@ -3,3 +3,5 @@ artifacts/
 skills-lock.json
 node_modules/
 .env.local
+.env*.local
+supabase/functions/
