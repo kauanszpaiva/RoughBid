@@ -61,6 +61,11 @@ test('workspace loading is not blocked by delayed profile bootstrap', () => {
   assert.match(projectsPage, /disabled=\{!isWorkspaceReady\}/);
 });
 
+test('workspace refresh keeps the selected project open', () => {
+  assert.match(app, /setActiveProject\(current => current \? cachedProjects\.find\(project => project\.id === current\.id \|\| project\.remoteId === current\.remoteId\) \?\? current : current\)/);
+  assert.match(app, /setActiveProject\(current => current \? mapped\.find\(project => project\.id === current\.id \|\| project\.remoteId === current\.remoteId\) \?\? current : current\)/);
+});
+
 test('project API exposes typed app state and validates size server-side', () => {
   assert.match(api, /app_state\?: Record<string, unknown> \| null/);
   assert.match(service, /appState must be an object/);

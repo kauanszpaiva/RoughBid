@@ -181,12 +181,14 @@ export default function App() {
         setWorkspace(resolved);
         setWorkspaceNotice(null);
         const scopedCacheKey = `${session.user.id}:${resolved.id}`;
-        setProjects(StorageService.getProjectsForScope(scopedCacheKey));
-        setActiveProject(null);
+        const cachedProjects = StorageService.getProjectsForScope(scopedCacheKey);
+        setProjects(cachedProjects);
+        setActiveProject(current => current ? cachedProjects.find(project => project.id === current.id || project.remoteId === current.remoteId) ?? current : current);
         const remoteProjects = await listRemoteProjects(resolved.id);
         if (active) {
           const mapped = remoteProjects.map(remoteToProject);
           setProjects(mapped);
+          setActiveProject(current => current ? mapped.find(project => project.id === current.id || project.remoteId === current.remoteId) ?? current : current);
           StorageService.saveProjectsForScope(scopedCacheKey, mapped);
         }
       } catch (error) {
