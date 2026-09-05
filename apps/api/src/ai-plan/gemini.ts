@@ -37,8 +37,8 @@ export async function fetchPrivatePdf(url: string, headers: Record<string, strin
   return Buffer.concat(chunks, length);
 }
 
-export function validateGeminiResult(value: any, pageCount: number, scopeInput: unknown): PlanReadingResult {
-  const invalid = () => { throw new ProjectApiError(502, 'Gemini returned an invalid or incomplete plan reading. Please retry.'); };
+export function validateGeminiResult(value: any, pageCount: number, scopeInput: unknown, provider = 'Gemini'): PlanReadingResult {
+  const invalid = () => { throw new ProjectApiError(502, `${provider} returned an invalid or incomplete plan reading. Please retry.`); };
   const summary = value?.summary;
   const coverage = summary?.coverage;
   if (!summary || !coverage || !Array.isArray(value.findings) || value.findings.length > 200) return invalid();
@@ -73,6 +73,7 @@ export function validateGeminiResult(value: any, pageCount: number, scopeInput: 
 export class GeminiPdfReader {
   private apiKey: string;
   private fetcher: typeof fetch;
+  get configured() { return Boolean(this.apiKey); }
   constructor(apiKey: string, fetcher: typeof fetch = fetch) {
     this.apiKey = apiKey;
     this.fetcher = fetcher;

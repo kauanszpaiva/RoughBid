@@ -1,5 +1,7 @@
 # Gemini plan reading
 
+Second provider: [OpenRouter Free integration and activation status](openrouter-free-plan-reading.md).
+
 Updated 2026-09-04 (America/New_York). Based on deployed branch `review/bruno-v2`
 at `d272fe9`, not the older main branch or the original Bruno ZIP.
 

@@ -47,13 +47,14 @@ export function PlanReadingResults({ project, workspaceId, onUpdateProject }: { 
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your review.'); }
     finally { setBusy(null); }
   };
-  if (!jobId) return <p className="text-sm text-slate-600">Upload a PDF and choose “Read with Gemini” in Plans. Your saved findings will appear here for review.</p>;
+  if (!jobId) return <p className="text-sm text-slate-600">Upload a PDF and choose an AI provider and read the plan in Plans. Your saved findings will appear here for review.</p>;
   const coverage = reading?.output_summary?.coverage;
   return <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4" aria-label="AI plan results">
     <div className="flex justify-between gap-3"><div><h3 className="font-bold text-slate-900">Plan findings</h3><p className="text-xs text-slate-500">Review the source page before accepting. Prices are entered by you.</p></div><button className="text-sm text-blue-700" onClick={() => setRefresh(n => n + 1)}>Refresh results</button></div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {!reading && !error && <p role="status">Loading saved reading…</p>}
     {reading && <p className="text-sm text-slate-700">Status: {reading.status.replaceAll('_', ' ')}{coverage && ` · Pages inspected: ${coverage.pages_analyzed}/${coverage.pages_requested} · Coverage: ${coverage.completeness_status}`}</p>}
+    {reading && <p className="text-xs text-slate-500">Saved reading: {reading.model === 'openrouter/free' ? 'OpenRouter Free' : 'Gemini'}{reading.output_summary?.routed_model && ` · ${reading.output_summary.routed_model}`}{reading.output_summary?.reported_cost === 0 && ' · Reported API cost: $0'}</p>}
     {reading?.processing_error && <p role="alert" className="text-sm text-amber-800">{reading.processing_error}</p>}
     {coverage?.limitations?.length ? <ul className="list-disc pl-5 text-sm text-amber-800">{coverage.limitations.map((s, i) => <li key={i}>{s}</li>)}</ul> : null}
     {reading && !['queued', 'processing'].includes(reading.status) && !reading.plan_reading_findings.length && <p className="text-sm text-slate-600">No findings were returned. Review the PDF and the coverage limitations.</p>}

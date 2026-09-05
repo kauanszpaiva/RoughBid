@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Upload,
   History,
@@ -11,7 +11,7 @@ import {
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
 import { PlanReadingResults } from "../components/PlanReadingResults";
-import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, processAiPlanReading, type AiPlanReadingTrade } from "../services/api";
+import { ApiError, getPlanAiProviders, type PlanAiProvider, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, processAiPlanReading, type AiPlanReadingTrade } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -36,6 +36,16 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [planNotice, setPlanNotice] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
+  const [provider, setProvider] = useState<'openrouter' | 'gemini'>('openrouter');
+  const [providers, setProviders] = useState<PlanAiProvider[]>([]);
+  const [providerError, setProviderError] = useState('');
+  const providerName = provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini';
+  const providerConfigured = providers.find(p => p.id === provider)?.configured === true;
+  useEffect(() => {
+    let cancelled = false;
+    void getPlanAiProviders().then(data => { if (!cancelled) setProviders(data.providers); }).catch(() => { if (!cancelled) setProviderError('Could not check AI availability. Refresh the page.'); });
+    return () => { cancelled = true; };
+  }, []);
   const [aiScopeMode, setAiScopeMode] = useState<"all_trades" | "selected_scope">("all_trades");
   const [aiAreaText, setAiAreaText] = useState<string>("");
   const [selectedTrades, setSelectedTrades] = useState<AiPlanReadingTrade[]>(["architectural", "structural", "mep"]);
@@ -86,7 +96,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 12 * 1024 * 1024) { setPlanNotice("Upload a PDF up to 12 MB and 60 pages for Gemini reading."); e.target.value = ""; return; }
+    if (file.size > 12 * 1024 * 1024) { setPlanNotice("Upload a PDF up to 12 MB and 60 pages for AI reading."); e.target.value = ""; return; }
     if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
       setPlanNotice("Upload a PDF plan file. Images can be attached later as support files.");
       e.target.value = "";
@@ -170,6 +180,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       if (currentRevision.processingStatus !== 'ready') await completeDocumentUpload(workspaceId, currentRevision.remoteFileId);
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
+        provider,
         mode: "quick",
         scope: project.projectType,
         scopeMode: aiScopeMode,
@@ -179,7 +190,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       onUpdateProject({ ...project, revisions: project.revisions.map(r => r.id === currentRevision.id ? { ...r, aiPlanJobId: job.id, aiPlanStatus: job.status } : r) });
       const processed = await processAiPlanReading(workspaceId, job.id);
       const readingNotice = processed.status === 'failed'
-        ? 'Gemini could not read this PDF. Check the coverage limitations below before retrying.'
+        ? `${providerName} could not read this PDF. Check the coverage limitations below before retrying.`
         : `AI plan reading finished for review. Findings stored: ${processed.findingsStored}. Check page coverage and source evidence below.`;
       const updatedRevisions = project.revisions.map((revision) =>
         revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: processed.status, notes: readingNotice } : revision
@@ -397,10 +408,18 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <div>
                 <div className="text-xs font-bold text-[#111827]">AI Reading Scope</div>
                 <p className="mt-0.5 text-[11px] text-[#6b7280]">
-                  Read PDF plan sets up to 60 pages and 12 MB with Gemini.
+                  Read PDF plan sets up to 60 pages and 12 MB with your selected AI.
                 </p>
               </div>
 
+              <label className="block text-xs font-semibold text-slate-700">AI provider
+                <select aria-label="AI provider" value={provider} disabled={isStartingAi} onChange={e => setProvider(e.target.value as 'openrouter' | 'gemini')} className="mt-1 w-full rounded border bg-white p-2">
+                  <option value="openrouter">OpenRouter Free — $0 API</option>
+                  <option value="gemini">Gemini — Google quota</option>
+                </select>
+              </label>
+              {providerError && <p role="alert" className="text-xs text-amber-800">{providerError}</p>}
+              {providers.length > 0 && !providerConfigured && <p role="status" className="text-xs text-amber-800">{providerName} needs to be connected by the workspace owner before testing.</p>}
               <div className="grid grid-cols-2 gap-1 rounded-md bg-white p-1 border border-[#e5e7eb]">
                 <button
                   type="button"
@@ -457,17 +476,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <p className="text-[11px] text-[#6b7280]">
                 Results include source page, confidence, takeoff notes, risks, and missing evidence for human review.
               </p>
-              <p className="text-[11px] text-[#6b7280]">Choosing “Read with Gemini” sends this PDF to Google. Google may use free-tier input to improve its products. Only submit plans you are authorized to share.</p>
+              <p className="text-[11px] text-[#6b7280]">{provider === 'openrouter'
+                ? 'OpenRouter Free sends this PDF through Cloudflare text conversion and a free AI provider. API price is $0; daily limits apply and paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
+                : 'Gemini sends this PDF to Google. Google may use free-tier input to improve its products.'} Only submit plans you are authorized to share.</p>
             </div>
 
             <button
               onClick={handleStartAiReading}
-              disabled={!currentRevision?.remoteFileId || isStartingAi || isUploading}
+              disabled={!currentRevision?.remoteFileId || isStartingAi || isUploading || !providerConfigured}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Read with Gemini</span>
+                <span>Read with {providerName}</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
                 {isStartingAi ? "Reading..." : currentRevision?.aiPlanStatus || "Ready"}

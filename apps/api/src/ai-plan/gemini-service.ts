@@ -1,7 +1,12 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import type { AiPlanStorage } from './processor.ts';
 import { fetchPrivatePdf, GEMINI_MODEL, GeminiPdfReader } from './gemini.ts';
+import { OPENROUTER_FREE_MODEL } from './openrouter.ts';
 import { normalizePlanReadingScope } from './openai.ts';
+
+type PlanReader = Pick<GeminiPdfReader, 'readPdf'> & { readonly configured?: boolean };
+type PlanProvider = 'gemini' | 'openrouter';
+const models = { gemini: GEMINI_MODEL, openrouter: OPENROUTER_FREE_MODEL };
 
 function result<T>(r: { data: T; error: any }, missing = false): T {
   if (r.error) throw new ProjectApiError(500, 'Could not save the plan reading.');
@@ -18,11 +23,11 @@ export class GeminiPlanService {
   private db: SupabaseLike;
   private writer: SupabaseLike;
   private storage: AiPlanStorage;
-  private reader: Pick<GeminiPdfReader, 'readPdf'>;
+  private readers: Partial<Record<PlanProvider, PlanReader>>;
   private workspaceId: string;
   private userId: string;
-  constructor(db: SupabaseLike, writer: SupabaseLike, storage: AiPlanStorage, reader: Pick<GeminiPdfReader, 'readPdf'>, workspaceId: string, userId: string) {
-    this.db = db; this.writer = writer; this.storage = storage; this.reader = reader; this.workspaceId = workspaceId; this.userId = userId;
+  constructor(db: SupabaseLike, writer: SupabaseLike, storage: AiPlanStorage, reader: PlanReader, workspaceId: string, userId: string, alternatives: Partial<Record<PlanProvider, PlanReader>> = {}) {
+    this.db = db; this.writer = writer; this.storage = storage; this.readers = { gemini: reader, ...alternatives }; this.workspaceId = workspaceId; this.userId = userId;
   }
 
   async get(id: string) {
@@ -38,10 +43,15 @@ export class GeminiPlanService {
     result(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
     const file = result<any>(await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', input.file_id).maybeSingle(), true);
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'Complete the PDF upload before starting AI reading.');
+    const provider = input.provider ?? 'gemini';
+    if (provider !== 'gemini' && provider !== 'openrouter') throw new ProjectApiError(400, 'Choose Gemini or OpenRouter Free.');
+    const reader = this.readers[provider];
+    if (!reader || reader.configured === false) throw new ProjectApiError(503, `${provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini'} needs its server API key before reading. No other provider was called.`);
+    const model = models[provider];
     const scope = normalizePlanReadingScope(input);
     if (scope.mode === 'selected_scope' && !scope.requestedAreas.length) throw new ProjectApiError(400, 'Select at least one area, room, sheet, or zone.');
     // Reuse the existing reading for this file/scope; repeat clicks do not spend quota.
-    const existing = result<any[]>(await this.db.from('plan_reading_jobs').select('*').eq('workspace_id', this.workspaceId).eq('file_id', file.id).eq('model', GEMINI_MODEL).order('created_at', { ascending: false }).limit(20));
+    const existing = result<any[]>(await this.db.from('plan_reading_jobs').select('*').eq('workspace_id', this.workspaceId).eq('file_id', file.id).eq('model', model).order('created_at', { ascending: false }).limit(20));
     const matching = existing.find(j => j.status !== 'failed' && JSON.stringify(normalizePlanReadingScope(j.input_summary)) === JSON.stringify(scope));
     if (matching) return matching;
     const recent = await this.db.from('plan_reading_jobs').select('id', { count: 'exact', head: true }).eq('workspace_id', this.workspaceId).gte('created_at', new Date(Date.now() - 86400_000).toISOString());
@@ -49,8 +59,8 @@ export class GeminiPlanService {
     if ((recent.count ?? 0) >= 20) throw new ProjectApiError(429, 'This workspace has reached its daily limit of 20 AI readings.');
     return result<any>(await this.db.from('plan_reading_jobs').insert({
       workspace_id: this.workspaceId, project_id: projectId, file_id: file.id, requested_by: this.userId,
-      status: 'queued', mode: input.mode === 'detailed' ? 'detailed' : 'quick', model: GEMINI_MODEL,
-      input_summary: { scope_mode: scope.mode, requested_areas: scope.requestedAreas, requested_trades: scope.trades, requested_scope: scope.legacyScope, provider: 'gemini', human_review_required: true },
+      status: 'queued', mode: input.mode === 'detailed' ? 'detailed' : 'quick', model,
+      input_summary: { scope_mode: scope.mode, requested_areas: scope.requestedAreas, requested_trades: scope.trades, requested_scope: scope.legacyScope, provider, human_review_required: true },
     }).select('*').single());
   }
 
@@ -59,7 +69,10 @@ export class GeminiPlanService {
     const job = await this.get(id);
     if (['needs_review', 'ready'].includes(job.status)) return { id, status: job.status, findingsStored: job.plan_reading_findings.length };
     if (job.status === 'processing') throw new ProjectApiError(409, 'This reading is already processing. Refresh results shortly.');
-    if (job.status !== 'queued' || job.model !== GEMINI_MODEL) throw new ProjectApiError(409, 'Start a new Gemini reading for this PDF.');
+    const provider: PlanProvider = job.input_summary?.provider === 'openrouter' ? 'openrouter' : 'gemini';
+    if (job.status !== 'queued' || job.model !== models[provider]) throw new ProjectApiError(409, 'Start a new reading with the selected provider.');
+    const reader = this.readers[provider];
+    if (!reader || reader.configured === false) throw new ProjectApiError(503, 'The selected AI provider needs its server API key. No fallback was called.');
     const file = result<any>(await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('project_id', job.project_id).eq('id', job.file_id).maybeSingle(), true);
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'The PDF is not ready.');
     const claimed = result<any>(await this.writer.from('plan_reading_jobs').update({ status: 'processing', processing_error: null, started_at: new Date().toISOString() }).eq('workspace_id', this.workspaceId).eq('id', id).eq('status', 'queued').select('id').maybeSingle());
@@ -67,7 +80,7 @@ export class GeminiPlanService {
     try {
       const signed = await this.storage.presign('GET', file.storage_path, { expiresIn: 180 });
       const bytes = await fetchPrivatePdf(signed.url, signed.headers);
-      const output = await this.reader.readPdf(bytes, job.input_summary);
+      const output = await reader.readPdf(bytes, job.input_summary);
       if (output.findings.length) result(await this.writer.from('plan_reading_findings').insert(output.findings.map(f => ({
         ...f, job_id: id, workspace_id: this.workspaceId, project_id: job.project_id, file_id: job.file_id, status: 'needs_review',
       }))));
@@ -94,13 +107,13 @@ export class GeminiPlanService {
   }
 }
 
-export async function handleGeminiPlanRequest(request: Request, db: SupabaseLike, writer: SupabaseLike, storage: AiPlanStorage, reader: Pick<GeminiPdfReader, 'readPdf'>) {
+export async function handleGeminiPlanRequest(request: Request, db: SupabaseLike, writer: SupabaseLike, storage: AiPlanStorage, reader: PlanReader, alternatives: Partial<Record<PlanProvider, PlanReader>> = {}) {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400, 'x-workspace-id header is required');
-    const service = new GeminiPlanService(db, writer, storage, reader, workspaceId, data.user.id);
+    const service = new GeminiPlanService(db, writer, storage, reader, workspaceId, data.user.id, alternatives);
     const path = new URL(request.url).pathname.split('/').filter(Boolean);
     if (path[1] === 'projects' && path.length === 4 && request.method === 'POST') return Response.json(await service.create(path[2]!, await request.json()), { status: 202 });
     if (path[1] === 'ai-plan-readings' && path[2]) {
