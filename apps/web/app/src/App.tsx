@@ -127,7 +127,7 @@ export default function App() {
   const projectStorageScope = session && workspace ? `${session.user.id}:${workspace.id}` : null;
 
   const saveScopedProjects = (next: Project[]) => {
-    if (projectStorageScope) StorageService.saveProjectsForScope(projectStorageScope, next);
+    if (projectStorageScope) StorageService.saveProjectsForScope(projectStorageScope, next.map(stripTransientProjectState));
   };
 
   const projectPayload = (project: Project) => ({

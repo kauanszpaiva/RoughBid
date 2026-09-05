@@ -33,7 +33,7 @@ export function BlueprintViewer({ currentRevision, projectName, workspaceId }: {
       try {
         let url = currentRevision.fileUrl;
         let headers: Record<string, string> = {};
-        if (!url && workspaceId && currentRevision.remoteFileId) {
+        if (workspaceId && currentRevision.remoteFileId) {
           const signed = await createDocumentDownloadUrl(workspaceId, currentRevision.remoteFileId!);
           url = signed.url; headers = signed.headers;
         }
