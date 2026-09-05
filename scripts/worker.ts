@@ -1,10 +1,15 @@
-// Standalone background worker: drains the pdf-processing and ai-plan-reading
-// BullMQ queues. Run this as a long-lived process on a host that can stay up
+// Standalone background worker: drains the pdf-processing BullMQ queue,
+// rendering uploaded plan PDFs to page images for the in-app blueprint
+// viewer. Run this as a long-lived process on a host that can stay up
 // (Vercel functions cannot) — e.g. `npm run worker` on a small always-on box,
 // Railway, Fly.io, or a Render worker service — alongside the deployed API.
+//
+// AI plan reading does NOT run here: it reads the uploaded PDF directly and
+// synchronously inline in the API request (see apps/api/src/ai-plan/service.ts
+// and gemini.ts) — an earlier async, BullMQ-queued design needed exactly this
+// kind of separately-deployed worker and never actually got one running in
+// production, so the synchronous approach is what ships.
 import { createClient } from '@supabase/supabase-js';
-import { OpenAiPlanReader } from '../apps/api/src/ai-plan/openai.ts';
-import { AiPlanReadingJobProcessor, createAiPlanWorker, type AiPlanWorkerDb } from '../apps/api/src/ai-plan/worker.ts';
 import type { DocumentDb } from '../apps/api/src/documents/service.ts';
 import { PdfJobProcessor, PopplerPdfConverter, createBullMqPipeline } from '../apps/api/src/documents/worker.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../apps/api/src/storage/object-storage.ts';
@@ -28,26 +33,13 @@ async function main() {
   );
   console.log('[worker] pdf-processing queue attached');
 
-  let aiPlanWorker: { close?: () => Promise<void> } | null = null;
-  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
-  if (openAiApiKey) {
-    const reader = new OpenAiPlanReader(openAiApiKey, process.env.OPENAI_MODEL?.trim() || 'gpt-4.1');
-    aiPlanWorker = (await createAiPlanWorker(
-      redisUrl,
-      new AiPlanReadingJobProcessor(db as unknown as AiPlanWorkerDb, storage, reader),
-    )) as { close?: () => Promise<void> };
-    console.log('[worker] ai-plan-reading queue attached');
-  } else {
-    console.warn('[worker] OPENAI_API_KEY is not set — plan reading jobs will stay queued until it is.');
-  }
-
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[worker] received ${signal}, shutting down`);
     const closeable = pdfPipeline.worker as { close?: () => Promise<void> };
-    await Promise.all([closeable.close?.(), aiPlanWorker?.close?.()]);
+    await closeable.close?.();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

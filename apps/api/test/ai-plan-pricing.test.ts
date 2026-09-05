@@ -23,7 +23,7 @@ test('prices an explicit labor/service finding using its own rate, with no mater
 
   assert.equal(result.pricedFindings, 1);
   assert.equal(result.totals.categoryTotals.material, 0);
-  assert.equal(result.totals.categoryTotals.labor, 4.25); // 1 LS * 4.25 framing labor rate
+  assert.equal(result.totals.categoryTotals.labor, 7.42); // 1 LS * $7.42 (45% labor share of the NE $16.50/SF framing installed rate, material rounds up so labor gets the remainder)
   assert.equal(result.byFindingIndex.get(0)?.[0]?.category, 'labor');
 });
 
@@ -54,5 +54,27 @@ test('demolition labor has no material cost even though it matches a keyword rat
     { finding_type: 'labor', label: 'Demolition of existing deck', quantity: 8, unit: 'HR' },
   ]);
   assert.equal(result.totals.categoryTotals.material, 0);
-  assert.equal(result.totals.categoryTotals.labor, 600); // 8 HR * 75.00
+  assert.equal(result.totals.categoryTotals.labor, 464); // 8 HR * NE skilled-laborer rate ($58.00/hr)
+});
+
+test('prices New England-benchmarked trades: concrete footing, drywall, and a cold-climate heat pump', () => {
+  const result = priceFindings([
+    { finding_type: 'material', label: 'Continuous Concrete Spread Footings', quantity: 14, unit: 'CY' },
+    { finding_type: 'material', label: '5/8" Type X Gypsum Drywall', quantity: 2850, unit: 'SF' },
+    { finding_type: 'material', label: 'Cold-Climate Inverter Heat Pump System', quantity: 1, unit: 'EA' },
+  ]);
+
+  assert.equal(result.pricedFindings, 3);
+  // NE footing: $265.00/CY installed, split 45% material / 55% labor.
+  const footing = result.byFindingIndex.get(0)!;
+  assert.equal(footing.find((c) => c.category === 'material')?.unitRate, 119.25);
+  assert.equal(footing.find((c) => c.category === 'labor')?.unitRate, 145.75);
+  // NE drywall: $4.10/SF installed, split 40% material / 60% labor (hang/tape/finish is labor-heavy).
+  const drywall = result.byFindingIndex.get(1)!;
+  assert.equal(drywall.find((c) => c.category === 'material')?.unitRate, 1.64);
+  assert.equal(drywall.find((c) => c.category === 'labor')?.unitRate, 2.46);
+  // NE heat pump: $18,500/EA installed, split 65% material / 35% labor (equipment-dominated).
+  const heatPump = result.byFindingIndex.get(2)!;
+  assert.equal(heatPump.find((c) => c.category === 'material')?.unitRate, 12025);
+  assert.equal(heatPump.find((c) => c.category === 'labor')?.unitRate, 6475);
 });

@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "dependencies": {
+    "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.45.4",
     "@vercel/blob": "^2.8.0",
     "bullmq": "^5.58.5",

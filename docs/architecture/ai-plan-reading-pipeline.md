@@ -9,15 +9,13 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Verify file type, size, object presence, and tenant ownership before processing.
    - Store uploads under `workspace/project/file` paths.
 
-2. **Page rendering**
-   - Convert each PDF page to JPEG using the existing Poppler worker.
-   - Store page images in private storage.
-   - Record page count and metadata in `project_files` and `project_file_pages`.
+2. **Page rendering (viewer only)**
+   - Convert each PDF page to JPEG using the existing Poppler worker (`scripts/worker.ts` / `Dockerfile.worker`), so the in-app blueprint viewer has page images.
+   - This is independent of AI reading below — Gemini reads the PDF directly and does not wait on it.
 
 3. **AI reading job**
-   - Create a `plan_reading_jobs` row for a processed file.
-   - Queue a `read-plan` job only after the file is `ready`.
-   - Run the model with page images, OCR text when available, project scope, and explicit extraction schema.
+   - Create a `plan_reading_jobs` row and run the read **synchronously, inline in the same API request** (`AiPlanReadingService.create()`) — there is no queue and no separate worker process for this step. An earlier BullMQ-queued design needed exactly that kind of separately-deployed worker and never actually had one running in production; sending the PDF straight to the model in the request handler is what shipped and worked.
+   - The model (Gemini, via `apps/api/src/ai-plan/gemini.ts`) receives the uploaded PDF inline (base64), so this only needs the upload itself to have finished — not the page-rendering step above.
 
 4. **Extraction targets**
    - Measurements and dimensions.
@@ -36,11 +34,11 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
 6. **Pricing**
-   - `apps/api/src/ai-plan/worker.ts` (`AiPlanReadingJobProcessor`) is the process that actually drains the `read-plan` queue: it loads the rendered page images, calls `OpenAiPlanReader`, and writes the resulting findings.
-   - `apps/api/src/ai-plan/pricing.ts` prices those findings with `calculateProject` (the same fixed-point engine `packages/domain` uses for estimates): every `material` finding produces a material line at its quantity plus a companion install-labor line, and every `labor` finding produces its own labor line. Rates come from a small keyword/unit fallback catalog until a workspace price book replaces it.
+   - `apps/api/src/ai-plan/gemini.ts` (`GeminiPlanReader`) sends the plan inline to Gemini, tries each candidate model in `GEMINI_MODEL`'s fallback list, and — if every attempt fails or no `GEMINI_API_KEY` is configured — falls back to a clearly-labeled synthetic takeoff (`generateDeterministicTakeoff`) so the estimator always has a starting checklist instead of a hard error. `apps/api/src/ai-plan/types.ts`'s `sanitizePlanReadingResult` validates every finding the same way regardless of source: a quantity without a verbatim `source_excerpt`, or a unit outside SF/LF/EA/CY/SY/HR/LS, is dropped and disclosed in `summary.limitations` rather than trusted.
+   - `apps/api/src/ai-plan/pricing.ts` prices findings with `calculateProject` (the same fixed-point engine `packages/domain` uses for estimates): every `material` finding produces a material line at its quantity plus a companion install-labor line, and every `labor` finding produces its own labor line. Rates are seeded from a New England (CT/MA/ME/NH/RI/VT) benchmark — see "New England ML Method" below — split into material/labor shares, with a generic unit-based fallback for anything unmatched.
    - The priced detail per finding is stored in that finding's `geometry.pricing`; the job's `output_summary.pricing` carries the material/labor/direct cost totals and how many findings were priced vs. left for manual pricing.
-   - Run the worker with `npm run worker` (needs `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, object storage credentials, and `OPENAI_API_KEY`) on a host that can stay running — a Vercel function cannot. `Dockerfile.worker` builds a container for this (includes `poppler-utils`, which the PDF page-rendering step also shells out to).
-   - `AiPlanReadingService.create()` refuses to queue a job at all unless the workspace has `ai_processing_consented_at` set (see Security Rules) and enforces a basic per-workspace daily cap (`AI_PLAN_DAILY_JOB_LIMIT`, default 25) so a bug or abuse can't run away with OpenAI spend.
+   - `AiPlanReadingService.create()` refuses to run at all unless the workspace has `ai_processing_consented_at` set (see Security Rules) and enforces a basic per-workspace daily cap (`AI_PLAN_DAILY_JOB_LIMIT`, default 25) so a bug or abuse can't run away with AI spend.
+   - Findings are written through a service-role Supabase connection constructed inline in the request handler (`apps/api/src/http/handler.ts`), the same way the billing endpoint already builds a service-role repository per-request — never a separate always-on process, and never a key sent to the browser.
 
 7. **Estimate integration**
    - Accepted measurements map into RoughBid quantity groups.
@@ -49,11 +47,12 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 
 ## Required Runtime Configuration
 
-- `OPENAI_API_KEY`: server-only key for multimodal plan extraction.
-- `OPENAI_MODEL`: default `gpt-4.1` unless a project-specific model is approved.
-- `REDIS_URL`: queue transport for PDF and AI processing.
-- `SUPABASE_SERVICE_ROLE_KEY`: worker-only writes for findings, never exposed to the browser.
-- Private storage credentials for plan source PDFs and page images.
+- `GEMINI_API_KEY`: server-only key for multimodal plan extraction. Optional — its absence degrades to a synthetic placeholder takeoff rather than disabling the feature.
+- `GEMINI_MODEL`: default `gemini-3.8-flash`, with `gemini-3.6-flash` as an automatic fallback.
+- `SUPABASE_SERVICE_ROLE_KEY`: used inline (never in a separate worker) for the one write authenticated users can't make directly — inserting `plan_reading_findings`.
+- Private object storage credentials (`OBJECT_STORAGE_*` or `BLOB_READ_WRITE_TOKEN`) for the uploaded plan PDF this reads and the rendered page images the blueprint viewer shows.
+- `REDIS_URL`: only needed for the Poppler page-rendering queue (viewer thumbnails) — AI plan reading does not use it.
+- `AI_PLAN_DAILY_JOB_LIMIT`: optional per-workspace daily cap on AI plan-reading jobs, default 25.
 
 ## Security Rules
 
@@ -68,6 +67,8 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 Tavily is intended for current market/context research around construction terminology and estimating best practices, not for reading private customer plans. The connector still returned a reauthentication error on 2026-09-04, so this pipeline document is implementation-driven and not represented as Tavily-verified research.
 
 ## New England ML Method
+
+`apps/api/src/ai-plan/pricing.ts` already seeds its rate table from a New England (CT/MA/ME/NH/RI/VT) benchmark — 48" frost-line concrete, IECC zone 5/6 thermal envelopes, cold-climate MEP, and prevailing Northeast trade labor scales — rather than invented numbers. It's still an estimating benchmark, not a licensed, jurisdiction-sourced price book; the rest of this section's guidance (a proper source library, RAG lookups, per-workspace corrections) is the path to replacing it with one.
 
 Do not start by fine-tuning on uncontrolled plan files. The safer production path is:
 

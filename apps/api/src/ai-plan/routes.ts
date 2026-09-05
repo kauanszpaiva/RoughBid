@@ -1,24 +1,36 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
-import { AiPlanReadingService, type AiPlanQueue, type PlanReadingFindingStatus } from './service.ts';
+import {
+  AiPlanReadingService,
+  type AiPlanObjectStorage,
+  type PlanReadingFindingStatus,
+  type PlanReadingFindingsWriter,
+} from './service.ts';
+import type { GeminiPlanReader } from './gemini.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 const FINDING_STATUSES: readonly PlanReadingFindingStatus[] = ['needs_review', 'accepted', 'rejected'];
 
-export async function handleAiPlanRequest(request: Request, db: SupabaseLike, queue: AiPlanQueue): Promise<Response> {
+export interface AiPlanRequestDependencies {
+  findingsWriter: PlanReadingFindingsWriter;
+  storage: AiPlanObjectStorage;
+  reader: GeminiPlanReader;
+}
+
+export async function handleAiPlanRequest(request: Request, db: SupabaseLike, deps: AiPlanRequestDependencies): Promise<Response> {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400, 'x-workspace-id header is required');
 
-    const service = new AiPlanReadingService(db, queue, data.user.id, workspaceId);
+    const service = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId);
     const url = new URL(request.url);
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
 
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
-      if (!process.env.OPENAI_API_KEY) return json({ error: 'AI plan reading is not configured.' }, 503);
-      return json(await service.create(parts[1], await request.json()), 202);
+      // Reads and prices the plan synchronously — see AiPlanReadingService.create().
+      return json(await service.create(parts[1], await request.json()), 201);
     }
     if (request.method === 'GET' && parts[0] === 'ai-plan-readings' && parts[1]) {
       return json(await service.get(parts[1]));

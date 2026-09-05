@@ -143,10 +143,18 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         scope: project.projectType,
       });
       const updatedRevisions = project.revisions.map((revision) =>
-        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading queued. Findings will require estimator review." } : revision
+        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." } : revision
       );
       onUpdateProject({ ...project, revisions: updatedRevisions });
-      setPlanNotice("AI plan reading queued. Findings will require estimator review.");
+      setPlanNotice(
+        job.status === "failed"
+          ? "AI plan reading failed. Open the AI Plan Assistant for details."
+          : "AI plan reading complete — findings are ready to review."
+      );
+      // The read is synchronous now, so results are already there — jump
+      // straight to the review modal instead of making the estimator click
+      // "AI Plan Assistant" again.
+      onOpenAIAssistant();
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         setNeedsAiConsent(true);

@@ -236,8 +236,15 @@ export type PlanReadingJob = {
   plan_reading_findings: PlanReadingFinding[];
 };
 
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; scope?: string }) {
-  return request<{ id: string; status: PlanReadingJobStatus }>(`/api/projects/${projectId}/ai-plan-readings`, {
+/**
+ * POST /api/projects/:id/ai-plan-readings — reads and prices the plan
+ * synchronously; the response already carries the finished job (status
+ * needs_review/failed) and every finding. There is nothing to poll for in
+ * the common case, but getAiPlanReading below still works for reloading a
+ * past job.
+ */
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+  return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,
     body: input,

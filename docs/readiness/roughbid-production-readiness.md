@@ -19,7 +19,7 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 - Static operational drafts exist for Terms, Privacy, Data Use and AI, and Acceptable Use.
 - Favicon and in-app mark use a generated RoughBid logo image.
 - Export and review screens no longer claim readiness when a project has no plan, quantities, or priced estimate lines.
-- AI plan assistant is wired to the real pipeline: `scripts/worker.ts` drains the `read-plan` queue, prices materials and labor (`apps/api/src/ai-plan/pricing.ts`), and the modal polls and renders real findings with per-finding Add/Ignore that call the estimator-approval RPC. What's left is operational, not code: deploy the worker (see `Dockerfile.worker`) and configure `OPENAI_API_KEY`/`REDIS_URL`/object storage credentials on that host.
+- AI plan assistant is wired to the real pipeline: `AiPlanReadingService.create()` reads the uploaded PDF directly with Gemini, synchronously, inline in the API request (no queue, no separately-deployed worker to forget to run), prices materials and labor with a New England rate benchmark (`apps/api/src/ai-plan/pricing.ts`), and the modal renders real findings with per-finding Add/Ignore that call the estimator-approval RPC. What's left is operational, not code: set real `GEMINI_API_KEY`/`SUPABASE_SERVICE_ROLE_KEY`/object storage credentials in production (`GEMINI_API_KEY` itself is optional — its absence degrades to a labeled synthetic takeoff rather than disabling the feature).
 - A workspace must explicitly approve AI plan reading (`workspaces.ai_processing_consented_at`) before any of its files are sent to a model; an owner grants this once from the Plans page.
 - Every AI-suggested quantity requires estimator approval before it affects a bid: findings stay `needs_review` until an estimator calls `set_plan_reading_finding_status` (accept/reject) through the app.
 - Production security headers are configured in Vercel.
@@ -28,8 +28,8 @@ RoughBid is an independent construction estimating SaaS. Its primary product goa
 ## Must Finish Before Paid Launch
 
 - Connect real plan upload from the frontend to private storage, document processing, and page preview records.
-- Deploy `scripts/worker.ts` (or `Dockerfile.worker`) to an always-on host and set its real `OPENAI_API_KEY`/`REDIS_URL`/object storage credentials — the code path exists, but nothing runs it in production yet.
-- Replace the placeholder material/labor rate catalog in `apps/api/src/ai-plan/pricing.ts` with a real, workspace-specific price book.
+- Set real `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and object storage credentials in the production environment — AI plan reading runs inline in the API request, so there's no separate worker to deploy for it. `Dockerfile.worker`/`scripts/worker.ts` is still needed for the (unrelated) PDF page-rendering queue that feeds the blueprint viewer, and nothing runs that in production yet either.
+- Replace the New England benchmark rate table in `apps/api/src/ai-plan/pricing.ts` with a real, licensed, workspace-specific price book (see "New England ML Method" in the architecture doc).
 - Mount and validate Stripe Checkout, Portal, and webhook routes end-to-end before setting a live price.
 - Create and publish the Resend workspace welcome/invite templates after final copy approval.
 - Add account billing screens once Stripe pricing, limits, refund policy, and plan tiers are approved.
