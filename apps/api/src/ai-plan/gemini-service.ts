@@ -1,10 +1,10 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import type { AiPlanStorage } from './processor.ts';
-import { fetchPrivatePdf, GEMINI_MODEL, GeminiPdfReader, MAX_GEMINI_PDF_BYTES } from './gemini.ts';
-import { OPENROUTER_FREE_MODEL } from './openrouter.ts';
-import { normalizePlanReadingScope } from './openai.ts';
+import { fetchPrivatePdf, GEMINI_MODEL, GeminiPdfReader, MAX_GEMINI_PDF_BYTES, type PlanReaderOptions } from './gemini.ts';
+import { MAX_OPENROUTER_FREE_PDF_BYTES, OPENROUTER_FREE_MODEL } from './openrouter.ts';
+import { normalizePlanReadingScope, type PlanReadingResult } from './openai.ts';
 
-type PlanReader = Pick<GeminiPdfReader, 'readPdf'> & { readonly configured?: boolean };
+type PlanReader = { readPdf(bytes: Uint8Array, scopeInput: unknown, options?: PlanReaderOptions): Promise<PlanReadingResult>; readonly configured?: boolean };
 type PlanProvider = 'gemini' | 'openrouter';
 const models = { gemini: GEMINI_MODEL, openrouter: OPENROUTER_FREE_MODEL };
 
@@ -45,7 +45,7 @@ export class GeminiPlanService {
     if (file.processing_status !== 'ready') throw new ProjectApiError(409, 'Complete the PDF upload before starting AI reading.');
     const requestedProvider = input.provider ?? 'gemini';
     if (requestedProvider !== 'gemini' && requestedProvider !== 'openrouter') throw new ProjectApiError(400, 'Choose Gemini or OpenRouter Free.');
-    const provider: PlanProvider = requestedProvider === 'gemini' && file.byte_size > MAX_GEMINI_PDF_BYTES ? 'openrouter' : requestedProvider;
+    const provider: PlanProvider = requestedProvider === 'openrouter' && file.byte_size > MAX_OPENROUTER_FREE_PDF_BYTES ? 'gemini' : requestedProvider;
     const reader = this.readers[provider];
     if (!reader || reader.configured === false) throw new ProjectApiError(503, `${provider === 'openrouter' ? 'OpenRouter Free' : 'Gemini'} needs its server API key before reading. No paid provider was called.`);
     const model = models[provider];
@@ -76,9 +76,9 @@ export class GeminiPlanService {
     const claimed = result<any>(await this.writer.from('plan_reading_jobs').update({ status: 'processing', processing_error: null, started_at: new Date().toISOString() }).eq('workspace_id', this.workspaceId).eq('id', id).eq('status', 'queued').select('id').maybeSingle());
     if (!claimed) throw new ProjectApiError(409, 'This reading is already processing.');
     try {
-      const signed = await this.storage.presign('GET', file.storage_path, { expiresIn: 180 });
+      const signed = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
       const bytes = await fetchPrivatePdf(signed.url, signed.headers);
-      const output = await reader.readPdf(bytes, job.input_summary);
+      const output = await reader.readPdf(bytes, job.input_summary, { fileUrl: signed.url });
       if (output.findings.length) result(await this.writer.from('plan_reading_findings').insert(output.findings.map(f => ({
         ...f, job_id: id, workspace_id: this.workspaceId, project_id: job.project_id, file_id: job.file_id, status: 'needs_review',
       }))));

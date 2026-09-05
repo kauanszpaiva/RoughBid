@@ -17,8 +17,8 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
   const fileSizeMb = Number(currentRevision?.fileSize.match(/([\d.]+)\s*MB/i)?.[1] ?? 0);
-  const needsLargeFreeRoute = provider === 'gemini' && fileSizeMb > 12;
-  const effectiveProvider = needsLargeFreeRoute ? 'openrouter' : provider;
+  const needsLargeFreeRoute = provider === 'openrouter' && fileSizeMb > 5;
+  const effectiveProvider = needsLargeFreeRoute ? 'gemini' : provider;
   const effectiveProviderName = effectiveProvider === 'openrouter' ? 'OpenRouter Free Pool' : 'Gemini';
   const providerConfigured = providers.find(p => p.id === effectiveProvider)?.configured === true;
   useEffect(() => {
@@ -124,7 +124,7 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
                   <option value="gemini">Gemini — Google quota</option>
                 </select>
               </label>
-            {needsLargeFreeRoute && <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-800">This PDF is larger than Gemini's direct free request size, so RoughBid will run it through OpenRouter Free Pool at $0.</p>}
+            {needsLargeFreeRoute && <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-800">OpenRouter Free currently rejects PDFs over 5 MB, so RoughBid will route this large file through Gemini Files API.</p>}
             <button
               onClick={handleStartAiReading}
               disabled={!workspaceId || !project.remoteId || !currentRevision?.remoteFileId || isStartingAi || isUploading || !providerConfigured}
@@ -201,8 +201,8 @@ export function PlanReadingControls({ project, workspaceId, onUpdateProject, isU
                 Results include source page, confidence, takeoff notes, risks, and missing evidence for human review.
               </p>
               <p className="text-[11px] text-[#6b7280]">{provider === 'openrouter'
-                ? 'OpenRouter Free Pool sends this PDF through Cloudflare text conversion and a rotating free AI route. API price is locked at $0 and paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
-                : 'Gemini sends PDFs up to its direct free request size to Google. Larger PDFs use OpenRouter Free Pool at $0 so testing can continue.'} Only submit plans you are authorized to share.</p>
+                ? 'OpenRouter Free Pool sends PDFs up to the free parser limit through Cloudflare text conversion. Larger PDFs route through Gemini Files API. Paid fallback is blocked. Drawings and scale still need manual review. Provider data policies apply.'
+                : 'Gemini sends small PDFs inline and larger PDFs through Gemini Files API. The file upload is temporary; drawings and scale still need manual review.'} Only submit plans you are authorized to share.</p>
             </div>
 
 

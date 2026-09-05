@@ -32,6 +32,19 @@ test('OpenRouter pins zero-price inference and free PDF parser with the private 
   assert.equal((result.summary as any).provider, 'openrouter');
 });
 
+test('OpenRouter sends a temporary PDF URL when one is available', async () => {
+  const bytes = await pdf();
+  const signedUrl = 'https://blob.test/signed-plan.pdf?token=temporary';
+  const reader = new OpenRouterFreePdfReader('server-test-key', async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.messages[1].content[1].file.file_data, signedUrl);
+    assert.doesNotMatch(String(init?.body), /data:application\/pdf;base64/);
+    return Response.json(completion());
+  });
+  const result = await reader.readPdf(bytes, {}, { fileUrl: signedUrl });
+  assert.equal(result.findings[0]?.quantity, 2);
+});
+
 test('missing OpenRouter credentials and invalid PDFs make no provider calls', async () => {
   let calls = 0;
   const fetcher = async () => { calls++; return Response.json(completion()); };
@@ -59,6 +72,11 @@ test('free quota and payment errors stop without retry, paid OCR or another prov
     await assert.rejects(reader.readPdf(await pdf(), {}), (e: any) => e.status >= 400 && !e.message.includes('sensitive-provider-error'));
     assert.equal(calls, 1);
   }
+});
+
+test('OpenRouter includes useful 400 details without switching to paid fallback', async () => {
+  const reader = new OpenRouterFreePdfReader('key', async () => Response.json({ error: { message: 'file URL could not be downloaded' } }, { status: 400 }));
+  await assert.rejects(reader.readPdf(await pdf(), {}), /file URL could not be downloaded.*No paid fallback/);
 });
 
 test('incomplete or invalid free-model output is rejected before findings are stored', async () => {
@@ -111,16 +129,16 @@ test('missing free provider configuration does not create a job or use Gemini', 
   assert.equal(writes.length, 0);
 });
 
-test('large PDFs selected with Gemini are routed through the zero-cost OpenRouter pool', async () => {
-  const { db, queriedModels } = database('openrouter', 13 * 1024 * 1024);
-  const gemini: any = { configured: true, readPdf: async () => { throw Error('Gemini must not run for a large PDF'); } };
-  const openrouter: any = { configured: true, readPdf: async () => output() };
+test('large PDFs selected with OpenRouter route to Gemini Files API because the free parser is capped', async () => {
+  const { db, queriedModels } = database('gemini', 6 * 1024 * 1024);
+  const gemini: any = { configured: true, readPdf: async () => output() };
+  const openrouter: any = { configured: true, readPdf: async () => { throw Error('OpenRouter must not run for a large PDF'); } };
   const service = new GeminiPlanService(db, db, {} as any, gemini, 'workspace', 'user', { openrouter });
-  const job = await service.create('project', { file_id: 'file', provider: 'gemini' });
-  assert.equal(job.model, OPENROUTER_FREE_MODEL);
-  assert.equal(job.input_summary.provider, 'openrouter');
-  assert.equal(job.input_summary.requested_provider, 'gemini');
-  assert.deepEqual(queriedModels, [OPENROUTER_FREE_MODEL]);
+  const job = await service.create('project', { file_id: 'file', provider: 'openrouter' });
+  assert.equal(job.model, 'gemini-3.5-flash-lite');
+  assert.equal(job.input_summary.provider, 'gemini');
+  assert.equal(job.input_summary.requested_provider, 'openrouter');
+  assert.deepEqual(queriedModels, ['gemini-3.5-flash-lite']);
 });
 
 test('processing dispatches the stored OpenRouter job without calling Gemini', async () => {
@@ -132,7 +150,7 @@ test('processing dispatches the stored OpenRouter job without calling Gemini', a
   try {
     const service = new GeminiPlanService(db, db, { presign: async () => ({ url: 'https://private.test/pdf' }) } as any,
       { readPdf: async () => { throw Error('Gemini must not run'); } }, 'workspace', 'user',
-      { openrouter: { readPdf: async () => { freeCalls++; return output() as any; } } });
+      { openrouter: { readPdf: async (_bytes: Uint8Array, _scope: unknown, options: any) => { freeCalls++; assert.equal(options.fileUrl, 'https://private.test/pdf'); return output() as any; } } });
     assert.equal((await service.process('job')).status, 'needs_review');
     assert.equal(freeCalls, 1);
     assert.ok(writes.some(w => w.table === 'plan_reading_findings'));
