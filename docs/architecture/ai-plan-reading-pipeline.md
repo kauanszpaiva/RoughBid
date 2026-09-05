@@ -34,9 +34,9 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
 6. **Pricing**
-   - Reading goes through `apps/api/src/ai-plan/multi-provider.ts` (`MultiProviderPlanReader`), which tries each configured reader in order and stops at the first *real* (non-synthetic) reading — built to put a free provider first and a paid one strictly last:
-     1. `apps/api/src/ai-plan/gemini.ts` (`GeminiPlanReader`) — free tier, sends the plan inline to Gemini, tries each candidate model in `GEMINI_MODEL`'s fallback list.
-     2. `apps/api/src/ai-plan/claude.ts` (`ClaudePlanReader`) — paid, only ever called when Gemini's own result comes back synthetic (unconfigured or every attempt failed); a single attempt, never a retry loop, since it's meant to spend as little as possible. Also sends the PDF inline (Claude's native `document` content block), so this still needs no page-rendering step.
+   - Reading goes through `apps/api/src/ai-plan/multi-provider.ts` (`MultiProviderPlanReader`), which tries each configured reader in order and stops at the first *real* (non-synthetic) reading — built to put the cheaper primary provider first and a fallback strictly last:
+     1. `apps/api/src/ai-plan/gemini.ts` (`GeminiPlanReader`) — primary. Sends the plan inline to Gemini, tries each candidate model in `GEMINI_MODEL`'s fallback list. Gemini's free tier is enough to get started; a funded key just removes its rate limits.
+     2. `apps/api/src/ai-plan/claude.ts` (`ClaudePlanReader`) — only ever called when Gemini's own result comes back synthetic (unconfigured or every attempt failed); a single attempt, never a retry loop, so a fallback outage never costs more than one call. Also sends the PDF inline (Claude's native `document` content block), so this still needs no page-rendering step.
      3. If both fall back, the last one's clearly-labeled synthetic takeoff (`fallback.ts`'s `generateDeterministicTakeoff`) is what gets stored, so the estimator always has a starting checklist instead of a hard error.
    - Every reader's output — real or synthetic — goes through `apps/api/src/ai-plan/types.ts`'s `sanitizePlanReadingResult`, the same hard validation regardless of source: a quantity without a verbatim `source_excerpt`, or a unit outside SF/LF/EA/CY/SY/HR/LS, is dropped and disclosed in `summary.limitations` rather than trusted.
    - `apps/api/src/ai-plan/pricing.ts` prices findings with `calculateProject` (the same fixed-point engine `packages/domain` uses for estimates): every `material` finding produces a material line at its quantity plus a companion install-labor line, and every `labor` finding produces its own labor line. Rates are seeded from a New England (CT/MA/ME/NH/RI/VT) benchmark — see "New England ML Method" below — split into material/labor shares, with a generic unit-based fallback for anything unmatched.
@@ -51,9 +51,9 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 
 ## Required Runtime Configuration
 
-- `GEMINI_API_KEY`: server-only key for multimodal plan extraction, free tier. Optional — its absence degrades to the next configured provider (or a synthetic placeholder takeoff) rather than disabling the feature.
+- `GEMINI_API_KEY`: server-only key for multimodal plan extraction, primary provider. Optional — its absence degrades to the next configured provider (or a synthetic placeholder takeoff) rather than disabling the feature.
 - `GEMINI_MODEL`: default `gemini-3.8-flash`, with `gemini-3.6-flash` as an automatic fallback.
-- `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`: optional, paid, fallback-of-last-resort only — never called unless Gemini's own result is synthetic. Defaults to the cheapest Haiku model (`claude-haiku-4-5-20251001`). Leave unset to stay on Gemini's free tier exclusively.
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`: optional, fallback-of-last-resort only — never called unless Gemini's own result is synthetic. Defaults to the cheapest Haiku model (`claude-haiku-4-5-20251001`). Leave unset to rely on Gemini exclusively.
 - `SUPABASE_SERVICE_ROLE_KEY`: used inline (never in a separate worker) for the one write authenticated users can't make directly — inserting `plan_reading_findings`.
 - Private object storage credentials (`OBJECT_STORAGE_*` or `BLOB_READ_WRITE_TOKEN`) for the uploaded plan PDF this reads and the rendered page images the blueprint viewer shows.
 - `REDIS_URL`: only needed for the Poppler page-rendering queue (viewer thumbnails) — AI plan reading does not use it.

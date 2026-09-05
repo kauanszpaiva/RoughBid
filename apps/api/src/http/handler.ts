@@ -127,9 +127,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
       // GEMINI_API_KEY is optional on purpose: GeminiPlanReader falls back to a
       // clearly-labeled synthetic takeoff instead of failing the request when
-      // it's unset or the model call errors — see gemini.ts. Gemini (free
-      // tier) is tried first; ANTHROPIC_API_KEY (paid) is only touched when
-      // Gemini's own result comes back synthetic — see multi-provider.ts.
+      // it's unset or the model call errors — see gemini.ts. Gemini is tried
+      // first (primary); ANTHROPIC_API_KEY is only touched when Gemini's own
+      // result comes back synthetic — see multi-provider.ts.
       const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
       const geminiClient = geminiApiKey ? await createGeminiClient(geminiApiKey) : null;
       const geminiModels = process.env.GEMINI_MODEL?.trim()
