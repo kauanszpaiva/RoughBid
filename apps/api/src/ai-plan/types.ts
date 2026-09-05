@@ -34,6 +34,8 @@ export interface PlanReadingSummary {
   human_review_required: true;
   /** Honesty-over-coverage disclosures: unreadable pages, ambiguous scale, dropped findings, fallback notices. */
   limitations: string[];
+  /** True when this result is the deterministic placeholder takeoff, not a real model reading — lets a multi-provider orchestrator know to try the next provider instead of trusting it. */
+  synthetic?: boolean;
 }
 
 export interface PlanReadingResult {
@@ -50,7 +52,7 @@ const MAX_FINDINGS = 200;
  * verbatim source excerpt and an allowed imperial unit. Anything that fails
  * is dropped and disclosed in `summary.limitations`, never silently coerced.
  */
-export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = []): PlanReadingResult {
+export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = [], synthetic = false): PlanReadingResult {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const rawSummary = (input.summary && typeof input.summary === 'object' ? input.summary : {}) as Record<string, unknown>;
   const rawFindings = Array.isArray(input.findings) ? input.findings : [];
@@ -108,6 +110,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       scale_status: rawSummary.scale_status === 'missing' || rawSummary.scale_status === 'conflicting' ? rawSummary.scale_status : 'detected',
       human_review_required: true,
       limitations,
+      ...(synthetic ? { synthetic: true } : {}),
     },
     findings: capped,
   };

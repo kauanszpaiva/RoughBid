@@ -2,10 +2,10 @@ import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import {
   AiPlanReadingService,
   type AiPlanObjectStorage,
+  type PlanReader,
   type PlanReadingFindingStatus,
   type PlanReadingFindingsWriter,
 } from './service.ts';
-import type { GeminiPlanReader } from './gemini.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -14,7 +14,7 @@ const FINDING_STATUSES: readonly PlanReadingFindingStatus[] = ['needs_review', '
 export interface AiPlanRequestDependencies {
   findingsWriter: PlanReadingFindingsWriter;
   storage: AiPlanObjectStorage;
-  reader: GeminiPlanReader;
+  reader: PlanReader;
 }
 
 export async function handleAiPlanRequest(request: Request, db: SupabaseLike, deps: AiPlanRequestDependencies): Promise<Response> {
