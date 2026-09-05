@@ -7,6 +7,8 @@ const values = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
   getItem: (key: string) => values.get(key) ?? null,
   setItem: (key: string, value: string) => values.set(key, value),
+  get length() { return values.size; },
+  key: (index: number) => [...values.keys()][index] ?? null,
 } });
 const firstScope = { userId: 'account-a', workspaceId: 'workspace-a' };
 const project: Project = {
@@ -54,4 +56,21 @@ test('browser quota failure is reported instead of claiming a durable backup', (
   try {
     assert.equal(StorageService.savePendingProjects([project], firstScope), false);
   } finally { localStorage.setItem = original; }
+});
+
+test('saving a different project cannot erase another tabs unsaved draft', () => {
+  values.clear();
+  const second = { ...project, id: 'local-two', remoteId: 'remote-two' };
+  StorageService.savePendingProject(project.id, project, firstScope);
+  StorageService.savePendingProject(second.id, second, firstScope);
+  StorageService.savePendingProject(second.id, null, firstScope);
+  assert.deepEqual(StorageService.getPendingProjects(firstScope).map(p => p.id), [project.id]);
+});
+
+test('acknowledging one legacy draft preserves the remaining drafts', () => {
+  values.clear();
+  const second = { ...project, id: 'local-two', remoteId: 'remote-two' };
+  values.set('roughbid_pending_projects_v1:account-a:workspace-a', JSON.stringify([project, second]));
+  StorageService.savePendingProject(project.id, null, firstScope);
+  assert.deepEqual(StorageService.getPendingProjects(firstScope).map(p => p.id), [second.id]);
 });

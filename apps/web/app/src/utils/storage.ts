@@ -87,11 +87,32 @@ export const StorageService = {
   },
 
   getPendingProjects(scope: StorageScope): Project[] {
-    return readProjects(scopedKey("roughbid_pending_projects_v1", scope));
+    const legacyKey = scopedKey("roughbid_pending_projects_v1", scope);
+    const pending = new Map(readProjects(legacyKey).map((project) => [project.id, project]));
+    const prefix = `${scopedKey("roughbid_pending_project_v2", scope)}:`;
+    try {
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith(prefix)) continue;
+        const projectId = decodeURIComponent(key.slice(prefix.length));
+        const project = readProjects(key).find((candidate) => candidate.id === projectId);
+        // An empty entry explicitly acknowledges this project's legacy draft.
+        pending.delete(projectId);
+        if (project) pending.set(projectId, project);
+      }
+    } catch { /* Keep any readable drafts when browser storage is unavailable. */ }
+    return [...pending.values()];
   },
 
+  /** Touch only this project; another tab may have unsaved work on others. */
+  savePendingProject(projectId: string, project: Project | null, scope: StorageScope): boolean {
+    const key = `${scopedKey("roughbid_pending_project_v2", scope)}:${encodeURIComponent(projectId)}`;
+    return writeValue(key, project ? [persistentProject(project)] : []);
+  },
+
+  /** Adds drafts without clearing pending projects owned by another queue. */
   savePendingProjects(projects: Project[], scope: StorageScope): boolean {
-    return writeValue(scopedKey("roughbid_pending_projects_v1", scope), projects.map(persistentProject));
+    return projects.map((project) => this.savePendingProject(project.id, project, scope)).every(Boolean);
   },
 
   getProjectById(id: string, scope: StorageScope): Project | null {

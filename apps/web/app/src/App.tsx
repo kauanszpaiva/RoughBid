@@ -4,6 +4,7 @@ import { StorageService, persistentProject, type StorageScope } from "./utils/st
 import { ProjectSaveQueue, type SaveState } from "./utils/projectSaveQueue";
 import { projectReadiness } from "./utils/projectReadiness";
 import { canWriteWorkspace } from "./utils/workspaceAccess";
+import { patchProjectRevision, type RevisionPatch } from "./utils/projectRevisions";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { Header, ProjectStep } from "./components/Header";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -216,7 +217,7 @@ export default function App() {
             (id, state, error) => {
               if (!active) return;
               setSaveStates((current) => ({ ...current, [id]: { state, ...(error instanceof Error ? { message: error.message } : {}) } }));
-              if (!StorageService.savePendingProjects([...unavailableDrafts, ...(queue?.getPending() ?? [])], scope)) setLocalCacheWarning(true);
+              if (!StorageService.savePendingProject(id, queue?.getPending().find((project) => project.id === id) ?? null, scope)) setLocalCacheWarning(true);
             },
           );
           saveQueueRef.current = queue;
@@ -294,6 +295,14 @@ export default function App() {
     const latest = projectsRef.current.find((project) => project.id === projectId);
     if (!latest) return;
     handleUpdateProject({ ...latest, revisions: [...latest.revisions.map((item) => ({ ...item, isCurrent: false })), revision] });
+  };
+
+  const handlePatchRevision = (projectId: string, revisionId: string, patch: RevisionPatch) => {
+    if (!canWriteRef.current) return;
+    const latest = projectsRef.current.find((project) => project.id === projectId);
+    if (!latest) return;
+    const updated = patchProjectRevision(latest, revisionId, patch);
+    if (updated !== latest) handleUpdateProject(updated);
   };
 
   const handleCreateProject = async (newProject: Project, openProject = true): Promise<void> => {
@@ -560,6 +569,7 @@ export default function App() {
                     <PlansPage
                       canWrite={canWrite}
                       onAppendRevision={(revision) => handleAppendRevision(activeProject.id, revision)}
+                      onPatchRevision={(revisionId, patch) => handlePatchRevision(activeProject.id, revisionId, patch)}
                       key={`${workspace?.id}:${activeProject.remoteId}:${activeProject.id}`}
                       project={activeProject}
                       workspaceId={workspace?.id ?? null}

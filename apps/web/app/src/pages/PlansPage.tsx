@@ -9,12 +9,14 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
+import type { RevisionPatch } from "../utils/projectRevisions";
 import { BlueprintViewer } from "../components/BlueprintViewer";
 import { getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   canWrite?: boolean;
   onAppendRevision: (revision: PlanRevision) => void;
+  onPatchRevision: (revisionId: string, patch: RevisionPatch) => void;
   project: Project;
   workspaceId: string | null;
   onUpdateProject: (updated: Project) => void;
@@ -25,6 +27,7 @@ interface PlansPageProps {
 export const PlansPage: React.FC<PlansPageProps> = ({
   canWrite = false,
   onAppendRevision,
+  onPatchRevision,
   project,
   workspaceId,
   onUpdateProject,
@@ -217,10 +220,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         mode: "quick",
         scope: project.projectType,
       });
-      const updatedRevisions = project.revisions.map((revision) =>
-        revision.id === currentRevision.id ? { ...revision, aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." } : revision
-      );
-      onUpdateProject({ ...project, revisions: updatedRevisions });
+      onPatchRevision(currentRevision.id, { aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." });
       setPlanNotice(
         job.status === "failed"
           ? "AI plan reading failed. Open the AI Plan Assistant for details."
