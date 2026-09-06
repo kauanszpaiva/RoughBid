@@ -424,6 +424,7 @@ export default function App() {
                 <>
                   {activeStep === "plans" && (
                     <PlansPage
+                      key={`${workspace?.id}:${activeProject.remoteId}:${activeProject.id}`}
                       project={activeProject}
                       workspaceId={workspace?.id ?? null}
                       onUpdateProject={handleUpdateProject}

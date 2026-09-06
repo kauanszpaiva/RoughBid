@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Upload,
   History,
@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   project: Project;
@@ -27,17 +27,70 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   onContinue,
   onOpenAIAssistant,
 }) => {
+  const [readingQuote, setReadingQuote] = useState<ReadingQuote | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isStartingAi, setIsStartingAi] = useState<boolean>(false);
   const [needsAiConsent, setNeedsAiConsent] = useState<boolean>(false);
   const [isGrantingAiConsent, setIsGrantingAiConsent] = useState<boolean>(false);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
+
+  useEffect(() => { setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+
+  useEffect(() => {
+    let canceled = false;
+    setPreviewError(null);
+    if (!currentRevision) {
+      setPreviewUrl(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+    if (currentRevision.fileUrl) {
+      setPreviewUrl(currentRevision.fileUrl);
+      setIsPreviewLoading(false);
+      return;
+    }
+    if (!workspaceId || !currentRevision.remoteFileId) {
+      setPreviewUrl(null);
+      setIsPreviewLoading(false);
+      setPreviewError("This plan is saved locally only. Upload it to a workspace to preview it here.");
+      return;
+    }
+    let objectUrl: string | null = null;
+    setPreviewUrl(null);
+    setIsPreviewLoading(true);
+    createDocumentPreviewObjectUrl(workspaceId, currentRevision.remoteFileId)
+      .then((url) => {
+        objectUrl = url;
+        if (!canceled) setPreviewUrl(url);
+      })
+      .catch((error) => {
+        if (!canceled) setPreviewError(readableApiError(error));
+      })
+      .finally(() => {
+        if (!canceled) setIsPreviewLoading(false);
+      });
+    return () => {
+      canceled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [workspaceId, currentRevision?.id, currentRevision?.fileUrl, currentRevision?.remoteFileId]);
+  const handlePay = async () => {
+    if (!workspaceId || !project.remoteId || !readingQuote) return;
+    setIsPaying(true);
+    try { window.location.assign((await payForReading(workspaceId, project.remoteId, readingQuote.id)).url); }
+    catch (error) { setPlanNotice(readableApiError(error)); }
+    finally { setIsPaying(false); }
+  };
 
   // Handle uploading a new plan revision
   const readableApiError = (error: unknown) => {
@@ -79,8 +132,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     try {
       const nextRevNum = String(project.revisions.length + 1).padStart(2, "0");
+      const localPreviewUrl = URL.createObjectURL(file);
       const canUseBackend = Boolean(workspaceId && project.remoteId);
       let remoteFileId: string | undefined;
+      let pageCount = 0;
       let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
       let notes = canUseBackend
         ? `Revision ${nextRevNum} uploading to private storage.`
@@ -100,6 +155,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
         const completed = await completeDocumentUpload(workspaceId, remote.file.id);
         remoteFileId = completed.id;
+        pageCount = completed.page_count ?? 0;
         processingStatus = completed.processing_status;
         notes = `Revision ${nextRevNum} uploaded to private storage and queued for PDF page processing.`;
       }
@@ -109,11 +165,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         revisionNumber: nextRevNum,
         fileName: file.name,
         fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        pages: 0,
+        pages: pageCount,
         uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         uploadedBy: "Estimator",
         isCurrent: true,
         notes,
+        fileUrl: localPreviewUrl,
         ...(remoteFileId ? { remoteFileId } : {}),
         ...(processingStatus ? { processingStatus } : {}),
       };
@@ -137,8 +194,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     setNeedsAiConsent(false);
     try {
+      const quote = await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, project.projectType);
+      setReadingQuote(quote);
+      if (!['paid', 'failed', 'complete'].includes(quote.status)) {
+        setPlanNotice(quote.status === 'processing' ? 'This reading is already in progress. Check again shortly.' : 'Your price is ready. Pay securely below, then return here and check payment to start. No AI has run.');
+        return;
+      }
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
+        quote_id: quote.id,
         mode: "quick",
         scope: project.projectType,
       });
@@ -156,7 +220,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       // "AI Plan Assistant" again.
       onOpenAIAssistant();
     } catch (error) {
-      if (error instanceof ApiError && error.status === 403) {
+      if (error instanceof ApiError && [403,409].includes(error.status) && /consent|accept AI|approved/i.test(error.message)) {
         setNeedsAiConsent(true);
         setPlanNotice("This workspace hasn't approved sending plan files to AI yet.");
       } else {
@@ -173,7 +237,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     try {
       await grantWorkspaceAiConsent(workspaceId);
       setNeedsAiConsent(false);
-      setPlanNotice("AI processing approved for this workspace. Click Start AI Plan Reading again.");
+      setPlanNotice("AI processing approved for this workspace. Click Check payment & start again.");
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -221,6 +285,23 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950" aria-label="Your project steps">
+        <h2 className="font-bold mb-2">From your plan to a proposal</h2>
+        <ol className="grid sm:grid-cols-5 gap-2 text-xs">
+          {['1. Upload your PDF', '2. See your price & pay', '3. Review AI findings', '4. Check quantities & rates', '5. Export your proposal'].map(step => <li key={step}>{step}</li>)}
+        </ol>
+        <p className="mt-3 text-xs">We count pages before quoting. AI starts only after confirmed payment. Review every finding and local price before bidding.</p>
+      </section>
+      {readingQuote && readingQuote.file_id === currentRevision?.remoteFileId && <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="Project payment">
+        <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Your plan reading</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
+          <strong className="text-xl">{new Intl.NumberFormat('en-US',{style:'currency',currency:readingQuote.currency}).format(readingQuote.amount_cents/100)}</strong></div>
+        <p className="text-xs text-slate-600">Includes one completed reading and up to two attempts if processing fails. Changes to the plan or scope need a new price. Membership savings are included when active.</p>
+        <p className="text-sm">{readingQuote.status === 'quoted' ? 'Awaiting payment' : readingQuote.status === 'complete' ? 'Reading ready to review' : readingQuote.status === 'processing' ? 'Reading in progress' : readingQuote.status === 'failed' ? 'Reading failed — no substitute quantities were generated' : 'Payment confirmed'}</p>
+        <div className="flex gap-3 flex-wrap">
+          {readingQuote.status === 'quoted' && <button onClick={handlePay} disabled={isPaying} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button>}
+          <button onClick={handleStartAiReading} disabled={isStartingAi} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : 'Check payment & start'}</button>
+        </div>
+      </section>}
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -256,6 +337,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <BlueprintViewer
               currentRevision={currentRevision}
               projectName={project.name}
+              previewUrl={previewUrl}
+              isPreviewLoading={isPreviewLoading}
+              previewError={previewError}
             />
           ) : (
             <div className="h-[520px] bg-white border-2 border-dashed border-[#e5e7eb] rounded-xl flex flex-col items-center justify-center p-8 text-center">
@@ -387,7 +471,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Start AI Plan Reading</span>
+                <span>Check price & start</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
                 {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}

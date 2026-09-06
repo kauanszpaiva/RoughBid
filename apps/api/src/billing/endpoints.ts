@@ -15,6 +15,8 @@ export interface BillingRepository {
 }
 export type BillingEndpointDependencies = {
   config: BillingConfig; webhookSecret: string; stripe: StripeGateway; repository: BillingRepository;
+  membershipsEnabled?: boolean;
+  reconcileProjectPayment?(event: StripeEvent): Promise<void>;
   authenticate(request: Request): Promise<AuthenticatedUser | null>;
 };
 
@@ -32,6 +34,8 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
         verifyStripeWebhook(rawBody, request.headers.get('stripe-signature'), deps.webhookSecret);
         const event = JSON.parse(rawBody) as StripeEvent;
         if (!event.id || !event.type || typeof event.livemode !== 'boolean') throw new Error('Malformed Stripe event.');
+        if (event.livemode !== (deps.config.mode === 'live')) throw new Error('Stripe mode mismatch.');
+        await deps.reconcileProjectPayment?.(event);
         const processed = await deps.repository.processStripeEvent(event, subscriptionUpdateFromEvent(event));
         return json(200, { received: true, duplicate: !processed });
       } catch (error) {
@@ -46,7 +50,10 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
       const customerId = await deps.repository.customerIdForUser(user.id);
       if (path === '/api/billing/checkout') {
         const priceKey = isBillingPriceKey(body.priceKey) ? body.priceKey : undefined;
+        if (priceKey?.startsWith('project_')) return json(409, {error:'Open the project to get its price and pay for the uploaded plan.'});
         if (priceKey ? !deps.config.priceIds[priceKey] : !deps.config.priceId) return json(503, { error: 'Checkout is not configured.' });
+        if (!priceKey) return json(400, {error:'Select an available membership or open a project for its price.'});
+        if (priceKey?.startsWith('plan_') && !deps.membershipsEnabled) return json(503, {error:'Membership prices are not available yet.'});
         const checkoutInput = {
           customerEmail: user.email, customerId, userId: user.id,
           successUrl: String(body.successUrl ?? ''), cancelUrl: String(body.cancelUrl ?? ''),

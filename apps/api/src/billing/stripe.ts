@@ -66,7 +66,8 @@ export type HostedCheckoutRequest = {
 export type PortalRequest = { customer: string; return_url: string };
 
 export function createBillingConfig(input: BillingConfigInput): BillingConfig {
-  if (!input.productId.trim()) throw new Error('Stripe product ID is required.');
+  // Project Checkout creates its product from an immutable server quote. A legacy
+  // catalog product is optional; configured price IDs still gate subscriptions.
   const priceIds = Object.fromEntries(
     Object.entries(input.priceIds ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => [key, String(value).trim()]),
   ) as Partial<Record<BillingPriceKey, string>>;

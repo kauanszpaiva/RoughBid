@@ -78,6 +78,27 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T;
 }
 
+async function requestBlob(path: string, options: Pick<RequestOptions, "workspaceId"> = {}): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (options.workspaceId) headers["x-workspace-id"] = options.workspaceId;
+  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { error?: unknown };
+      if (typeof parsed.error === "string") message = parsed.error;
+    } catch {
+      // Keep the raw text for non-JSON errors.
+    }
+    throw new ApiError(response.status, message || `GET ${path} failed with ${response.status}`);
+  }
+  return response.blob();
+}
+
 /** GET /api/health */
 export function getHealth() {
   return request<{ status: string; service: string }>("/api/health");
@@ -243,7 +264,7 @@ export type PlanReadingJob = {
  * the common case, but getAiPlanReading below still works for reloading a
  * past job.
  */
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,
@@ -275,6 +296,24 @@ export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {
     method: "POST",
     workspaceId,
   });
+}
+
+export function createDocumentPreviewUrl(workspaceId: string, fileId: string) {
+  return request<{ url: string; method: "GET"; headers: Record<string, string>; expiresAt: string }>(`/api/documents/${fileId}/download-url`, {
+    method: "POST",
+    workspaceId,
+    body: { disposition: "inline" },
+  });
+}
+
+export async function createDocumentPreviewObjectUrl(workspaceId: string, fileId: string) {
+  const preview = await createDocumentPreviewUrl(workspaceId, fileId);
+  const response = await fetch(preview.url, { method: preview.method, headers: preview.headers });
+  if (!response.ok) {
+    throw new ApiError(response.status, `PDF preview failed with ${response.status}`);
+  }
+  const pdf = await response.blob();
+  return URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
 }
 
 export type ClientProposalPayload = {
@@ -361,4 +400,14 @@ export function createBillingCheckout(priceKey: BillingPriceKey) {
       cancelUrl: `${window.location.origin}/app/`,
     },
   });
+}
+
+export type ReadingQuote = { id: string; project_id: string; file_id: string; amount_cents: number; currency: string;
+  page_count: number; trades: string[]; scope: string; status: 'quoted'|'paid'|'processing'|'complete'|'failed'|'revoked';
+  attempts: number; max_attempts: number; job_id: string|null; expires_at: string; membership: string };
+export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string) {
+  return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope}});
+}
+export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
+  return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
 }

@@ -11,7 +11,7 @@ const baseInput = {
   scope: null,
 };
 
-const realResult = { summary: { sheet_count: 1, detected_trade_scope: [], scale_status: 'detected' as const, human_review_required: true as const, limitations: [] }, findings: [] };
+const realResult = { summary: { sheet_count: 1, detected_trade_scope: [], scale_status: 'detected' as const, human_review_required: true as const, limitations: [] }, findings: [{page_number:1,finding_type:'risk' as const,label:'Unreadable dimension',value_text:null,quantity:null,unit:null,confidence:0.5,geometry:{},source_excerpt:null}] };
 
 test('never calls the second (paid) reader when the first (free) reader returns a real result', async () => {
   let secondCalled = false;
@@ -35,12 +35,11 @@ test('falls through to the next reader only when the previous one comes back syn
   assert.deepEqual(result, realResult);
 });
 
-test('returns the last reader\'s synthetic result when every configured reader falls back', async () => {
-  const reader = new MultiProviderPlanReader([
-    { name: 'free', read: async () => syntheticPlanReadingResult(['Framing'], 'free notice') },
-    { name: 'paid', read: async () => syntheticPlanReadingResult(['Framing'], 'paid notice') },
-  ]);
-  const result = await reader.read(baseInput);
-  assert.equal(result.summary.synthetic, true);
-  assert.ok(result.summary.limitations.some((l) => l.includes('paid notice')));
+test('fails when every provider returns synthetic results', async () => {
+  const reader=new MultiProviderPlanReader([{name:'a',read:async()=>syntheticPlanReadingResult(['Framing'],'failure')}]);
+  await assert.rejects(reader.read(baseInput),/No quantities were generated/);
+});
+test('fails when providers return no findings or throw', async () => {
+  const reader=new MultiProviderPlanReader([{name:'a',read:async()=>({...realResult,findings:[]})},{name:'b',read:async()=>{throw new Error('outage')}}]);
+  await assert.rejects(reader.read(baseInput),/No quantities were generated/);
 });

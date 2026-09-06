@@ -1,3 +1,4 @@
+import { PDF_DIGEST } from '../src/billing/project-preflight.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AiPlanReadingService, type PlanReader } from '../src/ai-plan/service.ts';
@@ -95,57 +96,47 @@ test('create() still blocks a file that has not finished uploading', async () =>
   );
 });
 
-test('create() reads the uploaded PDF synchronously, prices findings, and persists results without a queue', async () => {
-  const db = fakeDb(baseResolver());
-  let downloadedUrl: string | undefined;
-  let readInput: Record<string, unknown> | undefined;
-  const storage = { presign: async (_method: 'GET', key: string) => { return { url: `https://signed.example/${key}` }; } };
-  const fetcher = async (url: string) => { downloadedUrl = url; return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); };
-  const reader: PlanReader = {
-    read: async (input) => {
-      readInput = input as unknown as Record<string, unknown>;
-      return {
-        summary: { sheet_count: 1, detected_trade_scope: ['Framing'], scale_status: 'detected', human_review_required: true, limitations: [] },
-        findings: [
-          { page_number: 1, finding_type: 'material', label: 'Composite Decking', value_text: null, quantity: 100, unit: 'SF', confidence: 0.9, geometry: {}, source_excerpt: 'Sheet A1' },
-        ],
-      };
-    },
-  };
-  let insertedRows: Array<Record<string, unknown>> | undefined;
-  const findingsWriter = {
-    from: (table: string) => {
-      assert.equal(table, 'plan_reading_findings');
-      return {
-        insert: (rows: Array<Record<string, unknown>>) => {
-          insertedRows = rows;
-          return { select: async () => ({ data: rows.map((row, i) => ({ id: `finding-${i}`, ...row })), error: null }) };
-        },
-      };
-    },
-  };
-
-  const service = new AiPlanReadingService(db as never, findingsWriter, storage, reader, 'user-1', 'workspace-1', fetcher as never);
-  const result = await service.create('project-1', { file_id: 'file-1' });
-
-  assert.equal(downloadedUrl, 'https://signed.example/workspace-1/project-1/file-1/source.pdf');
-  assert.equal(readInput?.sheetName, 'plan.pdf');
-  assert.equal(insertedRows?.length, 1);
-  assert.equal((insertedRows![0]!.geometry as { pricing: unknown[] }).pricing.length, 2); // material + companion labor
-  assert.equal(result.status, 'needs_review');
-  assert.equal(result.plan_reading_findings.length, 1);
-  assert.equal(result.plan_reading_findings[0].id, 'finding-0');
+function paidWriter(onFinish: (args: any)=>void = () => {}) {
+  return { from: () => ({}), rpc: async (name: string,args: any) => {
+    if(name === 'reserve_project_reading') return {data:{job:{id:'job-1'},quote:{trades:['Framing'],scope:'',page_count:1,file_sha256:PDF_DIGEST(new Uint8Array([1,2,3]))}},error:null};
+    onFinish(args);
+    return {data:{id:'job-1',status:args.p_error?'failed':'needs_review',plan_reading_findings:args.p_findings},error:null};
+  }};
+}
+test('unpaid project does not call a provider or save findings', async () => {
+  let called=false;
+  const reader={read:async()=>{called=true;return noopReader.read({} as never)}};
+  const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,paidWriter(),noopStorage,reader,'user-1','workspace-1',noopFetcher as never);
+  await assert.rejects(service.create('project-1',{file_id:'file-1'}),(e: any)=>e.status===402);
+  assert.equal(called,false);
 });
-
-test('create() marks the job failed when the uploaded file cannot be downloaded, without inserting findings', async () => {
-  const db = fakeDb(baseResolver());
-  let insertCalled = false;
-  const findingsWriter = { from: () => ({ insert: () => { insertCalled = true; return { select: async () => ({ data: [], error: null }) }; } }) };
-  const failingFetcher = async () => new Response('not found', { status: 404 });
-
-  const service = new AiPlanReadingService(db as never, findingsWriter, noopStorage, noopReader, 'user-1', 'workspace-1', failingFetcher as never);
-  await assert.rejects(service.create('project-1', { file_id: 'file-1' }), (error: unknown) => error instanceof ProjectApiError && error.status === 502);
-  assert.equal(insertCalled, false);
+test('paid reading persists only real findings in one finalization RPC', async () => {
+  let finished: any;
+  const finding={page_number:1,finding_type:'material' as const,label:'Decking',value_text:null,quantity:100,unit:'SF',confidence:0.9,geometry:{},source_excerpt:'A1: 100 SF decking'};
+  const reader={read:async()=>({...await noopReader.read({} as never),findings:[finding]})};
+  const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,paidWriter(args=>finished=args),noopStorage,reader,'user-1','workspace-1',noopFetcher as never);
+  const result=await service.create('project-1',{file_id:'file-1',quote_id:'quote-1',trades:['attacker scope']});
+  assert.equal(result.status,'needs_review');
+  assert.equal(finished.p_findings.length,1);
+  assert.equal(finished.p_quote_id,'quote-1');
+});
+test('changed file after payment fails without calling the provider', async () => {
+  let called=false;let failure:any;
+  const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,paidWriter(args=>failure=args),noopStorage,{read:async()=>{called=true;return noopReader.read({} as never)}},'user-1','workspace-1',(async()=>new Response('different file')) as never);
+  await assert.rejects(service.create('project-1',{file_id:'file-1',quote_id:'quote-1'}),/changed after payment/);
+  assert.equal(called,false);assert.ok(failure.p_error);assert.deepEqual(failure.p_findings,[]);
+});
+test('synthetic provider output cannot be saved or priced', async () => {
+  let failure:any;
+  const reader={read:async()=>{const result=await noopReader.read({} as never);result.summary.synthetic=true;return result;}};
+  const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,paidWriter(args=>failure=args),noopStorage,reader,'user-1','workspace-1',noopFetcher as never);
+  await assert.rejects(service.create('project-1',{file_id:'file-1',quote_id:'quote-1'}),/No usable findings/);
+  assert.deepEqual(failure.p_findings,[]);
+});
+test('payment reservation rejects before downloading or invoking AI', async () => {
+  const writer={from:()=>({}),rpc:async()=>({data:null,error:{message:'Paid quote required'}})};
+  const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,writer,{presign:async()=>{throw new Error('must not download')}},noopReader,'user-1','workspace-1',noopFetcher as never);
+  await assert.rejects(service.create('project-1',{file_id:'file-1',quote_id:'quote-1'}),(e:any)=>e.status===402);
 });
 
 test('setFindingStatus() calls the review RPC and rejects a finding from a different workspace', async () => {

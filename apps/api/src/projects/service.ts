@@ -18,6 +18,12 @@ export class ProjectApiError extends Error {
   }
 }
 
+/** Validate a database path before using a privileged storage signer. */
+export function assertPlanStoragePath(path: unknown, workspaceId: string, projectId: string, fileId: string): void {
+  const prefix = `${workspaceId}/${projectId}/${fileId}`;
+  if (path !== `${prefix}.pdf` && path !== `${prefix}/source.pdf`) throw new ProjectApiError(403, 'Plan storage does not belong to this project.');
+}
+
 function requiredText(value: unknown, label: string, max: number): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) {
     throw new ProjectApiError(400, `${label} is required and must be at most ${max} characters`);

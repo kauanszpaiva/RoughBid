@@ -29,7 +29,18 @@ export default async function handler(req: any, res: any) {
   };
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    const body = requestBody(req);
+    let body = requestBody(req);
+    if (body === undefined && req[Symbol.asyncIterator]) {
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+        size += bytes.length;
+        if (size > 2 * 1024 * 1024) { res.status(413).send('Request too large'); return; }
+        chunks.push(bytes);
+      }
+      body = Buffer.concat(chunks);
+    }
     if (body !== undefined) {
       init.body = body;
     }

@@ -81,6 +81,9 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
     const pageNumber = typeof item.page_number === 'number' && Number.isInteger(item.page_number) && item.page_number > 0
       ? item.page_number
       : null;
+    if (hasQuantity && (pageNumber === null || (typeof rawSummary.sheet_count === 'number' && pageNumber > rawSummary.sheet_count))) {
+      dropped.push(`"${label}": quantity without a valid source page`); continue;
+    }
     const confidence = typeof item.confidence === 'number' && Number.isFinite(item.confidence)
       ? Math.max(0.1, Math.min(1, item.confidence))
       : 0.75;
@@ -99,7 +102,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   }
 
   const capped = findings.slice(0, MAX_FINDINGS);
-  const limitations = [...notices];
+  const limitations = [...notices, ...(Array.isArray(rawSummary.limitations) ? rawSummary.limitations.filter((v): v is string => typeof v === 'string').map(v => v.slice(0, 1000)) : [])];
   if (dropped.length) limitations.push(`${dropped.length} item(s) dropped for missing a verbatim source citation or an invalid unit.`);
   if (findings.length > MAX_FINDINGS) limitations.push(`Findings capped at ${MAX_FINDINGS} (${findings.length} detected).`);
 
@@ -107,7 +110,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
     summary: {
       sheet_count: typeof rawSummary.sheet_count === 'number' ? rawSummary.sheet_count : 1,
       detected_trade_scope: Array.isArray(rawSummary.detected_trade_scope) ? rawSummary.detected_trade_scope.map(String) : [],
-      scale_status: rawSummary.scale_status === 'missing' || rawSummary.scale_status === 'conflicting' ? rawSummary.scale_status : 'detected',
+      scale_status: rawSummary.scale_status === 'detected' || rawSummary.scale_status === 'conflicting' ? rawSummary.scale_status : 'missing',
       human_review_required: true,
       limitations,
       ...(synthetic ? { synthetic: true } : {}),

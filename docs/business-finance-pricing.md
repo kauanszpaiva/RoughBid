@@ -1,6 +1,6 @@
 # RoughBid Business, Finance, and Pricing Plan
 
-Status: draft operating plan. Owner approval required before creating live Stripe prices or publishing customer-facing price copy.
+Status: draft operating plan. Owner approval and measured cost inputs are required before enabling live project-reading charges or publishing final customer-facing pricing copy.
 
 ## Product Positioning
 
@@ -18,35 +18,35 @@ The product should feel low-risk to try and inexpensive enough for a small contr
 
 ## Commercial Principles
 
-- Keep minimum gross margin at 50% or higher after AI, storage, email, data feed, and Stripe card fees.
-- Keep trial COGS below $1.00 per user, with a soft target of $0.80 or lower.
+- Keep standalone project-reading gross margin at 50% after AI, storage, support overhead, and Stripe card fees.
+- Membership discounts intentionally reduce project-reading margin to 40%, 35%, 30%, and enterprise as low as 20%.
 - Charge per project, because contractors understand jobs better than tokens.
-- Calculate the project charge from project size and complexity.
-- Use subscriptions to discount project charges and increase retention.
+- Calculate the project-reading charge from measured cost drivers: base cost, PDF page count, selected trades, payment fixed fee, payment percentage fee, and membership tier.
+- Charge before AI output. A user can preview the project-reading price, but Gemini must not receive the plan until Stripe confirms payment by webhook.
+- Use subscriptions to discount future project-reading charges and increase retention.
 - Sell local pricing/code datasets as paid marketplace add-ons, not as unlimited free usage.
 - Never allow postpaid negative balance without owner approval.
-- Do not price live products below the guardrail in `packages/domain/src/billing.ts`.
+- Do not price live project reads outside the margin guardrail in `packages/domain/src/project-charge.ts`.
 
-## Recommended Price Ladder
+## Project Reading Price Formula
 
-Per-project charges are based on project size. This avoids charging a tiny bathroom refresh the same as a dense multi-trade renovation.
+The live implementation calculates the project-reading charge at request time:
 
-| Project size | Base project price | Target use case | Included AI budget |
-| --- | ---: | --- | --- |
-| Small | $7 | Small repair, bath refresh, single-room finish update | up to $0.75 COGS |
-| Standard | $15 | Kitchen remodel, basement finish, small addition | up to $1.25 COGS |
-| Large | $29 | Whole-home remodel, multi-room addition, larger deck/exterior package | up to $2.50 COGS |
-| Complex | $49 | Light commercial, multi-trade renovation, dense plan set | up to $5.00 COGS |
+`charge = ceil((measured_cost + fixed_payment_fee) / (1 - target_margin - payment_fee_percent))`
 
-Entry without subscription:
-- User pays the base project price for each project.
-- No monthly commitment.
-- Good for a contractor trying RoughBid on one job.
+Target margins:
 
-Subscriptions:
-- Starter: $9/month, 10% discount on every project.
-- Pro: $29/month, 25% discount on every project.
-- Team: $79/month, 40% discount on every project.
+| Membership | Target margin on project read |
+| --- | ---: |
+| No membership | 50% |
+| Starter | 40% |
+| Pro | 35% |
+| Team | 30% |
+| Enterprise | 20% |
+
+Measured cost inputs come from environment configuration and should include both paid attempts, Gemini usage, storage/read overhead, support reserve, and any fixed operational cost assigned to the read. Missing inputs disable checkout.
+
+Subscriptions reduce the margin RoughBid keeps on each future project read. The monthly subscription prices are not hard-coded yet; they must be approved and configured as Stripe price ids before `BILLING_MEMBERSHIPS_ENABLED=true`.
 
 Marketplace add-ons:
 - New England Code Assistant: $9/month.
@@ -56,42 +56,11 @@ Marketplace add-ons:
 
 ## Unit Economics Snapshot
 
-Target COGS per completed AI project:
-- Cheap model plan read and extraction: $0.45.
-- Expensive model review/escalation reserve: $0.30.
-- Total target project COGS: $0.75.
-- Review cap: $0.90. If observed COGS exceeds this, cheaper overage must be blocked until review.
-
-Approximate project margin after Stripe card fee:
-
-| Size | No subscription | Starter price | Pro price | Team price | Lowest margin target |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Small | $7.00 | $6.30 | $5.25 | $4.20 | 50%+ |
-| Standard | $15.00 | $13.50 | $11.25 | $9.00 | 50%+ |
-| Large | $29.00 | $26.10 | $21.75 | $17.40 | 50%+ |
-| Complex | $49.00 | $44.10 | $36.75 | $29.40 | 50%+ |
-
-The Team-discounted small project is the lowest acceptable floor under current assumptions. Do not lower it unless real COGS drops materially or payment economics change.
-
-## Trial Policy
-
-Trial should not require a card at first.
-
-Trial limits:
-- 14 days.
-- 2 project credits.
-- 2 active projects.
-- 25 MB PDF limit per project.
-- 3 AI generations per project.
-- No batch processing.
-- No team seats.
-- Verified email required before AI spend.
-- Hard stop before $1.00 in AI/provider cost per user.
-
-Trial conversion:
-- Show the per-project size price first.
-- Show Starter as the lowest-friction monthly discount.
-- Explain usage as "projects", not tokens.
+Target cost policy:
+- Start with conservative measured costs from test reads.
+- Include two paid attempts per quote, since the database allows one retry after provider failure.
+- Recalculate before enabling live mode whenever Gemini pricing, file size limits, Stripe fees, or support reserve assumptions change.
+- Stop checkout when the configured margin plus payment fee would make the denominator invalid.
 
 ## Payment Method Flow
 
@@ -100,46 +69,52 @@ Use Stripe-hosted Checkout for all payments.
 Flow:
 1. User creates account with Supabase magic link.
 2. RoughBid creates or finds the workspace billing account.
-3. User selects a project size, subscription, or marketplace add-on.
-4. API creates Stripe Checkout Session.
+3. User selects a project file, scope, and trades.
+4. API creates a project-reading quote and Stripe Checkout Session.
 5. Stripe collects card/payment method.
 6. Stripe webhook is the source of truth.
-7. Supabase ledger grants credits or add-on entitlement after webhook verification.
-8. User can manage payment method, invoice, cancellation, and plan changes in Stripe Customer Portal.
+7. Supabase marks the project-reading quote paid after webhook verification.
+8. Gemini reads the plan only after the paid quote is reserved by the API.
+9. User can manage membership payment method, invoice, cancellation, and plan changes in Stripe Customer Portal after membership prices are configured.
 
 Do not mark a user paid based only on frontend redirect success. Only signed Stripe webhook events should grant credits or paid access.
 
-## Credit Ledger Rules
+## Paid Quote Rules
 
-Every workspace has isolated credits. Credits are never shared across unrelated organizations.
+Every workspace has isolated project-reading quotes. Quotes are never shared across unrelated organizations.
 
 Rules:
-- Reserve the project charge when AI estimation starts.
-- Capture the project charge when the first useful estimate is saved.
-- Release the credit if provider failure, validation failure, or user cancellation happens before saved output.
-- Regenerations after a useful saved estimate consume the same project budget until generation limit is reached.
-- Subscriptions discount future project charges instead of granting unlimited usage.
+- Create the quote before AI output and before any model call.
+- Reuse an existing paid or active checkout quote for the same file hash, scope, trades, amount, membership, and pricing version.
+- Mark the quote paid only from the signed Stripe webhook.
+- Reserve a job only after payment, role check, file hash check, and workspace AI consent.
+- Allow at most two attempts per quote.
+- Mark failed model output as failed; do not save simulated substitute quantities.
+- Revoke quote access on refund or dispute webhook.
+- Subscriptions discount future project reads instead of granting unlimited usage.
 - Optional prepaid credit packs can be added later, but should be secondary.
 - Marketplace add-ons do not include project usage.
 - Every ledger write needs an idempotency key.
 
-Required database entities:
-- `billing_accounts`
-- `credit_grants`
-- `credit_ledger_entries`
-- `project_entitlements`
+Implemented entities:
+- `project_reading_quotes`
+- `project_payment_events`
+- `plan_reading_jobs`
+- `plan_reading_findings`
+
+Future entities for marketplace feeds and wider usage accounting:
 - `api_usage_events`
 - `marketplace_entitlements`
 - `marketplace_purchases`
-- `stripe_price_mappings`
 
 ## Usage Limits By Plan
 
-| Plan | Monthly price | Project discount | Active projects | Seats | PDF limit | AI generations/project | Client proposal links/month | Included feeds |
+| Plan | Monthly price | Project-read margin | Active projects | Seats | PDF limit | AI attempts/paid quote | Client proposal links/month | Included feeds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Starter | $9 | 10% | 5 | 1 | 25 MB | 3 | 25 | New England codes |
-| Pro | $29 | 25% | 20 | 3 | 50 MB | 5 | 100 | Codes, material prices |
-| Team | $79 | 40% | 80 | 10 | 75 MB | 8 | 400 | Codes, material prices, labor benchmarks |
+| Starter | TBD | 40% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
+| Pro | TBD | 35% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
+| Team | TBD | 30% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
+| Enterprise | custom | as low as 20% | custom | custom | custom after engineering review | custom contract | custom | custom |
 
 Enterprise/custom can exist later, but should require manual approval because usage can destroy margins if unlimited.
 
@@ -156,7 +131,7 @@ Suggested provider categories:
 - Cheap OCR/extraction: budget providers or self-hosted models where quality is acceptable.
 - Strong review: premium multimodal model only after cheap extraction has produced structured evidence.
 - Embeddings/search: low-cost embedding model for code, specs, and price-table retrieval.
-- Background jobs: queue all plan processing, enforce per-project budget before each step.
+- Background jobs: keep page rendering queued for viewer thumbnails; run paid AI reading inline after payment until the product needs a separate queue with the same paid quote guard.
 
 Sensitive data rule:
 - Do not send customer/client PII, addresses, or signatures to low-trust providers unless explicitly approved in the data processing policy.
@@ -183,15 +158,14 @@ Feed behavior:
 Weekly checks:
 - Average COGS per completed project.
 - Trial COGS per new user.
-- Conversion from trial to paid.
-- Credits sold, reserved, captured, released, expired.
+- Quote creation to paid conversion.
+- Paid quotes, failed reads, completed reads, refunds, and disputes.
 - Gross margin by plan.
 - Gross margin by marketplace feed.
 - Failed payment rate and churn.
 
 Automatic blockers:
-- Stop trial AI when user reaches hard COGS cap.
-- Stop project AI when reserved project budget is exhausted.
+- Stop project AI when the quote is unpaid, expired, revoked, file-changed, or over attempt limits.
 - Block below-margin pricing in code/tests.
 - Require owner approval for free credit grants outside support adjustments.
 

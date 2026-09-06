@@ -102,7 +102,7 @@ test('checkout request uses hosted subscription checkout only after price approv
   });
 });
 
-test('billing config supports RoughBid plan, project-size, and marketplace price IDs', () => {
+test('billing config still parses legacy RoughBid project-size IDs during migration', () => {
   const config = createBillingConfigFromEnv({
     STRIPE_MODE: 'test',
     STRIPE_PRODUCT_ID: 'prod_roughbid',
@@ -136,7 +136,7 @@ test('checkout can select an approved subscription price by RoughBid price key',
   assert.deepEqual(request.subscription_data, { metadata: { user_id: 'user_1' } });
 });
 
-test('checkout can select one-time per-project prices without subscription metadata', () => {
+test('checkout request helper keeps legacy one-time project prices out of subscription metadata', () => {
   const request = createCheckoutRequest(
     createBillingConfig({
       stripeMode: 'test',
@@ -157,7 +157,35 @@ test('checkout can select one-time per-project prices without subscription metad
   assert.deepEqual(request.metadata, { user_id: 'user_1', price_key: 'project_large' });
 });
 
-test('billing endpoint ignores invalid price keys instead of accepting arbitrary Stripe prices', async () => {
+test('billing endpoint directs project reads to the per-project quote flow', async () => {
+  let stripeCalled = false;
+  const handler = createBillingEndpointHandler({
+    config: createBillingConfig({ stripeMode: 'test', productId: 'prod_1', priceId: 'price_default', priceIds: { project_large: 'price_project_large' } }),
+    webhookSecret: 'secret',
+    stripe: {
+      async createCheckoutSession() {
+        stripeCalled = true;
+        return { url: 'https://checkout.stripe.com/default' };
+      },
+      async createPortalSession() { return { url: '' }; },
+    },
+    repository: { async customerIdForUser() { return null; }, async processStripeEvent() { return true; } },
+    async authenticate() { return { id: 'user_1', email: 'owner@example.com' }; },
+  });
+  const response = await handler(new Request('https://api.example.com/api/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({
+      successUrl: 'https://app.example.com/success',
+      cancelUrl: 'https://app.example.com/cancel',
+      priceKey: 'project_large',
+    }),
+  }));
+  assert.equal(response.status, 409);
+  assert.equal(stripeCalled, false);
+  assert.match(String((await response.json() as { error: string }).error), /project/i);
+});
+
+test('billing endpoint rejects invalid price keys without charging a fallback product', async () => {
   let requestPrice = '';
   const handler = createBillingEndpointHandler({
     config: createBillingConfig({ stripeMode: 'test', productId: 'prod_1', priceId: 'price_default' }),
@@ -180,7 +208,7 @@ test('billing endpoint ignores invalid price keys instead of accepting arbitrary
       priceKey: 'price_attacker_controlled',
     }),
   }));
-  assert.equal(response.status, 200);
-  assert.equal(requestPrice, 'price_default');
+  assert.equal(response.status, 400);
+  assert.equal(requestPrice, '');
   assert.equal(isBillingPriceKey('price_attacker_controlled'), false);
 });

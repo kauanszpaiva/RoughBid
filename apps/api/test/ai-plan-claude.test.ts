@@ -46,18 +46,12 @@ test('strips an accidental markdown code fence before parsing', async () => {
   assert.equal(result.findings.length, 1);
 });
 
-test('falls back to a clearly-labeled synthetic takeoff when no client is configured', async () => {
-  const reader = new ClaudePlanReader(null);
-  const result = await reader.read(baseInput);
-  assert.equal(result.summary.synthetic, true);
-  assert.ok(result.summary.limitations.some((l) => l.includes('ANTHROPIC_API_KEY is not configured')));
+test('missing Claude credentials fail without invented output', async () => {
+  await assert.rejects(new ClaudePlanReader(null).read(baseInput), /No quantities were generated/);
 });
-
-test('falls back to synthetic (without retrying) when the API call throws', async () => {
-  let calls = 0;
-  const client: ClaudeMessagesClient = { createMessage: async () => { calls += 1; throw new Error('rate limited'); } };
-  const reader = new ClaudePlanReader(client);
-  const result = await reader.read(baseInput);
-  assert.equal(calls, 1); // a single attempt only — this is a paid fallback, never a retry loop
-  assert.equal(result.summary.synthetic, true);
+test('Claude outage fails without invented output', async () => {
+  let calls=0;
+  const client = { createMessage: async () => { calls++; throw new Error('rate limited'); } };
+  await assert.rejects(new ClaudePlanReader(client, "model-a").read(baseInput), /No quantities were generated/);
+  assert.equal(calls,1);
 });

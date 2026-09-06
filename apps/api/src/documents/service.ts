@@ -1,4 +1,4 @@
-import { ProjectApiError } from '../projects/service.ts';
+import { ProjectApiError, assertPlanStoragePath } from '../projects/service.ts';
 import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
 
 export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
@@ -46,6 +46,7 @@ export class DocumentService {
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
     if (result.data.processing_status !== 'uploading' && result.data.processing_status !== 'queued') throw new ProjectApiError(409, 'Upload has already been completed');
+    assertPlanStoragePath(result.data.storage_path,this.workspaceId,result.data.project_id,fileId);
     const head = await this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });
     const object = await this.fetcher(head.url, { method: 'HEAD' });
     const storedBytes = Number(object.headers.get('content-length'));
@@ -62,9 +63,13 @@ export class DocumentService {
     return file;
   }
 
-  async download(fileId: string) {
+  async download(fileId: string, options: { disposition?: 'attachment' | 'inline' } = {}) {
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
-    return this.storage.presign('GET', result.data.storage_path, { expiresIn: 60, downloadName: result.data.original_name });
+    assertPlanStoragePath(result.data.storage_path,this.workspaceId,result.data.project_id,fileId);
+    return this.storage.presign('GET', result.data.storage_path, {
+      expiresIn: options.disposition === 'inline' ? 300 : 60,
+      ...(options.disposition === 'inline' ? {} : { downloadName: result.data.original_name }),
+    });
   }
 }
