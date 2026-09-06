@@ -1,4 +1,3 @@
-import { downloadPlan, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import { priceFindings } from './pricing.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
@@ -89,7 +88,7 @@ export class AiPlanReadingService {
 
     dbResult(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
     const file = dbResult<any>(
-      await this.db.from('project_files').select('id, original_name, storage_path, processing_status')
+      await this.db.from('project_files').select('id, original_name, storage_path, processing_status, page_count')
         .eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', fileId).maybeSingle(),
       true,
     );
@@ -108,28 +107,30 @@ export class AiPlanReadingService {
       throw new ProjectApiError(429, `This workspace has started ${recentJobs.length} AI plan readings in the last 24 hours, at its limit of ${dailyLimit}.`);
     }
 
-    const quoteId = typeof input.quote_id === 'string' ? input.quote_id : '';
-    if (!quoteId) throw new ProjectApiError(402, 'Pay for this project before starting AI.');
-    if (!this.findingsWriter.rpc) throw new ProjectApiError(503, 'Paid processing is not configured.');
     this.reader.assertReady?.();
-    const reserved = await this.findingsWriter.rpc('reserve_project_reading', {
-      p_quote_id: quoteId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
-      p_project_id: projectId, p_file_id: fileId, p_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    });
-    if (reserved.error) {
-      const message = String(reserved.error.message ?? 'Payment authorization failed');
-      throw new ProjectApiError(/Paid quote/.test(message) ? 402 : 409, message);
-    }
-    const { job, quote, reused } = reserved.data;
-    if (reused) return this.get(job.id);
-    const requestedTrades = quote.trades as string[];
-    const scope = quote.scope as string;
+    const requestedTrades = Array.isArray(input.trades)
+      ? input.trades.filter((trade): trade is string => typeof trade === 'string')
+      : ['Framing', 'Concrete', 'Drywall', 'Electrical', 'Plumbing', 'HVAC', 'Finishes'];
+    const scope = typeof input.scope === 'string' ? input.scope.slice(0, 500) : null;
+
+    const job = dbResult<any>(await this.db.from('plan_reading_jobs').insert({
+      workspace_id: this.workspaceId,
+      project_id: projectId,
+      file_id: fileId,
+      requested_by: this.userId,
+      status: 'processing',
+      mode: 'quick',
+      model: process.env.OPENROUTER_API_KEY ? 'openrouter/free' : process.env.GEMINI_MODEL || 'gemini',
+      started_at: new Date().toISOString(),
+      input_summary: { requested_scope: scope, requested_trades: requestedTrades, human_review_required: true },
+    }).select('*').single());
 
     try {
       assertPlanStoragePath(file.storage_path,this.workspaceId,projectId,fileId);
       const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
-      const fileBytes = await downloadPlan(presigned.url, this.fetcher);
-      if (PDF_DIGEST(fileBytes) !== quote.file_sha256) throw new ProjectApiError(409, 'The plan changed after payment. Contact support before processing.');
+      const response = await this.fetcher(presigned.url);
+      if (!response.ok) throw new Error(`Could not download the uploaded plan (${response.status})`);
+      const fileBytes = new Uint8Array(await response.arrayBuffer());
 
       const result = await this.reader.read({
         fileBytes,
@@ -139,7 +140,7 @@ export class AiPlanReadingService {
         scope,
       });
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
-      if (result.findings.some(f => f.quantity !== null && (!f.page_number || f.page_number > quote.page_count))) throw new Error('The reading contains quantities without valid source pages.');
+      if (Number.isFinite(file.page_count) && result.findings.some(f => f.quantity !== null && (!f.page_number || f.page_number > file.page_count))) throw new Error('The reading contains quantities without valid source pages.');
       const pricing = priceFindings(result.findings);
 
       const findingsRows = result.findings.map((finding, index) => {
@@ -161,21 +162,31 @@ export class AiPlanReadingService {
         };
       });
 
-      const finished = await this.findingsWriter.rpc('finish_project_reading', {
-        p_quote_id: quoteId, p_job_id: job.id, p_error: null, p_findings: findingsRows,
-        p_summary: { ...result.summary, pricing: {
+      let insertedFindings: any[] = [];
+      if (findingsRows.length) {
+        const inserted = await this.findingsWriter.from('plan_reading_findings').insert(findingsRows).select('*');
+        if (inserted.error) throw new Error(inserted.error.message ?? 'Could not store plan reading findings');
+        insertedFindings = inserted.data ?? [];
+      }
+
+      const updatedJob = dbResult<any>(await this.db.from('plan_reading_jobs').update({
+        status: 'needs_review',
+        output_summary: { ...result.summary, pricing: {
           materialCost: pricing.totals.categoryTotals.material, laborCost: pricing.totals.categoryTotals.labor,
           directCost: pricing.totals.directCost, pricedFindings: pricing.pricedFindings, unpricedFindings: pricing.unpricedFindings,
           rateSource: 'Reference rates — verify local supplier and labor prices before bidding',
         } },
-      });
-      if (finished.error) throw new Error('Could not save the reading. Please check its status before retrying.');
-      return finished.data;
+        confidence: result.findings.length ? result.findings.reduce((sum, finding) => sum + finding.confidence, 0) / result.findings.length : null,
+        processing_error: null,
+        completed_at: new Date().toISOString(),
+      }).eq('id', job.id).eq('workspace_id', this.workspaceId).select('*').single());
+      return { ...updatedJob, plan_reading_findings: insertedFindings };
     } catch (error) {
-      await this.findingsWriter.rpc('finish_project_reading', {
-        p_quote_id: quoteId, p_job_id: job.id, p_summary: {}, p_findings: [],
-        p_error: error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed',
-      });
+      await this.db.from('plan_reading_jobs').update({
+        status: 'failed',
+        processing_error: error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed',
+        completed_at: new Date().toISOString(),
+      }).eq('id', job.id).eq('workspace_id', this.workspaceId);
       if (error instanceof ProjectApiError) throw error;
       throw new ProjectApiError(502, error instanceof Error ? error.message : 'AI plan reading failed');
     }

@@ -1,6 +1,6 @@
 import { ProjectPayments, handleProjectPayment } from '../billing/project-payments.ts';
 import { createClient } from '@supabase/supabase-js';
-import { handleAuthBootstrapRequest } from '../auth/routes.ts';
+import { handleAuthBootstrapRequest, handleMagicLinkRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
@@ -12,7 +12,9 @@ import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
-import { requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { OpenRouterFreePlanReader } from '../ai-plan/openrouter.ts';
+import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
 import { runtimeCapabilities } from './capabilities.ts';
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
@@ -66,6 +68,16 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   if (pathname === '/api/capabilities') {
     if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
     return Response.json(runtimeCapabilities(process.env), { headers: { 'cache-control': 'no-store' } });
+  }
+  if (pathname === '/api/auth/magic-link') {
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    const serviceRoleKey = loadSupabaseServiceRoleKey();
+    if (!supabaseUrl || !serviceRoleKey || !process.env.RESEND_API_KEY) {
+      return json({ error: 'RoughBid email sign-in is not configured.' }, 503);
+    }
+    const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
+    const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    return handleMagicLinkRequest(request, admin, { appUrl, env: process.env });
   }
 
   let client: ReturnType<typeof clientForRequest>;
@@ -161,14 +173,27 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     try {
-      const readingConfig = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname)
-        ? requirePaidPlanReadingConfig(process.env)
-        : null;
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      const geminiClient = readingConfig ? await createGeminiClient(readingConfig.apiKey) : null;
-      const reader = new GeminiPlanReader(geminiClient, readingConfig ? [readingConfig.model] : []);
+      const readers = [];
+      if (process.env.OPENROUTER_API_KEY?.trim()) {
+        const openRouter = new OpenRouterFreePlanReader(process.env.OPENROUTER_API_KEY);
+        readers.push({ name: 'openrouter/free', read: (input: any) => openRouter.read(input) });
+      }
+      try {
+        const readingConfig = requirePaidPlanReadingConfig(process.env);
+        const geminiClient = await createGeminiClient(readingConfig.apiKey);
+        const gemini = new GeminiPlanReader(geminiClient, [readingConfig.model]);
+        readers.push({ name: 'gemini', read: (input: any) => gemini.read(input) });
+      } catch { /* Paid Gemini remains disabled unless explicitly configured. */ }
+      const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
+      if (!readers.length && isCreateReading) {
+        return json({ error: PLAN_READING_UNAVAILABLE }, 503);
+      }
+      const reader = readers.length
+        ? new MultiProviderPlanReader(readers)
+        : { read: async () => { throw new Error(PLAN_READING_UNAVAILABLE); } };
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;

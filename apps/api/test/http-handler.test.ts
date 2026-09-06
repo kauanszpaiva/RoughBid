@@ -21,6 +21,30 @@ test('returns 500 when SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are missing', async
   }
 });
 
+test('branded auth email route is mounted and fails closed without server email credentials', async () => {
+  const previous = {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+  };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_local_test_fixture_not_a_real_key';
+  delete process.env.RESEND_API_KEY;
+  try {
+    const response = await handleApiRequest(new Request('https://roughbid.test/api/auth/magic-link', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'builder@example.com' }),
+    }));
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'RoughBid email sign-in is not configured.' });
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('routes unknown paths to 404 once Supabase env is configured', async () => {
   const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = process.env;
   process.env.SUPABASE_URL = 'https://example.supabase.co';

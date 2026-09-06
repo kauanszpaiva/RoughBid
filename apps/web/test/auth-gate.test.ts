@@ -13,16 +13,16 @@ test('signed-out RoughBid users must pass the login gate before the app loads', 
 test('auth gate offers sign-in and account creation without password storage', () => {
   assert.match(authGate, /Sign In/);
   assert.match(authGate, /Create Account/);
-  assert.match(authGate, /signInWithOtp/);
+  assert.match(authGate, /requestMagicLink/);
   assert.match(authGate, /No password to remember/);
   assert.match(authGate, /Supabase Auth is configured/);
   assert.match(authGate, /\/brand\/roughbid-icon\.png/);
-  assert.doesNotMatch(authGate, /PrimeBid|Class Pass|60\s+days/i);
+  assert.doesNotMatch(authGate, /signInWithOtp|PrimeBid|Class Pass|60\s+days/i);
 });
 
 test('account modal sends auth and organization invite links back to the protected app path', () => {
   const authModal = readFileSync(new URL('../app/src/components/AuthModal.tsx', import.meta.url), 'utf8');
   assert.match(authModal, /\/app\/\?invite=/);
-  assert.match(authModal, /window\.location\.origin\}\/app\//);
-  assert.doesNotMatch(authModal, /Demo mode|local demo data/);
+  assert.match(authModal, /requestMagicLink/);
+  assert.doesNotMatch(authModal, /Supabase sends|Demo mode|local demo data/);
 });

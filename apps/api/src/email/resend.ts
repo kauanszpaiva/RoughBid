@@ -11,6 +11,13 @@ export type WorkspaceInviteEmailInput = {
   idempotencyKey?: string;
 };
 
+export type MagicLinkEmailInput = {
+  to: string;
+  magicLink: string;
+  appUrl: string;
+  idempotencyKey?: string;
+};
+
 export type ProposalNotificationEmailInput = {
   to: string;
   proposalTitle: string;
@@ -152,6 +159,45 @@ async function sendTemplateEmail(
         id: email.templateAlias,
         variables: email.variables,
       },
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Resend rejected the email (${response.status}): ${detail}`);
+  }
+  const result = await response.json() as { id?: unknown };
+  if (typeof result.id !== 'string') throw new Error('Resend returned an invalid email response.');
+  return { id: result.id };
+}
+
+function roughbidEmailHtml(magicLink: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="X-UA-Compatible" content="IE=edge"></head><body style="margin:0;background-color:#f8fafc;"><table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color:#f8fafc;"><tr><td align="center" bgcolor="#f8fafc" style="padding-top:32px;padding-right:16px;padding-bottom:32px;padding-left:16px;background-color:#f8fafc;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background-color:#ffffff;border-width:1px;border-style:solid;border-color:#e2e8f0;"><tr><td style="padding-top:28px;padding-right:28px;padding-bottom:8px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:30px;color:#0f172a;font-weight:700;">Open RoughBid</td></tr><tr><td style="padding-top:4px;padding-right:28px;padding-bottom:20px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#475569;">Use this secure link to sign in or finish creating your RoughBid account.</td></tr><tr><td align="left" style="padding-top:0;padding-right:28px;padding-bottom:28px;padding-left:28px;"><table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;"><a href="${magicLink}" style="display:inline-block;padding-top:12px;padding-right:18px;padding-bottom:12px;padding-left:18px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;text-decoration:none;font-weight:700;">Sign in to RoughBid</a></td></tr></table></td></tr><tr><td style="padding-top:0;padding-right:28px;padding-bottom:28px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b;">If you did not request this, you can ignore this email.</td></tr></table></td></tr></table></body></html>`;
+}
+
+export async function sendMagicLinkEmail(
+  config: ResendServerConfig,
+  input: MagicLinkEmailInput,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ id: string }> {
+  if (!input.to.includes('@')) throw new Error('A valid recipient email is required.');
+  const magicLink = new URL(input.magicLink);
+  if (magicLink.protocol !== 'https:') throw new Error('Magic link must use HTTPS.');
+  const appUrl = new URL(input.appUrl);
+  if (appUrl.protocol !== 'https:') throw new Error('App URL must use HTTPS.');
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${config.apiKey}`,
+    'Content-Type': 'application/json',
+  };
+  if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
+  const response = await fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      from: 'RoughBid <hello@mail.kspdominion.group>',
+      to: [input.to],
+      subject: 'Sign in to RoughBid',
+      text: `Open RoughBid: ${magicLink.toString()}\n\nIf you did not request this, you can ignore this email.`,
+      html: roughbidEmailHtml(magicLink.toString()),
     }),
   });
   if (!response.ok) {

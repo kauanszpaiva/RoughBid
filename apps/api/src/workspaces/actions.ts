@@ -48,7 +48,7 @@ const knownRole = (value: unknown): WorkspaceRole | null =>
 export async function listWorkspaces(client: AuthenticatedSupabaseClient): Promise<WorkspaceWithRole[]> {
   const user = await requireUser(client);
   const [workspaces, memberships] = await Promise.all([
-    client.from('workspaces').select('*').order('created_at'),
+    client.from('workspaces').select('*').order('created_at', { ascending: false }),
     client.from('workspace_members').select('workspace_id, role').eq('user_id', user.id),
   ]);
   throwIfError(workspaces.error);

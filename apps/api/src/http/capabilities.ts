@@ -7,7 +7,6 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
   let aiReadingAvailable = false;
   let billing = false;
   try {
-    requirePaidPlanReadingConfig(env);
     if (!isConfiguredValue(env.SUPABASE_URL) || !isConfiguredValue(env.SUPABASE_PUBLISHABLE_KEY) || !isConfiguredValue(env.SUPABASE_SERVICE_ROLE_KEY?.trim() || env.SUPABASE_PLAN_FUNCTION?.trim())) {
       return { aiReadingAvailable, billing };
     }
@@ -16,7 +15,11 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
       const storage = loadObjectStorageConfig(env);
       if (![storage.endpoint, storage.bucket, storage.accessKeyId, storage.secretAccessKey].every(isConfiguredValue)) return { aiReadingAvailable, billing };
     }
-    aiReadingAvailable = true;
+    const hasFreeProvider = isConfiguredValue(env.OPENROUTER_API_KEY);
+    let hasPaidProvider = false;
+    try { requirePaidPlanReadingConfig(env); hasPaidProvider = true; } catch { /* Billing-gated provider is optional. */ }
+    aiReadingAvailable = hasFreeProvider || hasPaidProvider;
+    if (!aiReadingAvailable) return { aiReadingAvailable, billing };
     const key = env.STRIPE_SECRET_KEY?.trim() || '';
     const live = env.STRIPE_MODE === 'live';
     if (!isConfiguredValue(key) || !key.startsWith(live ? 'sk_live_' : 'sk_test_') || !isConfiguredValue(env.STRIPE_WEBHOOK_SECRET) || !isConfiguredValue(env.APP_URL) || new URL(env.APP_URL).protocol !== 'https:') {
