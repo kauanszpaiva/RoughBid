@@ -5,6 +5,7 @@ import { handleApiRequest } from '../src/http/handler.ts';
 
 const configured = {
   PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+  OPENROUTER_API_KEY: 'unit-free-provider-credential',
   SUPABASE_URL: 'https://db.example', SUPABASE_PUBLISHABLE_KEY: 'unit-public-credential', SUPABASE_SERVICE_ROLE_KEY: 'unit-service-credential',
   BLOB_READ_WRITE_TOKEN: 'unit-blob-credential', STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_unitcredential',
   STRIPE_WEBHOOK_SECRET: 'whsec_unitcredential', APP_URL: 'https://roughbid.test',
@@ -17,8 +18,9 @@ test('capabilities are closed by default and expose only booleans', () => {
   const flags = runtimeCapabilities(configured);
   assert.deepEqual(flags, { aiReadingAvailable: true, billing: true });
   assert.ok(Object.values(flags).every(value => typeof value === 'boolean'));
-  assert.deepEqual(runtimeCapabilities({ ...configured, PAID_PLAN_READINGS_ENABLED: 'false' }), { aiReadingAvailable: false, billing: false });
-  assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '' }), { aiReadingAvailable: false, billing: false });
+  assert.deepEqual(runtimeCapabilities({ ...configured, PAID_PLAN_READINGS_ENABLED: 'false' }), { aiReadingAvailable: true, billing: true });
+  assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '' }), { aiReadingAvailable: true, billing: true });
+  assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '', OPENROUTER_API_KEY: '' }), { aiReadingAvailable: false, billing: false });
   assert.deepEqual(runtimeCapabilities({ ...configured, BLOB_READ_WRITE_TOKEN: '' }), { aiReadingAvailable: false, billing: false });
 });
 
@@ -30,12 +32,17 @@ test('billing stays disabled for missing reconciliation, wrong mode or unmeasure
 
 test('masked secrets, placeholder models and unmeasured policies cannot advertise paid availability', () => {
   for (const overrides of [
-    { GEMINI_API_KEY: '[sensitive]' }, { GEMINI_API_KEY: 'redacted' },
-    { GEMINI_MODEL: 'your-model' }, { GEMINI_MODEL: 'gemini-placeholder' },
+    { GEMINI_API_KEY: '', OPENROUTER_API_KEY: '', PAID_PLAN_READINGS_ENABLED: 'false' },
     { SUPABASE_SERVICE_ROLE_KEY: '[sensitive]' }, { BLOB_READ_WRITE_TOKEN: '[sensitive]' },
     { SUPABASE_PUBLISHABLE_KEY: undefined },
   ]) {
     assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: false, billing: false });
+  }
+  for (const overrides of [
+    { GEMINI_API_KEY: '[sensitive]' }, { GEMINI_API_KEY: 'redacted' },
+    { GEMINI_MODEL: 'your-model' }, { GEMINI_MODEL: 'gemini-placeholder' },
+  ]) {
+    assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: true, billing: true });
   }
   for (const overrides of [
     { STRIPE_SECRET_KEY: '[sensitive]' }, { STRIPE_WEBHOOK_SECRET: '[sensitive]' },

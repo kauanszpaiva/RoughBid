@@ -35,8 +35,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   onOpenAIAssistant,
 }) => {
   const [readingQuote, setReadingQuote] = useState<ReadingQuote | null>(null);
-  const [paidReadingAvailable, setPaidReadingAvailable] = useState(false);
-  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) setPaidReadingAvailable(value.aiReadingAvailable && value.billing); }).catch(() => undefined); return () => { active = false; }; }, []);
+  const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
+  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) setAiReadingAvailable(value.aiReadingAvailable); }).catch(() => undefined); return () => { active = false; }; }, []);
   const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -208,15 +208,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     setNeedsAiConsent(false);
     try {
-      const quote = await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, project.projectType);
-      setReadingQuote(quote);
-      if (!['paid', 'failed', 'complete'].includes(quote.status)) {
-        setPlanNotice(quote.status === 'processing' ? 'This reading is already in progress. Check again shortly.' : 'Your price is ready. Pay securely below, then return here and check payment to start. No AI has run.');
-        return;
-      }
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
-        quote_id: quote.id,
         mode: "quick",
         scope: project.projectType,
       });
@@ -249,7 +242,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     try {
       await grantWorkspaceAiConsent(workspaceId);
       setNeedsAiConsent(false);
-      setPlanNotice("AI processing approved for this workspace. Click Check payment & start again.");
+      setPlanNotice("AI processing approved for this workspace. Click Start AI Plan Reading again.");
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -305,7 +298,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         <ol className="grid sm:grid-cols-5 gap-2 text-xs">
           {['1. Upload your PDF', '2. Review and mark the plan', '3. Add your quantities', '4. Enter your actual costs', '5. Export your proposal'].map(step => <li key={step}>{step}</li>)}
         </ol>
-        <p className="mt-3 text-xs">The manual workflow uses no AI API. Optional AI reading requires availability, workspace approval, and confirmed payment before processing.</p>
+        <p className="mt-3 text-xs">The manual workflow uses no AI API. Optional AI reading requires availability, workspace approval, and a server-uploaded PDF.</p>
       </section>
       {readingQuote && readingQuote.file_id === currentRevision?.remoteFileId && <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="Project payment">
         <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Your plan reading</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
@@ -484,19 +477,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             <button
               onClick={handleStartAiReading}
-              disabled={!canWrite || !paidReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              disabled={!canWrite || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Check price & start</span>
+                <span>Start AI Plan Reading</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
                 {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}
               </span>
             </button>
 
-            {!paidReadingAvailable && <p className="text-xs leading-relaxed text-slate-500 px-1 py-2">AI reading is currently unavailable. You can review your PDF, add quantities and costs, and export your estimate manually.</p>}
+            {!aiReadingAvailable && <p className="text-xs leading-relaxed text-slate-500 px-1 py-2">AI reading is currently unavailable. You can review your PDF, add quantities and costs, and export your estimate manually.</p>}
 
             {needsAiConsent && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
