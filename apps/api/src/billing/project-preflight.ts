@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { ProjectApiError } from '../projects/service.ts';
 import { projectChargeCents, type ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
+import { isConfiguredValue } from '../ai-plan/readiness.ts';
 
 export const MAX_AI_PDF_BYTES = 18 * 1024 * 1024;
 export const MAX_AI_PAGES = 100;
@@ -66,7 +67,7 @@ export function quoteProject(pages: number, trades: number, membership: ProjectM
   const fixed = read('PROJECT_PAYMENT_FIXED_CENTS', 0);
   const feeBps = read('PROJECT_PAYMENT_FEE_BPS', 0);
   const version = env.PROJECT_PRICING_VERSION?.trim();
-  if (!version || version.length > 80) throw new ProjectApiError(503, 'Project pricing is not configured. Please contact support.');
+  if (!isConfiguredValue(version) || version.length > 80) throw new ProjectApiError(503, 'Project pricing is not configured. Please contact support.');
   // Cost policy must cover both bounded attempts, output limits, storage and support.
   const cost = base + pages * perPage + trades * perTrade;
   return { amountCents: projectChargeCents(cost, fixed, feeBps, membership), costCents: cost, version };

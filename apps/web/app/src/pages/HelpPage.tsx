@@ -85,13 +85,13 @@ export const HelpPage: React.FC = () => {
             <h3 className="text-[14px] font-bold text-slate-900">Need Estimating Support?</h3>
             <p className="text-[12px] text-slate-500">Contact the KSP Estimating engineering group.</p>
           </div>
-          <button
-            onClick={() => alert("Support ticket opened with KSP Ventures Estimating Group.")}
+          <a
+            href="mailto:hello@kspdominion.group?subject=RoughBid%20support"
             className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white rounded-md text-[13px] font-semibold hover:bg-slate-800 transition"
           >
             <Mail className="w-4 h-4" />
             <span>Contact Support</span>
-          </button>
+          </a>
         </div>
       </div>
     </div>

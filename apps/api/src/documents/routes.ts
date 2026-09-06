@@ -1,16 +1,16 @@
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
-import { DocumentService, type DocumentObjectStorage, type JobQueue } from './service.ts';
+import { DocumentService, type DocumentObjectStorage, type DocumentDb, type JobQueue } from './service.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 /** Authenticated HTTP boundary for direct uploads, completion, and private retrieval. */
-export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue): Promise<Response> {
+export async function handleDocumentRequest(request: Request, db: SupabaseLike, storage: DocumentObjectStorage, queue: JobQueue | null = null, completionWriter?: DocumentDb): Promise<Response> {
   try {
     const { data, error } = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401, 'Authentication required');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400, 'x-workspace-id header is required');
-    const service = new DocumentService(db, storage, queue, data.user.id, workspaceId);
+    const service = new DocumentService(db, storage, queue, data.user.id, workspaceId, fetch, completionWriter);
     const url = new URL(request.url);
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
 

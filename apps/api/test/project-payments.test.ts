@@ -43,3 +43,64 @@ test('unpaid and unrelated Stripe events never grant a project reading',async()=
   assert.equal(calls.length,1);assert.equal(calls[0].fn,'confirm_project_reading_payment');
   assert.equal(calls[0].args.p_amount,100);
 });
+
+function checkoutFixture(env: Record<string, string | undefined>) {
+  const mutations: string[] = [];
+  const requests: string[] = [];
+  const quote = { id: 'quote-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
+    status: 'quoted', expires_at: new Date(Date.now() + 60 * 60_000).toISOString(), livemode: false,
+    amount_cents: 500, currency: 'usd', page_count: 1 };
+  const db = { from: (table: string) => {
+    const query: any = {
+      select: () => query, eq: () => query, maybeSingle: () => query,
+      update: () => { mutations.push(table); return query; },
+      then: (resolve: any, reject: any) => Promise.resolve({
+        data: table === 'workspace_members' ? { role: 'admin' } : table === 'projects' ? { id: 'project-1' } : quote, error: null,
+      }).then(resolve, reject),
+    };
+    return query;
+  }, rpc: async () => { mutations.push('rpc'); return { data: null, error: null }; } };
+  const fetcher = (async (input: string | URL | Request) => {
+    requests.push(String(input));
+    return Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
+  }) as typeof fetch;
+  return { payments: new ProjectPayments(db, env, fetcher), mutations, requests };
+}
+
+test('disabled or incomplete Gemini configuration blocks quotes and checkout before spending or reserving', async () => {
+  for (const env of [
+    {},
+    { GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash' },
+    { PAID_PLAN_READINGS_ENABLED: 'false', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash' },
+    { PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_MODEL: 'gemini-2.5-flash' },
+    { PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential' },
+    { PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: '[sensitive]', GEMINI_MODEL: 'gemini-2.5-flash' },
+    { PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-placeholder' },
+  ]) {
+    const f = checkoutFixture(env);
+    let signed = false;
+    const storage = { presign: async () => { signed = true; return { url: 'https://storage.test/plan' }; } };
+    await assert.rejects(f.payments.quote('user-1', 'workspace-1', 'project-1', { file_id: 'file-1' }, storage), (error: any) => error.status === 503);
+    await assert.rejects(f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1'), (error: any) => error.status === 503);
+    assert.equal(signed, false);
+    assert.deepEqual(f.requests, []);
+    assert.deepEqual(f.mutations, []);
+  }
+});
+
+test('checkout requires payment reconciliation configuration before contacting Stripe', async () => {
+  const f = checkoutFixture({ PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+    STRIPE_SECRET_KEY: 'sk_test_unitcredential', APP_URL: 'https://roughbid.test' });
+  await assert.rejects(f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1'), (error: any) => error.status === 503);
+  assert.deepEqual(f.requests, []);
+  assert.deepEqual(f.mutations, []);
+});
+
+test('deliberately configured paid checkout still works with an injected test gateway', async () => {
+  const f = checkoutFixture({ PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+    STRIPE_SECRET_KEY: 'sk_test_unitcredential', STRIPE_WEBHOOK_SECRET: 'whsec_test_unitcredential', APP_URL: 'https://roughbid.test' });
+  const checkout = await f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1');
+  assert.equal(checkout.url, 'https://checkout.stripe.test/session');
+  assert.deepEqual(f.requests, ['https://api.stripe.com/v1/checkout/sessions']);
+  assert.deepEqual(f.mutations, ['project_reading_quotes']);
+});

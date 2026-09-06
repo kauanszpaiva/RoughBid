@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { assertPublicBuildConfig } from './build-public-config.mjs';
+
+assertPublicBuildConfig(process.env);
 
 await rm(new URL('../dist', import.meta.url), { recursive: true, force: true });
 

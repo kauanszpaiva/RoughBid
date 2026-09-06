@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowRight, Eye, EyeOff, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { isAuthConfigured, supabase } from "../services/supabaseClient";
 
 type AuthMode = "sign-in" | "create-account";
@@ -10,7 +10,6 @@ export const AuthGate: React.FC = () => {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [showPasswordHint, setShowPasswordHint] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -27,21 +26,17 @@ export const AuthGate: React.FC = () => {
       ? `${window.location.origin}/app/?invite=${encodeURIComponent(inviteToken)}`
       : `${window.location.origin}/app/`;
 
-    const { error: signInError } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo,
-        shouldCreateUser: mode === "create-account",
-      },
-    });
-
-    if (signInError) {
+    try {
+      const { error: signInError } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo, shouldCreateUser: mode === "create-account" },
+      });
+      if (signInError) throw signInError;
+      setState("sent");
+    } catch (error) {
       setState("error");
-      setError(signInError.message);
-      return;
+      setError(error instanceof Error ? error.message : "We could not send your sign-in link. Try again.");
     }
-
-    setState("sent");
   };
 
   return (
@@ -121,29 +116,9 @@ export const AuthGate: React.FC = () => {
                 </div>
               </label>
 
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-700">Password</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordHint((current) => !current)}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-                <div className="mt-1.5 h-10 border border-slate-200 rounded-md px-3 flex items-center justify-between bg-slate-50 text-xs text-slate-500">
-                  <span>No password needed. RoughBid uses secure email links.</span>
-                  {showPasswordHint ? <EyeOff className="w-4 h-4 text-slate-400" /> : <Eye className="w-4 h-4 text-slate-400" />}
-                </div>
-                {showPasswordHint && (
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    Enter your email above and RoughBid will send a fresh login link.
-                  </p>
-                )}
-              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">No password to remember. We will email you a secure link to open your workspace.</p>
 
-              {error && <p className="text-xs text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
               <button
                 type="submit"
@@ -161,7 +136,7 @@ export const AuthGate: React.FC = () => {
               <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="min-w-0">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-blue-900">Secure workspace access</div>
-                <p className="text-[11px] text-blue-700 truncate">Company projects stay private. AI plan reading is paid per project.</p>
+                <p className="text-[11px] text-blue-700 leading-relaxed">Your projects are private. Review and estimate manually without an AI API.</p>
               </div>
             </div>
           </div>

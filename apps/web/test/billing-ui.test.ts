@@ -16,12 +16,12 @@ test('app exposes a dedicated billing page for the official commercial model', (
 
 test('customer billing page explains payment and does not expose internal pricing assumptions', () => {
   assert.match(billingPage,/createBillingCheckout/);
-  assert.match(billingPage,/Pay for each project before AI starts/);
+  assert.match(billingPage,/Paid AI reading and checkout are currently unavailable/);
   assert.doesNotMatch(billingPage,/COGS|margin guardrail|free trial|Buy project/);
 });
 
 test('login gate does not promise free AI usage', () => {
   assert.match(authGate,/Secure workspace access/);
-  assert.match(authGate,/AI plan reading is paid per project/);
+  assert.match(authGate,/estimate manually without an AI API/);
   assert.doesNotMatch(authGate,/free trial|No card required|cost-limited/i);
 });

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { AiPlanReadingService, type PlanReader } from '../src/ai-plan/service.ts';
 import { ProjectApiError } from '../src/projects/service.ts';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
+import { GeminiPlanReader } from '../src/ai-plan/gemini.ts';
 
 type Resolver = (table: string, calls: Array<[string, unknown[]]>) => { data?: unknown; error?: unknown };
 
@@ -109,6 +110,16 @@ test('unpaid project does not call a provider or save findings', async () => {
   const service=new AiPlanReadingService(fakeDb(baseResolver()) as never,paidWriter(),noopStorage,reader,'user-1','workspace-1',noopFetcher as never);
   await assert.rejects(service.create('project-1',{file_id:'file-1'}),(e: any)=>e.status===402);
   assert.equal(called,false);
+});
+test('an unavailable reader cannot consume a paid attempt or download a plan', async () => {
+  let reserved = false;
+  let downloaded = false;
+  const writer = { from: () => ({}), rpc: async () => { reserved = true; return { data: null, error: null }; } };
+  const service = new AiPlanReadingService(fakeDb(baseResolver()) as never, writer, noopStorage, new GeminiPlanReader(null), 'user-1', 'workspace-1',
+    (async () => { downloaded = true; throw new Error('No network expected'); }) as never);
+  await assert.rejects(service.create('project-1', { file_id: 'file-1', quote_id: 'quote-1' }), (error: any) => error.status === 503);
+  assert.equal(reserved, false);
+  assert.equal(downloaded, false);
 });
 test('paid reading persists only real findings in one finalization RPC', async () => {
   let finished: any;

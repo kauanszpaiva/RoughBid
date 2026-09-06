@@ -54,7 +54,7 @@ test('tries the next candidate model when the first returns no findings, before 
 });
 
 test('missing Gemini credentials fail without invented output', async () => {
-  await assert.rejects(new GeminiPlanReader(null).read(baseInput), /No quantities were generated/);
+  await assert.rejects(new GeminiPlanReader(null).read(baseInput), (error: any) => error.status === 503 && /manual quantities/.test(error.message));
 });
 test('Gemini outage fails without invented output', async () => {
   let calls=0;

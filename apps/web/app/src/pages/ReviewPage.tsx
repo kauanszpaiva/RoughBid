@@ -15,6 +15,7 @@ import {
 } from "../utils/calculations";
 import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
+import { projectReadiness } from "../utils/projectReadiness";
 
 interface ReviewPageProps {
   project: Project;
@@ -44,24 +45,25 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[0];
+  const readiness = projectReadiness(project);
   const readinessItems = [
     {
       label: currentRevision
         ? `Plan uploaded: Rev ${currentRevision.revisionNumber}`
         : "Upload a plan before proposal export",
-      done: Boolean(currentRevision),
+      done: readiness.hasPlan,
     },
     {
       label: `${project.quantities.length} takeoff items recorded`,
-      done: project.quantities.length > 0,
+      done: readiness.hasQuantities,
     },
     {
-      label: `${project.estimateItems.length} estimate lines priced`,
-      done: project.estimateItems.length > 0,
+      label: readiness.hasEstimate ? `${project.estimateItems.length} estimate lines priced` : "Enter your costs for every estimate line",
+      done: readiness.hasEstimate,
     },
     {
       label: "Overhead and markup settings are present",
-      done: Number.isFinite(financials.overheadPercentage) && Number.isFinite(financials.markupPercentage),
+      done: readiness.hasSettings,
     },
   ];
   const readyCount = readinessItems.filter((item) => item.done).length;
@@ -160,7 +162,19 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="sm:hidden divide-y divide-slate-100">
+            {breakdown.length === 0 ? <p className="p-4 text-xs text-slate-500">No estimate lines added.</p> : breakdown.map(row => (
+              <div key={row.csiCode} className="p-4 space-y-2">
+                <p className="text-[10px] font-mono text-slate-500">{row.csiCode}</p>
+                <p className="text-sm font-semibold text-slate-900 break-words">{row.trade}</p>
+                <div className="flex justify-between text-sm">
+                  <span className="font-mono font-semibold">{formatCurrency(row.directCost)}</span>
+                  <span className="text-slate-500">{formatPercentage(row.percentOfTotal)} of total</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-left text-xs min-w-[320px]">
               <thead className="bg-[#f9fafb] text-[#6b7280] font-bold text-[10px] uppercase tracking-wider border-b border-[#e5e7eb]">
                 <tr>

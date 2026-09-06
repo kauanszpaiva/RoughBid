@@ -32,21 +32,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
             Settings & Estimator Profile
           </h1>
           <p className="text-[13px] text-slate-500 mt-0.5">
-            Configure default financial parameters, proposal branding, and account settings.
+            Set your estimator profile and defaults for new projects. Preferences are saved on this browser.
           </p>
         </div>
 
         {saved && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[12px] font-semibold animate-in fade-in">
             <Check className="w-4 h-4" />
-            <span>Settings saved successfully</span>
+            <span>Settings applied</span>
           </div>
         )}
       </div>
@@ -59,7 +59,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
             <span>Estimator & Company Information</span>
           </h2>
 
-          <div className="grid grid-cols-2 gap-4 text-[13px]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[13px]">
             <div>
               <label className="block text-[12px] font-medium text-slate-700 mb-1">
                 Estimator Full Name
@@ -79,17 +79,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                readOnly
+                aria-label="Signed-in email address"
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-[13px]"
                 required
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 text-[13px]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[13px]">
             <div>
               <label className="block text-[12px] font-medium text-slate-700 mb-1">
-                Company Name (Printed on Proposals)
+                Company Name
               </label>
               <input
                 type="text"
@@ -120,7 +121,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
             <span>Default Financial Engine Rates</span>
           </h2>
 
-          <div className="grid grid-cols-2 gap-4 text-[13px]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[13px]">
             <div>
               <label className="block text-[12px] font-medium text-slate-700 mb-1">
                 Default Overhead Rate (%)

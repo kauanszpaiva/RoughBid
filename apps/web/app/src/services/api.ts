@@ -49,17 +49,31 @@ type RequestOptions = {
   body?: unknown;
 };
 
+async function sessionToken() {
+  if (!supabase) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ApiError(408, "Your session took too long to load. Refresh and try again.")), 15_000); }),
+    ]);
+    if (result.error) throw new ApiError(401, "Your session could not be verified. Please sign in again.");
+    return result.data.session?.access_token;
+  } finally { clearTimeout(timer); }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", workspaceId, body } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (workspaceId) headers["x-workspace-id"] = workspaceId;
-  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+  const token = await sessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
+    signal: AbortSignal.timeout(path.includes("ai-plan-readings") || path.endsWith("/complete") ? 120_000 : 30_000),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
@@ -81,10 +95,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 async function requestBlob(path: string, options: Pick<RequestOptions, "workspaceId"> = {}): Promise<Blob> {
   const headers: Record<string, string> = {};
   if (options.workspaceId) headers["x-workspace-id"] = options.workspaceId;
-  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+  const token = await sessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(60_000) });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     let message = detail;
@@ -104,6 +118,10 @@ export function getHealth() {
   return request<{ status: string; service: string }>("/api/health");
 }
 
+export function getCapabilities() {
+  return request<{ aiReadingAvailable: boolean; billing: boolean }>("/api/capabilities");
+}
+
 export type AuthBootstrap = {
   userId: string;
   email: string | null;
@@ -115,7 +133,7 @@ export function bootstrapAuth() {
   return request<AuthBootstrap>("/api/auth/bootstrap");
 }
 
-export type Workspace = { id: string; name: string; createdBy: string; createdAt: string; aiProcessingConsentedAt: string | null };
+export type Workspace = { id: string; name: string; createdBy: string; createdAt: string; aiProcessingConsentedAt: string | null; role: WorkspaceRole | null };
 export type WorkspaceRole = "admin" | "estimator" | "viewer";
 export type WorkspaceInvite = {
   id: string;
@@ -308,7 +326,7 @@ export function createDocumentPreviewUrl(workspaceId: string, fileId: string) {
 
 export async function createDocumentPreviewObjectUrl(workspaceId: string, fileId: string) {
   const preview = await createDocumentPreviewUrl(workspaceId, fileId);
-  const response = await fetch(preview.url, { method: preview.method, headers: preview.headers });
+  const response = await fetch(preview.url, { method: preview.method, headers: preview.headers, signal: AbortSignal.timeout(60_000) });
   if (!response.ok) {
     throw new ApiError(response.status, `PDF preview failed with ${response.status}`);
   }

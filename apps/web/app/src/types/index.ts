@@ -2,6 +2,14 @@ export type ProjectStatus = "Planning" | "In Progress" | "Completed";
 
 export type UnitType = "SF" | "LF" | "EA" | "CY" | "SY" | "HR" | "LS";
 
+export interface PlanAnnotation {
+  id: string;
+  page: number;
+  x: number; // Fraction of the original PDF page width.
+  y: number; // Fraction of the original PDF page height.
+  text: string;
+}
+
 export interface PlanRevision {
   id: string;
   revisionNumber: string; // e.g., "01", "02", "03"
@@ -17,6 +25,7 @@ export interface PlanRevision {
   processingStatus?: "uploading" | "queued" | "processing" | "ready" | "failed";
   aiPlanJobId?: string;
   aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed";
+  annotations?: PlanAnnotation[];
 }
 
 export interface QuantityItem {

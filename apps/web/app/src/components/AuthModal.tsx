@@ -59,7 +59,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
 
   const handleCreateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!workspace) return;
+    if (!workspace || workspace.role !== "admin") return;
     setInviteState("creating");
     setInviteError(null);
     setInviteEmailSent(false);
@@ -183,7 +183,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
                 )}
                 <button
                   type="submit"
-                  disabled={!workspace || inviteState === "creating"}
+                  disabled={!workspace || workspace.role !== "admin" || inviteState === "creating"}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-60 text-white text-xs font-semibold rounded-md transition"
                 >
                   <Mail className="w-3.5 h-3.5" />

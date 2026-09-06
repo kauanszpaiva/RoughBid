@@ -13,6 +13,7 @@ export interface AiPlanObjectStorage {
 
 /** GeminiPlanReader satisfies this structurally; kept narrow so tests can fake it without the real SDK. */
 export interface PlanReader {
+  assertReady?(): void;
   read(input: GeminiPlanReadInput): Promise<PlanReadingResult>;
 }
 
@@ -110,6 +111,7 @@ export class AiPlanReadingService {
     const quoteId = typeof input.quote_id === 'string' ? input.quote_id : '';
     if (!quoteId) throw new ProjectApiError(402, 'Pay for this project before starting AI.');
     if (!this.findingsWriter.rpc) throw new ProjectApiError(503, 'Paid processing is not configured.');
+    this.reader.assertReady?.();
     const reserved = await this.findingsWriter.rpc('reserve_project_reading', {
       p_quote_id: quoteId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
       p_project_id: projectId, p_file_id: fileId, p_model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
