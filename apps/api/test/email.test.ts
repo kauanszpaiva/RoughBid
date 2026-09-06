@@ -6,6 +6,7 @@ import {
   createWorkspaceInviteEmail,
   createWorkspaceWelcomeEmail,
   loadResendServerConfig,
+  sendMagicLinkEmail,
   sendProposalOpenedEmail,
   sendProposalSignedEmail,
   sendWorkspaceInviteEmail,
@@ -50,6 +51,31 @@ test('Resend client sends the fixed template and sender with a server credential
       variables: { APP_URL: 'https://app.example.com' },
     },
   });
+  assert.equal(JSON.stringify(body).includes('re_secret'), false);
+});
+
+test('Resend client sends branded RoughBid auth links without Supabase-facing copy', async () => {
+  let request: { url: string; init?: RequestInit } | undefined;
+  const fetchMock = async (url: string | URL | Request, init?: RequestInit) => {
+    request = { url: url.toString(), init };
+    return new Response(JSON.stringify({ id: 'email_auth_123' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const result = await sendMagicLinkEmail(
+    loadResendServerConfig({ RESEND_API_KEY: 're_secret' }),
+    { to: 'builder@example.com', magicLink: 'https://auth.example.com/verify?token=abc', appUrl: 'https://roughbid.vercel.app', idempotencyKey: 'auth/builder' },
+    fetchMock,
+  );
+  assert.deepEqual(result, { id: 'email_auth_123' });
+  assert.equal(new Headers(request?.init?.headers).get('Authorization'), 'Bearer re_secret');
+  assert.equal(new Headers(request?.init?.headers).get('Idempotency-Key'), 'auth/builder');
+  const body = JSON.parse(String(request?.init?.body));
+  assert.equal(body.from, 'RoughBid <hello@mail.kspdominion.group>');
+  assert.equal(body.subject, 'Sign in to RoughBid');
+  assert.match(body.html, /Sign in to RoughBid/);
+  assert.doesNotMatch(`${body.text} ${body.html}`, /Supabase/i);
   assert.equal(JSON.stringify(body).includes('re_secret'), false);
 });
 

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ArrowRight, Loader2, Mail, ShieldCheck } from "lucide-react";
-import { isAuthConfigured, supabase } from "../services/supabaseClient";
+import { isAuthConfigured } from "../services/supabaseClient";
+import { requestMagicLink } from "../services/api";
 
 type AuthMode = "sign-in" | "create-account";
 type SendState = "idle" | "sending" | "sent" | "error";
@@ -13,7 +14,7 @@ export const AuthGate: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!supabase) {
+    if (!isAuthConfigured) {
       setState("error");
       setError("Sign-in is not configured in this environment. Production needs Supabase Auth variables before app access.");
       return;
@@ -22,16 +23,8 @@ export const AuthGate: React.FC = () => {
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
-    const emailRedirectTo = inviteToken
-      ? `${window.location.origin}/app/?invite=${encodeURIComponent(inviteToken)}`
-      : `${window.location.origin}/app/`;
-
     try {
-      const { error: signInError } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo, shouldCreateUser: mode === "create-account" },
-      });
-      if (signInError) throw signInError;
+      await requestMagicLink({ email: email.trim(), inviteToken, mode });
       setState("sent");
     } catch (error) {
       setState("error");
@@ -83,7 +76,7 @@ export const AuthGate: React.FC = () => {
                 Check your email
               </div>
               <p className="text-blue-800 text-xs leading-relaxed mt-2">
-                We sent a secure RoughBid sign-in link to <strong>{email}</strong>. Open it on this device to enter your workspace.
+                We sent a secure RoughBid link to <strong>{email}</strong>. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
               </p>
               <button
                 type="button"

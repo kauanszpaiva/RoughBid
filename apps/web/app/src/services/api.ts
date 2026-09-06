@@ -133,6 +133,10 @@ export function bootstrapAuth() {
   return request<AuthBootstrap>("/api/auth/bootstrap");
 }
 
+export function requestMagicLink(input: { email: string; inviteToken?: string | null; mode?: "sign-in" | "create-account" }) {
+  return request<{ sent: true }>("/api/auth/magic-link", { method: "POST", body: input });
+}
+
 export type Workspace = { id: string; name: string; createdBy: string; createdAt: string; aiProcessingConsentedAt: string | null; role: WorkspaceRole | null };
 export type WorkspaceRole = "admin" | "estimator" | "viewer";
 export type WorkspaceInvite = {

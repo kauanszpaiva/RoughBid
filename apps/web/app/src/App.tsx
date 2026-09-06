@@ -106,6 +106,18 @@ export default function App() {
     return "Planning";
   };
 
+  const selectedWorkspaceKey = (userId: string) => `roughbid_selected_workspace_v1:${encodeURIComponent(userId)}`;
+
+  const readSelectedWorkspaceId = (userId: string): string | null => {
+    try { return localStorage.getItem(selectedWorkspaceKey(userId)); }
+    catch { return null; }
+  };
+
+  const saveSelectedWorkspaceId = (userId: string, workspaceId: string) => {
+    try { localStorage.setItem(selectedWorkspaceKey(userId), workspaceId); }
+    catch { /* Workspace choice is recoverable from the server. */ }
+  };
+
   const isStoredProject = (value: unknown): value is Project => {
     if (!value || typeof value !== "object") return false;
     const candidate = value as Partial<Project>;
@@ -188,9 +200,11 @@ export default function App() {
         };
         setUser(profile);
         const pendingInvite = new URLSearchParams(window.location.search).get("invite");
+        let invitedWorkspaceId: string | null = null;
         if (pendingInvite) {
           try {
-            await acceptWorkspaceInvite(pendingInvite);
+            const accepted = await acceptWorkspaceInvite(pendingInvite);
+            invitedWorkspaceId = accepted.workspaceId;
             if (!active) return;
             window.history.replaceState({}, "", window.location.pathname);
             setInviteNotice("Invite accepted. Your organization access is ready.");
@@ -201,8 +215,13 @@ export default function App() {
         }
         const workspaces = await listWorkspaces();
         if (!active) return;
-        const resolved = workspaces[0] ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
+        const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
+        const sortedWorkspaces = [...workspaces].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const resolved = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId)
+          ?? sortedWorkspaces[0]
+          ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
         if (!active) return;
+        saveSelectedWorkspaceId(userId, resolved.id);
         const remoteProjects = await listRemoteProjects(resolved.id);
         if (active) {
           const scope = { userId, workspaceId: resolved.id };

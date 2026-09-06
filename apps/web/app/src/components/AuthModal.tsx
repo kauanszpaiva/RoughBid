@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { X, Mail, LogOut, ShieldCheck, Link as LinkIcon, Copy, UserPlus } from "lucide-react";
 import { supabase, isAuthConfigured, type Session } from "../services/supabaseClient";
-import { createWorkspaceInvite, type Workspace } from "../services/api";
+import { createWorkspaceInvite, requestMagicLink, type Workspace } from "../services/api";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,7 +29,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
 
   const handleSendLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) {
+    if (!isAuthConfigured) {
       setState("error");
       setError("Sign-in is not configured for this environment.");
       return;
@@ -37,16 +37,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
-    const emailRedirectTo = inviteToken
-      ? `${window.location.origin}/app/?invite=${encodeURIComponent(inviteToken)}`
-      : `${window.location.origin}/app/`;
-    const { error: signInError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo },
-    });
-    if (signInError) {
+    try {
+      await requestMagicLink({ email: email.trim(), inviteToken });
+    } catch (error) {
       setState("error");
-      setError(signInError.message);
+      setError(error instanceof Error ? error.message : "We could not send your sign-in link.");
       return;
     }
     setState("sent");
@@ -95,7 +90,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
             <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
             <div>
               <h3 className="text-sm font-bold text-[#111827]">Sign in / Create account</h3>
-              <p className="text-xs text-[#6b7280]">Enter your email. Supabase sends a secure magic link.</p>
+              <p className="text-xs text-[#6b7280]">Enter your email. RoughBid sends a secure access link.</p>
             </div>
           </div>
           <button onClick={onClose} className="text-[#9ca3af] hover:text-[#111827] rounded-md transition p-1">
