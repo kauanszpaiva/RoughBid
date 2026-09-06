@@ -8,8 +8,14 @@ const service = readFileSync(new URL('../../api/src/projects/service.ts', import
 
 test('official app loads workspace projects from the backend after login', () => {
   assert.match(app, /listProjects as listRemoteProjects/);
-  assert.match(app, /await listRemoteProjects\(resolved\.id\)/);
+  assert.match(app, /await listRemoteProjects\(activeWorkspace\.id\)/);
   assert.doesNotMatch(app, /StorageService\.getProjects\(\)/);
+});
+
+test('official app does not pin a real account to old validation workspaces', () => {
+  assert.match(app, /newestRealWorkspace/);
+  assert.match(app, /validation\|qa\|test\|synthetic/);
+  assert.match(app, /saveSelectedWorkspaceId\(userId, activeWorkspace\.id\)/);
 });
 
 test('project create update and delete persist the full project state', () => {

@@ -215,20 +215,27 @@ export default function App() {
         }
         const workspaces = await listWorkspaces();
         if (!active) return;
-        const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
         const sortedWorkspaces = [...workspaces].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const resolved = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId)
+        const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
+        const savedWorkspace = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId);
+        const newestRealWorkspace = sortedWorkspaces.find((candidate) => !/\b(?:validation|qa|test|synthetic)\b/i.test(candidate.name));
+        const resolved = invitedWorkspaceId
+          ? sortedWorkspaces.find((candidate) => candidate.id === invitedWorkspaceId)
+          : savedWorkspace && !/\b(?:validation|qa|test|synthetic)\b/i.test(savedWorkspace.name)
+            ? savedWorkspace
+            : newestRealWorkspace;
+        const activeWorkspace = resolved
           ?? sortedWorkspaces[0]
           ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
         if (!active) return;
-        saveSelectedWorkspaceId(userId, resolved.id);
-        const remoteProjects = await listRemoteProjects(resolved.id);
+        saveSelectedWorkspaceId(userId, activeWorkspace.id);
+        const remoteProjects = await listRemoteProjects(activeWorkspace.id);
         if (active) {
-          const scope = { userId, workspaceId: resolved.id };
+          const scope = { userId, workspaceId: activeWorkspace.id };
           scopeRef.current = scope;
           const mapped = remoteProjects.map((remote) => remoteToProject(remote, profile));
           const drafts = StorageService.getPendingProjects(scope);
-          const writable = canWriteWorkspace(resolved.role);
+          const writable = canWriteWorkspace(activeWorkspace.role);
           const unavailableDrafts = writable ? drafts.filter((draft) => !mapped.some((project) => draft.remoteId === project.remoteId && draft.id === project.id)) : drafts;
           // Only restore drafts whose remote project still exists in this workspace.
           const recovered = writable ? mapped.map((project) => drafts.find((draft) => draft.remoteId === project.remoteId && draft.id === project.id) ?? project) : mapped;
@@ -249,8 +256,8 @@ export default function App() {
           }
           commitProjects(recovered);
           if (unavailableDrafts.length) setOperationNotice(writable ? "An earlier unsaved draft belongs to an unavailable project. Its backup is still stored in this browser." : "Earlier unsaved drafts are kept in this browser. Read-only access shows the saved workspace version.");
-          setWorkspace(resolved);
-          setUser({ ...profile, role: resolved.role === "admin" ? "Admin" : resolved.role === "estimator" ? "Estimator" : "Read-only" });
+          setWorkspace(activeWorkspace);
+          setUser({ ...profile, role: activeWorkspace.role === "admin" ? "Admin" : activeWorkspace.role === "estimator" ? "Estimator" : "Read-only" });
           setLoadedUserId(userId);
           setWorkspaceState("ready");
         }
