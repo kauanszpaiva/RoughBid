@@ -4,7 +4,7 @@ import { runtimeCapabilities } from '../src/http/capabilities.ts';
 import { handleApiRequest } from '../src/http/handler.ts';
 
 const configured = {
-  PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+  PAID_PLAN_READINGS_ENABLED: 'true', PAID_PLAN_READINGS_STAGE: 'test', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
   OPENROUTER_API_KEY: 'unit-free-provider-credential',
   SUPABASE_URL: 'https://db.example', SUPABASE_PUBLISHABLE_KEY: 'unit-public-credential', SUPABASE_SERVICE_ROLE_KEY: 'unit-service-credential',
   BLOB_READ_WRITE_TOKEN: 'unit-blob-credential', STRIPE_MODE: 'test', STRIPE_SECRET_KEY: 'sk_test_unitcredential',
@@ -24,9 +24,20 @@ test('capabilities are closed by default and expose only booleans', () => {
   assert.deepEqual(runtimeCapabilities({ ...configured, BLOB_READ_WRITE_TOKEN: '' }), { aiReadingAvailable: false, billing: false });
 });
 
-test('billing stays disabled for missing reconciliation, wrong mode or unmeasured pricing', () => {
-  for (const overrides of [{ STRIPE_WEBHOOK_SECRET: '' }, { STRIPE_MODE: 'live' }, { PROJECT_COST_BASE_CENTS: '' }]) {
+test('billing stays disabled for missing reconciliation or unmeasured pricing', () => {
+  for (const overrides of [{ STRIPE_WEBHOOK_SECRET: '' }, { PROJECT_COST_BASE_CENTS: '' }]) {
     assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: true, billing: false });
+  }
+});
+
+test('missing test stage, live mode, production and model aliases keep all paid capabilities closed', () => {
+  for (const overrides of [
+    { PAID_PLAN_READINGS_STAGE: undefined }, { PAID_PLAN_READINGS_STAGE: 'live' },
+    { STRIPE_MODE: undefined }, { STRIPE_MODE: 'live' },
+    { VERCEL_ENV: 'production' }, { APP_ENV: 'production' },
+    { GEMINI_MODEL: 'gemini-latest' }, { GEMINI_MODEL: 'gemini-2.5-flash-preview' }, { GEMINI_MODEL: 'gemini-experimental' },
+  ]) {
+    assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: false, billing: false });
   }
 });
 

@@ -2,6 +2,7 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, PDF_DIGEST } from '../billing/project-preflight.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
+import { assertPilotAccess, requirePilotExecution, type ProviderUsage, type UsageEvent } from './pilot.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
 export type PlanReadingFindingStatus = 'needs_review' | 'accepted' | 'rejected';
@@ -111,30 +112,54 @@ export class AiPlanReadingService {
     if (!quoteId) throw new ProjectApiError(402, 'Review and pay the project processing price before starting AI.');
     if (!this.findingsWriter.rpc) throw new ProjectApiError(503, 'Project payment authorization is unavailable.');
     this.reader.assertReady?.();
+    const model = process.env.GEMINI_MODEL || 'gemini';
+    await assertPilotAccess({ rpc: (fn, args) => this.findingsWriter.rpc!(fn, args) }, this.workspaceId, model);
     const reserved = await this.findingsWriter.rpc('reserve_project_reading', {
       p_quote_id: quoteId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
-      p_project_id: projectId, p_file_id: fileId, p_model: process.env.GEMINI_MODEL || 'gemini',
+      p_project_id: projectId, p_file_id: fileId, p_model: model,
     });
     if (reserved.error) throw new ProjectApiError(402, 'A confirmed payment for this plan is required. Refresh the project payment status.');
     const { job, quote, reused } = reserved.data;
-    if (reused) return this.get(job.id);
+    const fetchPaidPlan = async () => {
+      assertPlanStoragePath(file.storage_path, this.workspaceId, projectId, fileId);
+      const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
+      const bytes = await downloadPlan(presigned.url, this.fetcher);
+      if (PDF_DIGEST(bytes) !== quote.file_sha256) throw new ProjectApiError(409, 'The plan changed after payment. Contact support before processing.');
+      return bytes;
+    };
+    if (reused) {
+      // A completed quote is reusable only for the exact paid document, including
+      // storage backends that allow an existing file key to be overwritten.
+      await fetchPaidPlan();
+      return this.get(job.id);
+    }
     const requestedTrades = quote.trades as string[];
     const scope = quote.scope as string;
+    const metering: { outcome: 'no_provider' | 'unknown' | 'measured'; usage: ProviderUsage | null } = { outcome: 'no_provider', usage: null };
+    const hasMeasuredUsage = () => metering.outcome === 'measured' && metering.usage !== null;
+    const settleUsage = async () => {
+      const recorded = await this.findingsWriter.rpc!('record_plan_reading_usage', {
+        p_job_id: job.id, p_attempt: quote.attempts, p_usage: metering.usage ?? {}, p_outcome: metering.outcome,
+      });
+      if (recorded.error) throw new ProjectApiError(503, 'Processing cost could not be reconciled. Contact support before retrying.');
+    };
 
     try {
-      assertPlanStoragePath(file.storage_path,this.workspaceId,projectId,fileId);
-      const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
-      const fileBytes = await downloadPlan(presigned.url, this.fetcher);
-      if (PDF_DIGEST(fileBytes) !== quote.file_sha256) throw new ProjectApiError(409, 'The plan changed after payment. Contact support before processing.');
+      const execution = requirePilotExecution(reserved.data.pilot);
+      const fileBytes = await fetchPaidPlan();
 
+      metering.outcome = 'unknown';
       const result = await this.reader.read({
         fileBytes,
         mimeType: 'application/pdf',
         sheetName: file.original_name,
         requestedTrades,
         scope,
+        execution,
+        onUsage: (event: UsageEvent) => { metering.outcome = event.outcome; metering.usage = event.outcome === 'measured' ? event.usage : null; },
       });
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
+      if (!hasMeasuredUsage()) throw new Error('Provider usage could not be verified. Contact support before retrying.');
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > quote.page_count))) throw new Error('The reading contains quantities or locations without valid source pages.');
       const findingsRows = result.findings.map((finding) => {
         return {
@@ -154,6 +179,7 @@ export class AiPlanReadingService {
         };
       });
 
+      await settleUsage();
       const finished = await this.findingsWriter.rpc('finish_project_reading', {
         p_quote_id: quoteId, p_job_id: job.id, p_error: null,
         p_findings: findingsRows, p_summary: result.summary,
@@ -161,10 +187,12 @@ export class AiPlanReadingService {
       if (finished.error) throw new Error('Could not save the reading. Check its status before retrying.');
       return finished.data;
     } catch (error) {
-      await this.findingsWriter.rpc('finish_project_reading', {
+      await settleUsage();
+      const failed = await this.findingsWriter.rpc('finish_project_reading', {
         p_quote_id: quoteId, p_job_id: job.id, p_summary: {}, p_findings: [],
         p_error: error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed',
       });
+      if (failed.error) throw new ProjectApiError(503, 'Processing state needs reconciliation. Contact support before retrying.');
       if (error instanceof ProjectApiError) throw error;
       throw new ProjectApiError(502, error instanceof Error ? error.message : 'AI plan reading failed');
     }

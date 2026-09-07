@@ -299,13 +299,18 @@ export function getAiPlanReading(workspaceId: string, jobId: string) {
   return request<PlanReadingJob>(`/api/ai-plan-readings/${jobId}`, { workspaceId });
 }
 
+export const PLAN_READING_FINDINGS_CHANGED = 'roughbid:plan-reading-findings-changed';
+export type PlanReadingFindingsChanged = { workspaceId: string; findingId: string };
+
 /** PATCH /api/ai-plan-readings/findings/:id — accept or reject one finding. */
-export function setPlanReadingFindingStatus(workspaceId: string, findingId: string, status: PlanReadingFindingStatus) {
-  return request<PlanReadingFinding>(`/api/ai-plan-readings/findings/${findingId}`, {
+export async function setPlanReadingFindingStatus(workspaceId: string, findingId: string, status: PlanReadingFindingStatus) {
+  const finding = await request<PlanReadingFinding>(`/api/ai-plan-readings/findings/${findingId}`, {
     method: "PATCH",
     workspaceId,
     body: { status },
   });
+  window.dispatchEvent(new CustomEvent<PlanReadingFindingsChanged>(PLAN_READING_FINDINGS_CHANGED, { detail: { workspaceId, findingId } }));
+  return finding;
 }
 
 /** POST /api/workspaces/:id/ai-consent — owner accepts sending plan files to AI. */
@@ -429,6 +434,10 @@ export type ReadingQuote = { id: string; project_id: string; file_id: string; am
   attempts: number; max_attempts: number; job_id: string|null; expires_at: string; membership: string };
 export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string, trades?: string[]) {
   return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope,...(trades ? {trades} : {})}});
+}
+export function getSavedReadingQuote(workspaceId: string, projectId: string, fileId: string, quoteId: string) {
+  const query = new URLSearchParams({ quote_id: quoteId, file_id: fileId });
+  return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote?${query}`, { workspaceId });
 }
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});

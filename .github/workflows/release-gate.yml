@@ -1,0 +1,106 @@
+name: RoughBid Release Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify checkout SHA
+        id: checkout_sha
+        run: |
+          ACTUAL_SHA=$(git rev-parse HEAD)
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          echo "sha=$ACTUAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release gate commit: \`$ACTUAL_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        id: install
+        run: npm ci
+
+      - name: Typecheck
+        id: typecheck
+        run: npm run typecheck
+
+      - name: Test
+        id: tests
+        run: npm test
+
+      - name: Build
+        id: build
+        env:
+          # Compilation fixture only. This output is never deployed; preview
+          # validation must build again with its own isolated project config.
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
+
+      - name: Dependency audit
+        id: audit
+        run: npm audit --audit-level=high
+
+      - name: Record exact-commit gate evidence
+        if: always()
+        env:
+          ACTUAL_SHA: ${{ steps.checkout_sha.outputs.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
+          TEST_RESULT: ${{ steps.tests.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          AUDIT_RESULT: ${{ steps.audit.outcome }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync, appendFileSync } from 'node:fs';
+          const stages = {
+            'npm ci': process.env.INSTALL_RESULT,
+            'npm run typecheck': process.env.TYPECHECK_RESULT,
+            'npm test': process.env.TEST_RESULT,
+            'npm run build': process.env.BUILD_RESULT,
+            'npm audit --audit-level=high': process.env.AUDIT_RESULT,
+          };
+          const evidence = {
+            repository: process.env.GITHUB_REPOSITORY,
+            expectedSha: process.env.EXPECTED_SHA,
+            actualSha: process.env.ACTUAL_SHA,
+            baseSha: process.env.BASE_SHA || null,
+            buildEnvironment: 'compile-only localhost fixture; not a deployable preview',
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            stages,
+            result: process.env.ACTUAL_SHA === process.env.EXPECTED_SHA && Object.values(stages).every(result => result === 'success') ? 'PASS' : 'NO-GO',
+          };
+          writeFileSync('release-gate-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nGate: **${evidence.result}**\n\n${Object.entries(stages).map(([command, result]) => `- \`${command}\`: ${result}`).join('\n')}\n`);
+          NODE
+
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: release-gate-evidence.json
+          if-no-files-found: error

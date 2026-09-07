@@ -2,6 +2,7 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import type { AiPlanObjectStorage } from '../ai-plan/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, quoteProject } from './project-preflight.ts';
 import { isConfiguredValue, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { assertPilotAccess } from '../ai-plan/pilot.ts';
 import type { ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import type { StripeEvent } from './stripe.ts';
 export interface ServerDatabase { from(table: string): any; rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: any }> }
@@ -35,9 +36,20 @@ export class ProjectPayments {
     }
     return 'standard';
   }
+  async getQuote(userId: string, workspaceId: string, projectId: string, fileId: string, quoteId: string) {
+    await this.access(userId, workspaceId, projectId);
+    if (!fileId || !quoteId) throw new ProjectApiError(400, 'Select the saved plan and quote.');
+    const quote = databaseValue(await this.db.from('project_reading_quotes').select('*')
+      .eq('id', quoteId).eq('workspace_id', workspaceId).eq('project_id', projectId).eq('file_id', fileId).maybeSingle());
+    if (!quote) throw new ProjectApiError(404, 'Quote not found for this plan.');
+    // Payment state and paid scope come only from the server. A browser-saved ID
+    // is a lookup hint and never authorizes generation or a new payment.
+    return publicQuote(quote);
+  }
   async quote(userId: string, workspaceId: string, projectId: string, input: Record<string,unknown>, storage: AiPlanObjectStorage) {
     await this.access(userId,workspaceId,projectId);
-    requirePaidPlanReadingConfig(this.env);
+    const config = requirePaidPlanReadingConfig(this.env);
+    await assertPilotAccess(this.db, workspaceId, config.model);
     const fileId = input.file_id;
     if (typeof fileId !== 'string') throw new ProjectApiError(400,'Select an uploaded plan.');
     const file = databaseValue(await this.db.from('project_files').select('id,storage_path,processing_status').eq('workspace_id',workspaceId).eq('project_id',projectId).eq('id',fileId).maybeSingle());
@@ -56,13 +68,15 @@ export class ProjectPayments {
   }
   async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string) {
     await this.access(userId,workspaceId,projectId);
-    requirePaidPlanReadingConfig(this.env);
+    const config = requirePaidPlanReadingConfig(this.env);
     const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id',quoteId).eq('project_id',projectId).eq('workspace_id',workspaceId).maybeSingle());
     if (!q) throw new ProjectApiError(404,'Quote not found.');
     if (q.status !== 'quoted' || Date.parse(q.expires_at) <= Date.now()+30_000) throw new ProjectApiError(409,'Refresh the project price or check its payment status.');
     const key = this.env.STRIPE_SECRET_KEY;
     const appUrl = this.env.APP_URL;
     if (!isConfiguredValue(key) || !key.startsWith(q.livemode ? 'sk_live_' : 'sk_test_') || !isConfiguredValue(this.env.STRIPE_WEBHOOK_SECRET) || !isConfiguredValue(appUrl) || new URL(appUrl).protocol !== 'https:') throw new ProjectApiError(503,'Checkout is not configured.');
+    if (q.livemode !== false) throw new ProjectApiError(503, 'Only Stripe TEST is permitted for this pilot.');
+    await assertPilotAccess(this.db, workspaceId, config.model);
     if (q.stripe_session_id) {
       const response = await this.fetcher(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(q.stripe_session_id)}`,{headers:{authorization:`Bearer ${key}`}});
       const session = await response.json() as {url?:string;status?:string};
@@ -101,22 +115,27 @@ export class ProjectPayments {
     if (!quoteId || obj.mode !== 'payment' || obj.payment_status !== 'paid') return;
     if (typeof obj.payment_intent !== 'string' || !Number.isSafeInteger(obj.amount_total) || typeof obj.currency !== 'string') throw new Error('Invalid project payment event');
     databaseValue(await this.db.rpc('confirm_project_reading_payment',{p_event_id:event.id,p_quote_id:quoteId,p_session_id:obj.id,
-      p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency,p_livemode:event.livemode}));
+      p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency.toLowerCase(),p_livemode:event.livemode}));
   }
 }
-export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage: AiPlanObjectStorage): Promise<Response> {
+export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage?: AiPlanObjectStorage): Promise<Response> {
   try {
-    if (request.method !== 'POST') return Response.json({error:'Method not allowed'},{status:405});
+    const url = new URL(request.url);
+    const parts = url.pathname.split('/');
+    const isQuoteLookup = request.method === 'GET' && parts[4] === 'reading-quote';
+    if (request.method !== 'POST' && !isQuoteLookup) return Response.json({error:'Method not allowed'},{status:405});
     const {data,error} = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401,'Sign in to continue.');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400,'Select a company.');
-    const parts = new URL(request.url).pathname.split('/');
     const projectId = parts[3]!;
+    if (isQuoteLookup) return Response.json(await payments.getQuote(data.user.id, workspaceId, projectId,
+      url.searchParams.get('file_id') ?? '', url.searchParams.get('quote_id') ?? ''), { headers: { 'cache-control': 'no-store' } });
     const input = await request.json();
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProjectApiError(400,'Invalid request.');
+    if (parts[4] === 'reading-quote' && !storage) throw new ProjectApiError(503, 'Plan storage is not configured.');
     const result = parts[4] === 'reading-quote'
-      ? await payments.quote(data.user.id,workspaceId,projectId,input,storage)
+      ? await payments.quote(data.user.id,workspaceId,projectId,input,storage!)
       : await payments.checkout(data.user.id,workspaceId,projectId,String(input.quote_id ?? ''));
     return Response.json(result);
   } catch(error) {

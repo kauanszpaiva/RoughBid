@@ -1,6 +1,7 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
+import { requirePilotExecution, readProviderUsage, type PilotExecution, type UsageEvent } from './pilot.ts';
 
 /** Shared by every PDF-native reader (Gemini, Claude) — both take the raw uploaded PDF inline, no page-rendering step. */
 export interface GeminiPlanReadInput {
@@ -9,11 +10,16 @@ export interface GeminiPlanReadInput {
   sheetName: string;
   requestedTrades: readonly string[];
   scope: string | null;
+  execution?: PilotExecution;
+  onUsage?: (event: UsageEvent) => void;
 }
 
 /** The subset of @google/genai's client this reader needs — narrow enough to fake in tests. */
 export interface GeminiGenerateContentClient {
-  generateContent(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{ text?: string }>;
+  generateContent(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{
+    text?: string; modelVersion?: string; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; toolUsePromptTokenCount?: number; totalTokenCount?: number };
+  }>;
+  countTokens?(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{ totalTokens?: number }>;
   files?: GeminiFilesClient;
 }
 
@@ -37,7 +43,7 @@ export async function createGeminiClient(
 ): Promise<GeminiGenerateContentClient> {
   const mod = await loader();
   const client = new mod.GoogleGenAI({ apiKey });
-  return { generateContent: args => client.models.generateContent(args), files: client.files };
+  return { generateContent: args => client.models.generateContent(args), countTokens: args => client.models.countTokens!(args), files: client.files };
 }
 
 async function preparePlan(client: GeminiGenerateContentClient, input: GeminiPlanReadInput) {
@@ -88,56 +94,67 @@ export class GeminiPlanReader {
   private readonly client: GeminiGenerateContentClient | null;
   private readonly models: readonly string[];
 
-  constructor(client: GeminiGenerateContentClient | null, models: readonly string[] = ['gemini-3.8-flash', 'gemini-3.6-flash']) {
+  constructor(client: GeminiGenerateContentClient | null, models: readonly string[] = []) {
     this.client = client;
     this.models = models;
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     this.assertReady();
+    const execution = requirePilotExecution(input.execution);
+    if (execution.model !== this.models[0]) throw new ProjectApiError(503, 'The pilot model does not match the reserved model.');
+    input.onUsage?.({ outcome: 'no_provider' });
     const prepared = await preparePlan(this.client!, input);
     try {
-    const contents = [
-      { text: userPrompt(input.scope) },
-      prepared.part,
-    ];
+      // Gemini Developer API countTokens rejects config.systemInstruction.
+      // Count the exact instruction and document contents sent for generation.
+      const contents = [
+        { text: systemPrompt(input.sheetName, input.requestedTrades) },
+        { text: userPrompt(input.scope) },
+        prepared.part,
+      ];
 
-    let rawResult: unknown = null;
-    if (this.client) {
-      for (const model of this.models) {
-        try {
-          const response = await this.client.generateContent({
-            model,
-            contents,
-            config: {
-              systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
-              responseMimeType: 'application/json',
-              temperature: 0.1,
-              maxOutputTokens: 8000,
-              httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
-            },
-          });
-          const parsed = JSON.parse(response.text || '{}') as { findings?: unknown };
-          if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
-            rawResult = parsed;
-            break;
-          }
-        } catch {
-          // Try the next candidate model.
-        }
+      const model = execution.model;
+      const counted = await this.client!.countTokens!({ model, contents, config: {
+        httpOptions: { timeout: 10_000, retryOptions: { attempts: 1 } },
+      } });
+      if (!Number.isSafeInteger(counted.totalTokens) || counted.totalTokens! <= 0 || counted.totalTokens! > execution.max_input_tokens) {
+        throw new ProjectApiError(413, 'This plan exceeds the pilot input budget. No generation was started.');
       }
-    }
+      // A timeout does not prove the provider stopped. Keep the hold at risk.
+      input.onUsage?.({ outcome: 'unknown' });
+      try {
+        const response = await this.client!.generateContent({
+          model,
+          contents,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+            maxOutputTokens: execution.max_output_tokens,
+            thinkingConfig: { thinkingBudget: 0 },
+            httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
+          },
+        });
+        const usage = readProviderUsage(response, model);
+        if (!usage) throw new Error('Provider usage could not be verified.');
+        input.onUsage?.({ outcome: 'measured', usage });
+        if (usage.input_tokens > execution.max_input_tokens || usage.output_tokens > execution.max_output_tokens) {
+          throw new Error('Provider usage exceeded the reserved token limits.');
+        }
+        const parsed = JSON.parse(response.text || '{}') as { findings?: unknown };
+        if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
+          const result = sanitizePlanReadingResult(parsed);
+          if (result.findings.length) return result;
+        }
+      } catch {
+        // One dispatch per paid attempt. No fallback or automatic provider retry.
+      }
 
-    if (rawResult) {
-      const result = sanitizePlanReadingResult(rawResult);
-      if (result.findings.length) return result;
-    }
-
-    throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
+      throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
     } finally { await prepared.dispose().catch(() => console.warn('Temporary Gemini file cleanup could not be confirmed.')); }
   }
 
   assertReady(): void {
-    if (!this.client || !this.models.length) throw new ProjectApiError(503, PLAN_READING_UNAVAILABLE);
+    if (!this.client?.countTokens || this.models.length !== 1) throw new ProjectApiError(503, PLAN_READING_UNAVAILABLE);
   }
 }
