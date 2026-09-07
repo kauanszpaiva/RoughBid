@@ -22,6 +22,7 @@
     "react-dom": "^19.0.1"
   },
   "scripts": {
+    "typecheck": "tsc --project tsconfig.json && tsc --project apps/web/app/tsconfig.json",
     "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/mcp/mapify/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs prisma/*.test.mjs",
     "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
     "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
@@ -46,5 +47,11 @@
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0",
+      "effect": "3.20.0"
+    }
   }
 }

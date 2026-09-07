@@ -15,7 +15,10 @@ export function isConfiguredValue(value: string | undefined): value is string {
 export function requirePaidPlanReadingConfig(env: Record<string, string | undefined>) {
   const apiKey = env.GEMINI_API_KEY?.trim();
   const model = env.GEMINI_MODEL?.trim();
-  if (env.PAID_PLAN_READINGS_ENABLED !== 'true' || !isConfiguredValue(apiKey) || !isConfiguredValue(model) || !/^gemini-[a-z0-9][a-z0-9._-]+$/i.test(model)) {
+  if (env.PAID_PLAN_READINGS_ENABLED !== 'true' || env.PAID_PLAN_READINGS_STAGE !== 'test'
+    || env.STRIPE_MODE !== 'test' || env.VERCEL_ENV === 'production' || env.APP_ENV === 'production'
+    || !isConfiguredValue(apiKey) || !isConfiguredValue(model) || !/^gemini-[a-z0-9][a-z0-9._-]+$/i.test(model)
+    || /(?:latest|preview|experimental)/i.test(model)) {
     throw new ProjectApiError(503, PLAN_READING_UNAVAILABLE);
   }
   return { apiKey, model };

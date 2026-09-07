@@ -11,7 +11,8 @@ import {
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent, PLAN_READING_FINDINGS_CHANGED, type PlanReadingFindingsChanged } from "../services/api";
+import { PLAN_TRADES, saveReadingQuoteId, clearSavedReadingQuote, restoreSavedReadingQuote } from "../services/reading-quote-session";
 
 interface PlansPageProps {
   canWrite?: boolean;
@@ -23,8 +24,6 @@ interface PlansPageProps {
   onContinue: () => void;
   onOpenAIAssistant: () => void;
 }
-
-const PLAN_TRADES = ['Framing', 'Concrete', 'Drywall', 'Electrical', 'Plumbing', 'HVAC', 'Finishes'];
 
 export const PlansPage: React.FC<PlansPageProps> = ({
   canWrite = false,
@@ -38,6 +37,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 }) => {
   const [readingQuote, setReadingQuote] = useState<ReadingQuote | null>(null);
   const [selectedTrades, setSelectedTrades] = useState(PLAN_TRADES);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [quoteRestore, setQuoteRestore] = useState<{ context: string; status: 'loading' | 'ready' | 'error'; error?: string }>({ context: '', status: 'loading' });
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [billingAvailable, setBillingAvailable] = useState(false);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
@@ -57,22 +58,53 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
+  const quoteContext = workspaceId && project.remoteId && currentRevision?.remoteFileId
+    ? { workspaceId, projectId: project.remoteId, fileId: currentRevision.remoteFileId } : null;
+  const quoteContextKey = JSON.stringify([workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+  const quoteActionsBlocked = quoteRestore.context !== quoteContextKey || quoteRestore.status !== 'ready';
   const contextRef = useRef('');
   const contextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}:${selectedTrades.join(',')}`;
   contextRef.current = contextKey;
 
-  useEffect(() => { setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); setIsStartingAi(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+  useEffect(() => {
+    let active = true;
+    setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); setIsStartingAi(false); setIsPaying(false);
+    setQuoteRestore({ context: quoteContextKey, status: 'loading' });
+    void (async () => {
+      try {
+        const saved = quoteContext ? await restoreSavedReadingQuote(window.localStorage, quoteContext, getSavedReadingQuote) : null;
+        if (!active) return;
+        setSelectedTrades(saved ? [...saved.trades] : PLAN_TRADES);
+        setReadingQuote(saved);
+        setQuoteRestore({ context: quoteContextKey, status: 'ready' });
+      } catch (error) {
+        if (active) setQuoteRestore({ context: quoteContextKey, status: 'error', error: readableApiError(error) });
+      }
+    })();
+    return () => { active = false; };
+  }, [quoteContextKey, restoreAttempt]);
   useEffect(() => { contextRef.current = contextKey; return () => { contextRef.current = ''; }; }, [contextKey]);
 
   useEffect(() => {
     let active = true;
+    let requestVersion = 0;
     setFindings([]);
-    if (workspaceId && currentRevision?.aiPlanJobId) {
+    const refreshFindings = () => {
+      if (!workspaceId || !currentRevision?.aiPlanJobId) return;
+      const version = ++requestVersion;
       getAiPlanReading(workspaceId, currentRevision.aiPlanJobId).then(job => {
-        if (active) setFindings(job.plan_reading_findings);
-      }).catch(error => { if (active) setPlanNotice(readableApiError(error)); });
-    }
-    return () => { active = false; };
+        if (active && version === requestVersion) setFindings(job.plan_reading_findings);
+      }).catch(error => { if (active && version === requestVersion) setPlanNotice(readableApiError(error)); });
+    };
+    const onFindingsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<PlanReadingFindingsChanged>).detail;
+      if (detail?.workspaceId !== workspaceId) return;
+      setFindings([]);
+      refreshFindings();
+    };
+    refreshFindings();
+    window.addEventListener(PLAN_READING_FINDINGS_CHANGED, onFindingsChanged);
+    return () => { active = false; window.removeEventListener(PLAN_READING_FINDINGS_CHANGED, onFindingsChanged); };
   }, [workspaceId, currentRevision?.id, currentRevision?.aiPlanJobId]);
 
   useEffect(() => {
@@ -115,12 +147,16 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     };
   }, [workspaceId, currentRevision?.id, currentRevision?.fileUrl, currentRevision?.remoteFileId]);
   const handlePay = async () => {
-    if (!canWrite) return;
-    if (!workspaceId || !project.remoteId || !readingQuote) return;
+    if (!canWrite || quoteActionsBlocked) return;
+    if (!workspaceId || !project.remoteId || !readingQuote || !quoteContext) return;
     setIsPaying(true);
-    try { const checkout = await payForReading(workspaceId, project.remoteId, readingQuote.id); if (contextRef.current === contextKey) window.location.assign(checkout.url); }
-    catch (error) { setPlanNotice(readableApiError(error)); }
-    finally { setIsPaying(false); }
+    try {
+      rememberQuote(readingQuote.id);
+      const checkout = await payForReading(workspaceId, project.remoteId, readingQuote.id);
+      if (contextRef.current === contextKey) window.location.assign(checkout.url);
+    }
+    catch (error) { if (contextRef.current === contextKey) setPlanNotice(readableApiError(error)); }
+    finally { if (contextRef.current === contextKey) setIsPaying(false); }
   };
 
   // Handle uploading a new plan revision
@@ -134,6 +170,27 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       }
     }
     return error instanceof Error ? error.message : "Action failed.";
+  };
+
+  const rememberQuote = (quoteId: string) => {
+    if (!quoteContext) throw new Error('Select a saved plan before continuing.');
+    try { saveReadingQuoteId(window.localStorage, quoteContext, quoteId); }
+    catch {
+      const message = 'The reading reference could not be saved in this browser. Enable browser storage and retry before checkout.';
+      setQuoteRestore({ context: quoteContextKey, status: 'error', error: message });
+      throw new Error(message);
+    }
+  };
+
+  const changeTrade = (trade: string, selected: boolean) => {
+    if (!canWrite || quoteActionsBlocked || isStartingAi || isPaying) return;
+    try {
+      if (quoteContext) clearSavedReadingQuote(window.localStorage, quoteContext);
+      setSelectedTrades(previous => selected ? [...previous, trade] : previous.filter(value => value !== trade));
+      setReadingQuote(null); setPlanNotice(null);
+    } catch {
+      setQuoteRestore({ context: quoteContextKey, status: 'error', error: 'The saved reading reference could not be cleared. Enable browser storage and retry.' });
+    }
   };
 
   const applyNewRevision = (newRev: PlanRevision) => {
@@ -219,7 +276,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   };
 
   const handleStartAiReading = async () => {
-    if (!canWrite) return;
+    if (!canWrite || quoteActionsBlocked || !selectedTrades.length) return;
     if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
@@ -228,8 +285,17 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     setNeedsAiConsent(false);
     try {
-      const quote = await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, project.projectType, selectedTrades);
+      let quote = readingQuote
+        ? await getSavedReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, readingQuote.id)
+        : await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, project.projectType, selectedTrades);
       if (contextRef.current !== contextKey) return;
+      if (!Number.isFinite(Date.parse(quote.expires_at))) throw new Error('The reading expiry could not be verified. Retry your saved reading.');
+      // Only this explicit check may refresh an expired unpaid quote; a paid scope is immutable.
+      if (readingQuote && quote.status === 'quoted' && Date.parse(quote.expires_at) <= Date.now()) {
+        quote = await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, quote.scope, quote.trades);
+      }
+      if (contextRef.current !== contextKey) return;
+      rememberQuote(quote.id);
       setReadingQuote(quote);
       if (quote.status === 'quoted') { setPlanNotice('Your project processing price is ready. Payment is required before analysis.'); return; }
       if (quote.status === 'revoked') { setPlanNotice('Payment access was revoked. Contact support.'); return; }
@@ -245,7 +311,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         file_id: currentRevision.remoteFileId,
         quote_id: quote.id,
         mode: "quick",
-        scope: project.projectType,
+        scope: quote.scope,
       });
       if (contextRef.current !== contextKey) return;
       setReadingQuote({ ...quote, job_id: job.id, status: job.status === 'failed' ? 'failed' : ['ready','needs_review'].includes(job.status) ? 'complete' : 'processing' });
@@ -327,14 +393,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+      {quoteContext && quoteActionsBlocked && <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" aria-label="Saved reading recovery">
+        {quoteRestore.context === quoteContextKey && quoteRestore.status === 'error'
+          ? <><p>Your saved reading could not be verified. {quoteRestore.error}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)} className="mt-3 rounded-lg border border-amber-400 px-3 py-2 font-semibold">Retry saved reading</button></>
+          : <p role="status">Checking your saved reading before preparing payment or analysis…</p>}
+      </section>}
       {readingQuote && readingQuote.file_id === currentRevision?.remoteFileId && <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="Project payment">
         <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Project processing fee</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
           <strong className="text-xl">{new Intl.NumberFormat('en-US',{style:'currency',currency:readingQuote.currency}).format(readingQuote.amount_cents/100)}</strong></div>
         <p className="text-xs text-slate-600">Includes one completed reading and up to two attempts if processing fails. Changes to the plan or scope need a new price. Membership savings are included when active.</p>
         <p className="text-sm">{readingQuote.status === 'quoted' ? 'Awaiting payment' : readingQuote.status === 'complete' ? 'Reading ready to review' : readingQuote.status === 'processing' ? 'Reading in progress' : readingQuote.status === 'failed' ? 'Reading failed — no substitute quantities were generated' : readingQuote.status === 'revoked' ? 'Payment access revoked' : 'Payment confirmed'}</p>
         <div className="flex gap-3 flex-wrap">
-          {readingQuote.status === 'quoted' && <button onClick={handlePay} disabled={!canWrite || !billingAvailable || isPaying} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button>}
-          <button onClick={handleStartAiReading} disabled={!canWrite || isStartingAi} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : 'Check payment & start'}</button>
+          {readingQuote.status === 'quoted' && <button onClick={handlePay} disabled={!canWrite || quoteActionsBlocked || !billingAvailable || isPaying || isStartingAi} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button>}
+          <button onClick={handleStartAiReading} disabled={!canWrite || quoteActionsBlocked || isStartingAi || isPaying} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : 'Check payment & start'}</button>
         </div>
       </section>}
       {/* Title & Subtitle */}
@@ -484,9 +555,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <h3 className="text-xs font-bold text-[#111827] mb-3 uppercase tracking-wider">
               Actions
             </h3>
-            <fieldset disabled={!canWrite || isStartingAi || isPaying} className="pb-3 border-b border-slate-200">
+            <fieldset disabled={!canWrite || quoteActionsBlocked || isStartingAi || isPaying} className="pb-3 border-b border-slate-200">
               <legend className="text-xs font-semibold mb-2">Analysis scope</legend>
-              <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => { setSelectedTrades(previous => e.target.checked ? [...previous, trade] : previous.filter(value => value !== trade)); setReadingQuote(null); }} />{trade}</label>)}</div>
+              <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => changeTrade(trade, e.target.checked)} />{trade}</label>)}</div>
             </fieldset>
 
             {/* Upload New Revision */}
@@ -509,7 +580,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             <button
               onClick={handleStartAiReading}
-              disabled={!canWrite || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              disabled={!canWrite || quoteActionsBlocked || !selectedTrades.length || (!readingQuote && !aiReadingAvailable) || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
