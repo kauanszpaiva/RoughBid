@@ -73,7 +73,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
-    signal: AbortSignal.timeout(path.includes("ai-plan-readings") || path.endsWith("/complete") ? 120_000 : 30_000),
+    signal: AbortSignal.timeout(path.includes("ai-plan-readings") ? 170_000 : path.endsWith("/complete") ? 120_000 : 30_000),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 

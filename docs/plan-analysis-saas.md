@@ -22,4 +22,6 @@ Production must have a working Gemini model and credential, `PAID_PLAN_READINGS_
 
 On 2026-09-07 the Vercel production environment did not list Stripe secret/webhook credentials, a Gemini model, or the paid-reading enable flag. Actual paid provider execution and a live checkout/webhook lifecycle remain unverified. UI tests used an explicitly labeled two-page PDF fixture, not a claimed customer AI result.
 
-Validation: 241 automated tests, frontend TypeScript check, and desktop/390px/320px browser review of PDF rendering, room selection, page navigation, search and highlights.
+Large plans: PDF preflight accepts up to 50 MB / 100 pages. PDFs over 12 MB use the Gemini Files API, with bounded preparation polling and temporary-file cleanup; smaller PDFs remain inline. The user's 23.2 MB, 37-page PDF was opened successfully in the production viewer. Paid inference on that file is not yet verified.
+
+Validation: 243 automated tests, frontend TypeScript check, and desktop/390px/320px browser review of PDF rendering, room selection, page navigation, search and highlights.

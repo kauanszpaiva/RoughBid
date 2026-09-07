@@ -4,7 +4,7 @@ import { ProjectApiError } from '../projects/service.ts';
 import { projectChargeCents, type ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import { isConfiguredValue } from '../ai-plan/readiness.ts';
 
-export const MAX_AI_PDF_BYTES = 18 * 1024 * 1024;
+export const MAX_AI_PDF_BYTES = 50 * 1024 * 1024;
 export const MAX_AI_PAGES = 100;
 export const PROJECT_TRADES = ['Framing', 'Concrete', 'Drywall', 'Electrical', 'Plumbing', 'HVAC', 'Finishes'] as const;
 export const PDF_DIGEST = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -14,7 +14,7 @@ export async function downloadPlan(url: string, fetcher: typeof fetch = fetch): 
   if (!response.ok || !response.body) throw new ProjectApiError(502, 'Could not download the uploaded plan.');
   if (Number(response.headers.get('content-length')) > MAX_AI_PDF_BYTES) {
     await response.body.cancel();
-    throw new ProjectApiError(413, 'Split the PDF into files no larger than 18 MB.');
+    throw new ProjectApiError(413, 'Split the PDF into files no larger than 50 MB.');
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -24,7 +24,7 @@ export async function downloadPlan(url: string, fetcher: typeof fetch = fetch): 
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_AI_PDF_BYTES) throw new ProjectApiError(413, 'Split the PDF into files no larger than 18 MB.');
+      if (size > MAX_AI_PDF_BYTES) throw new ProjectApiError(413, 'Split the PDF into files no larger than 50 MB.');
       chunks.push(value);
     }
   } finally { await reader.cancel(); }
@@ -35,7 +35,7 @@ export async function downloadPlan(url: string, fetcher: typeof fetch = fetch): 
 }
 
 export async function inspectPdf(bytes: Uint8Array) {
-  if (!bytes.length || bytes.length > MAX_AI_PDF_BYTES) throw new ProjectApiError(413, 'PDF must be between 1 byte and 18 MB.');
+  if (!bytes.length || bytes.length > MAX_AI_PDF_BYTES) throw new ProjectApiError(413, 'PDF must be between 1 byte and 50 MB.');
   if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') throw new ProjectApiError(415, 'Upload a valid PDF.');
   let pdf: PDFDocument;
   try { pdf = await PDFDocument.load(bytes, { updateMetadata: false }); }

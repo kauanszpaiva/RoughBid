@@ -25,8 +25,8 @@ test('PDF preflight reads pages without AI and rejects oversized/invalid data',a
   const doc=await PDFDocument.create();doc.addPage();doc.addPage();
   const result=await inspectPdf(await doc.save());assert.equal(result.pages,2);assert.match(result.sha256,/^[a-f0-9]{64}$/);
   await assert.rejects(inspectPdf(new TextEncoder().encode('not a PDF')),/valid PDF/);
-  await assert.rejects(inspectPdf(new Uint8Array(MAX_AI_PDF_BYTES+1)),/18 MB/);
-  await assert.rejects(downloadPlan('https://storage.test/file',async()=>new Response('x',{headers:{'content-length':String(MAX_AI_PDF_BYTES+1)}})),/18 MB/);
+  await assert.rejects(inspectPdf(new Uint8Array(MAX_AI_PDF_BYTES+1)),/50 MB/);
+  await assert.rejects(downloadPlan('https://storage.test/file',async()=>new Response('x',{headers:{'content-length':String(MAX_AI_PDF_BYTES+1)}})),/50 MB/);
 });
 test('scope cannot contain arbitrary trades or oversized user text',()=>{
   assert.throws(()=>normalizeScope({trades:['run other tasks']}));

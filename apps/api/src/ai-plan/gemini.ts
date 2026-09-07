@@ -14,10 +14,20 @@ export interface GeminiPlanReadInput {
 /** The subset of @google/genai's client this reader needs — narrow enough to fake in tests. */
 export interface GeminiGenerateContentClient {
   generateContent(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{ text?: string }>;
+  files?: GeminiFilesClient;
 }
 
+interface GeminiFile { name?: string; uri?: string; state?: string }
+interface GeminiFilesClient {
+  upload(args: { file: Blob; config: Record<string, unknown> }): Promise<GeminiFile>;
+  get(args: { name: string; config: Record<string, unknown> }): Promise<GeminiFile>;
+  delete(args: { name: string; config: Record<string, unknown> }): Promise<unknown>;
+}
+
+export const MAX_INLINE_PLAN_BYTES = 12 * 1024 * 1024;
+
 export interface GeminiModule {
-  GoogleGenAI: new (options: { apiKey: string }) => { models: GeminiGenerateContentClient };
+  GoogleGenAI: new (options: { apiKey: string }) => { models: GeminiGenerateContentClient; files: GeminiFilesClient };
 }
 
 /** Wraps the real @google/genai SDK so GeminiPlanReader only depends on the narrow interface above. */
@@ -26,7 +36,30 @@ export async function createGeminiClient(
   loader: () => Promise<GeminiModule> = () => import('@google/genai') as Promise<unknown> as Promise<GeminiModule>,
 ): Promise<GeminiGenerateContentClient> {
   const mod = await loader();
-  return new mod.GoogleGenAI({ apiKey }).models;
+  const client = new mod.GoogleGenAI({ apiKey });
+  return { generateContent: args => client.models.generateContent(args), files: client.files };
+}
+
+async function preparePlan(client: GeminiGenerateContentClient, input: GeminiPlanReadInput) {
+  if (input.fileBytes.byteLength <= MAX_INLINE_PLAN_BYTES) {
+    return { part: { inlineData: { mimeType: input.mimeType, data: Buffer.from(input.fileBytes).toString('base64') } }, dispose: async () => {} };
+  }
+  const files = client.files;
+  if (!files) throw new Error('Large PDF processing is not configured.');
+  const config = { mimeType: input.mimeType, displayName: 'RoughBid plan', httpOptions: { timeout: 30_000, retryOptions: { attempts: 1 } } };
+  let file = await files.upload({ file: new Blob([new Uint8Array(input.fileBytes)], { type: input.mimeType }), config });
+  const name = file.name;
+  if (!name) throw new Error('The PDF upload did not return a file identifier.');
+  const dispose = async () => { await files.delete({ name, config: { httpOptions: { timeout: 5000, retryOptions: { attempts: 1 } } } }); };
+  try {
+    const deadline = Date.now() + 20_000;
+    while (file.state === 'PROCESSING' && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      file = await files.get({ name, config: { httpOptions: { timeout: 5000, retryOptions: { attempts: 1 } } } });
+    }
+    if (file.state !== 'ACTIVE' || !file.uri) throw new Error('The uploaded PDF could not be prepared for visual reading.');
+    return { part: { fileData: { fileUri: file.uri, mimeType: input.mimeType } }, dispose };
+  } catch (error) { await dispose().catch(() => console.warn('Temporary Gemini file cleanup could not be confirmed.')); throw error; }
 }
 
 const systemPrompt = (sheetName: string, requestedTrades: readonly string[]) => `You are RoughBid's adversarial construction plan takeoff extraction model.
@@ -62,10 +95,11 @@ export class GeminiPlanReader {
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     this.assertReady();
-    const base64 = Buffer.from(input.fileBytes).toString('base64');
+    const prepared = await preparePlan(this.client!, input);
+    try {
     const contents = [
       { text: userPrompt(input.scope) },
-      { inlineData: { mimeType: input.mimeType, data: base64 } },
+      prepared.part,
     ];
 
     let rawResult: unknown = null;
@@ -100,6 +134,7 @@ export class GeminiPlanReader {
     }
 
     throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
+    } finally { await prepared.dispose().catch(() => console.warn('Temporary Gemini file cleanup could not be confirmed.')); }
   }
 
   assertReady(): void {
