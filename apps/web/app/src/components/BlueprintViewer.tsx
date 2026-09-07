@@ -58,7 +58,12 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => setAvailableWidth(Math.max(180, element.clientWidth - 32)));
+    const updateWidth = () => {
+      const width = Math.max(180, (element.clientWidth || 632) - 32);
+      setAvailableWidth(width);
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -96,7 +101,8 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
         const page = await pdf.getPage(pageNumber);
         if (canceled || !canvasRef.current) return;
         const base = page.getViewport({ scale: 1 });
-        const scale = availableWidth / base.width * zoom / 100;
+        const targetWidth = availableWidth > 0 ? availableWidth : 600;
+        const scale = targetWidth / base.width * zoom / 100;
         const viewport = page.getViewport({ scale });
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
         // Render into a detached canvas, so an old page cannot overwrite a newer one.
