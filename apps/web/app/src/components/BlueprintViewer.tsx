@@ -3,11 +3,13 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { ChevronLeft, ChevronRight, FileText, Maximize2, MapPin, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { PlanAnnotation, PlanRevision } from "../types";
+import type { PlanReadingFinding } from "../services/api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface BlueprintViewerProps {
   canWrite?: boolean;
+  findings?: PlanReadingFinding[];
   currentRevision: PlanRevision;
   projectName: string;
   previewUrl?: string | null;
@@ -16,7 +18,7 @@ interface BlueprintViewerProps {
   onAnnotationsChange: (annotations: PlanAnnotation[]) => void;
 }
 
-export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevision, projectName, previewUrl, isPreviewLoading = false, previewError, onAnnotationsChange, canWrite = false }) => {
+export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevision, projectName, previewUrl, isPreviewLoading = false, previewError, onAnnotationsChange, canWrite = false, findings = [] }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null);
@@ -30,6 +32,25 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+  const [findingFilter, setFindingFilter] = useState('all');
+  const [showAreas, setShowAreas] = useState(true);
+  const [search, setSearch] = useState('');
+  const reviewFindings = findings.filter(f => f.status !== 'rejected');
+  const visibleFindings = reviewFindings.filter(f => (findingFilter === 'all' || f.finding_type === findingFilter) && `${f.label} ${f.source_excerpt ?? ''}`.toLowerCase().includes(search.toLowerCase()));
+  const selectedFinding = reviewFindings.find(f => f.id === selectedFindingId);
+  const boxFor = (finding: PlanReadingFinding): number[] | null => {
+    const box = finding.geometry?.bbox;
+    if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
+    const [x, y, width, height] = box as number[];
+    return width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1 ? box as number[] : null;
+  };
+  const focusFinding = (finding: PlanReadingFinding) => {
+    if (pdf && finding.page_number && finding.page_number <= pdf.numPages) {
+      setPageNumber(finding.page_number); setSelectedFindingId(finding.id); setPendingPoint(null); setAddingNote(false);
+      containerRef.current?.scrollTo(0, 0);
+    }
+  };
   const annotations = currentRevision.annotations ?? [];
   const pageAnnotations = annotations.filter(note => note.page === pageNumber);
   const selectedNote = pageAnnotations.find(note => note.id === selectedId);
@@ -100,7 +121,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   }, [pdf, pageNumber, availableWidth, zoom]);
 
   const changePage = (page: number) => {
-    setPageNumber(page); setPendingPoint(null); setSelectedId(null); setAddingNote(false);
+    setPageNumber(page); setPendingPoint(null); setSelectedId(null); setSelectedFindingId(null); setAddingNote(false);
     containerRef.current?.scrollTo(0, 0);
   };
   const placeNote = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -118,7 +139,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   const error = previewError || renderError;
 
   return (
-    <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden" aria-label={`${projectName} PDF preview`}>
+    <section className="bg-white border border-slate-200 rounded-lg overflow-hidden" aria-label={`${projectName} PDF preview`}>
       <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-1"><FileText className="size-4 text-blue-600 shrink-0" /><span className="truncate text-xs font-semibold" title={currentRevision.fileName}>{currentRevision.fileName}</span></div>
         <span className="text-[10px] font-bold text-blue-700 bg-blue-50 rounded px-2 py-1">REV {currentRevision.revisionNumber}</span>
@@ -137,14 +158,28 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
         </div>
         <button type="button" disabled={!canWrite || renderStatus !== 'ready'} aria-pressed={addingNote} onClick={() => { setAddingNote(!addingNote); setPendingPoint(null); }} className={`flex items-center gap-1.5 rounded-lg px-3 py-2 font-semibold disabled:opacity-40 ${addingNote ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><MapPin className="size-4" />{addingNote ? 'Tap the plan' : 'Add note'}</button>
       </div>
-      <div ref={containerRef} className="h-[68dvh] min-h-[360px] max-h-[760px] overflow-auto bg-slate-200/70 p-4 relative">
+      {findings.length > 0 && <div className="p-3 border-b border-slate-200 space-y-3" aria-label="Plan areas and findings">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-sm">Areas & findings <span className="text-slate-500">{reviewFindings.length}</span></h3><label className="text-xs flex gap-2 items-center"><input type="checkbox" checked={showAreas} onChange={e => setShowAreas(e.target.checked)} />Highlight areas</label></div>
+        <div className="flex flex-wrap gap-2"><input aria-label="Search plan findings" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search rooms, materials, notes" className="min-w-0 flex-1 border rounded p-2 text-xs" /><select aria-label="Finding type" value={findingFilter} onChange={e => setFindingFilter(e.target.value)} className="border rounded p-2 text-xs"><option value="all">All findings</option><option value="room">Rooms & areas</option><option value="measurement">Measurements</option><option value="material">Materials</option><option value="risk">Risks</option><option value="question">Questions</option><option value="scope_note">Scope notes</option><option value="labor">Labor scope</option><option value="symbol">Symbols</option></select></div>
+        <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
+          {visibleFindings.map(finding => <button type="button" key={finding.id} onClick={() => focusFinding(finding)} disabled={!pdf || !finding.page_number || finding.page_number > pdf.numPages} aria-pressed={selectedFindingId === finding.id} className={`w-full text-left py-2 px-2 text-xs flex justify-between gap-3 disabled:opacity-50 ${selectedFindingId === finding.id ? 'bg-emerald-50 text-emerald-900' : 'hover:bg-slate-50'}`}><span className="min-w-0 break-words"><strong>{finding.label}</strong><span className="block text-slate-500">{finding.finding_type.replace('_', ' ')} · {Math.round(finding.confidence * 100)}% confidence{!boxFor(finding) ? ' · No mapped boundary' : ''}</span></span><span className="shrink-0 text-right">{finding.quantity !== null ? `${finding.quantity} ${finding.unit ?? ''}` : 'Review'}<span className="block text-slate-500">Page {finding.page_number ?? '?'}</span></span></button>)}
+          {!visibleFindings.length && <p className="text-xs text-slate-500 py-3">No matching findings.</p>}
+        </div>
+      </div>}
+      <div ref={containerRef} style={{ scrollbarGutter: 'stable' }} className="h-[68dvh] min-h-[360px] max-h-[760px] overflow-auto bg-slate-200/70 p-4 relative">
         {(renderStatus !== 'ready' || !previewUrl) && <div role="status" className="sticky top-0 z-20 p-4 rounded-xl bg-white text-sm text-slate-600 shadow-sm">{error || (isPreviewLoading ? 'Opening your saved PDF…' : previewUrl ? 'Rendering uploaded PDF…' : 'Upload a PDF to preview your plan.')}</div>}
         <div onClick={placeNote} style={{ width: pageSize.width, height: pageSize.height, display: renderStatus === 'ready' ? 'block' : 'none' }} className={`relative mx-auto bg-white shadow-lg shrink-0 ${addingNote ? 'cursor-crosshair' : ''}`}>
           <canvas ref={canvasRef} aria-label={`Uploaded PDF: ${currentRevision.fileName}, page ${pageNumber}`} style={{ width: '100%', height: '100%' }} />
+          {showAreas && visibleFindings.filter(f => f.page_number === pageNumber).map(finding => {
+            const box = boxFor(finding);
+            if (!box) return null;
+            return <button type="button" key={finding.id} title={`${finding.label} - review required`} aria-label={`Highlight ${finding.label}`} onClick={event => { event.stopPropagation(); focusFinding(finding); }} style={{ left: `${box[0]! * 100}%`, top: `${box[1]! * 100}%`, width: `${box[2]! * 100}%`, height: `${box[3]! * 100}%`, pointerEvents: addingNote ? 'none' : 'auto' }} className={`absolute border-2 ${selectedFindingId === finding.id ? 'border-emerald-700 bg-emerald-400/30 ring-2 ring-white' : finding.finding_type === 'risk' ? 'border-amber-600 bg-amber-300/15' : 'border-emerald-500 bg-emerald-300/10'}`} />;
+          })}
           {pageAnnotations.map((note, index) => <button key={note.id} type="button" aria-label={`Plan note ${index + 1}: ${note.text}`} title={note.text} onClick={event => { event.stopPropagation(); setSelectedId(note.id); setPendingPoint(null); }} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} className={`absolute -translate-x-1/2 -translate-y-1/2 size-8 rounded-full border-2 border-white shadow-md text-white text-xs font-bold ${selectedId === note.id ? 'bg-blue-800 ring-2 ring-blue-300' : 'bg-blue-600'}`}>{index + 1}</button>)}
           {pendingPoint && <span style={{ left: `${pendingPoint.x * 100}%`, top: `${pendingPoint.y * 100}%` }} className="absolute -translate-x-1/2 -translate-y-1/2 size-5 bg-blue-500/60 ring-4 ring-blue-200 rounded-full" />}
         </div>
       </div>
+      {selectedFinding && <div className="p-4 border-t border-emerald-200 bg-emerald-50 text-sm" aria-label="Selected plan finding"><div className="flex items-start justify-between gap-3"><h4 className="font-semibold break-words">{selectedFinding.label} · Page {selectedFinding.page_number}</h4><button type="button" aria-label="Close finding" onClick={() => setSelectedFindingId(null)}><X className="size-4" /></button></div><p className="mt-1 text-xs text-emerald-900 break-words">{selectedFinding.source_excerpt || 'No source excerpt available.'}</p><p className="mt-2 text-xs text-slate-600">{selectedFinding.value_text} · Review required</p></div>}
       {pendingPoint && <form onSubmit={saveNote} className="p-4 border-t border-blue-200 bg-blue-50 space-y-2">
         <label htmlFor="plan-note" className="text-xs font-bold text-blue-950">Your note · page {pageNumber}</label>
         <textarea id="plan-note" autoFocus maxLength={500} value={noteText} onChange={event => setNoteText(event.target.value)} placeholder="What needs checking at this location?" className="block w-full p-3 text-sm border border-blue-200 bg-white rounded-lg" />

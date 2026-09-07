@@ -280,7 +280,7 @@ export type PlanReadingJob = {
 };
 
 /**
- * POST /api/projects/:id/ai-plan-readings — reads and prices the plan
+ * POST /api/projects/:id/ai-plan-readings — extracts evidence from a paid plan
  * synchronously; the response already carries the finished job (status
  * needs_review/failed) and every finding. There is nothing to poll for in
  * the common case, but getAiPlanReading below still works for reloading a
@@ -427,8 +427,8 @@ export function createBillingCheckout(priceKey: BillingPriceKey) {
 export type ReadingQuote = { id: string; project_id: string; file_id: string; amount_cents: number; currency: string;
   page_count: number; trades: string[]; scope: string; status: 'quoted'|'paid'|'processing'|'complete'|'failed'|'revoked';
   attempts: number; max_attempts: number; job_id: string|null; expires_at: string; membership: string };
-export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string) {
-  return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope}});
+export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string, trades?: string[]) {
+  return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope,...(trades ? {trades} : {})}});
 }
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});

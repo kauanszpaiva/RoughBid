@@ -18,8 +18,8 @@ test('capabilities are closed by default and expose only booleans', () => {
   const flags = runtimeCapabilities(configured);
   assert.deepEqual(flags, { aiReadingAvailable: true, billing: true });
   assert.ok(Object.values(flags).every(value => typeof value === 'boolean'));
-  assert.deepEqual(runtimeCapabilities({ ...configured, PAID_PLAN_READINGS_ENABLED: 'false' }), { aiReadingAvailable: true, billing: true });
-  assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '' }), { aiReadingAvailable: true, billing: true });
+  assert.deepEqual(runtimeCapabilities({ ...configured, PAID_PLAN_READINGS_ENABLED: 'false' }), { aiReadingAvailable: false, billing: false });
+  assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '' }), { aiReadingAvailable: false, billing: false });
   assert.deepEqual(runtimeCapabilities({ ...configured, GEMINI_API_KEY: '', OPENROUTER_API_KEY: '' }), { aiReadingAvailable: false, billing: false });
   assert.deepEqual(runtimeCapabilities({ ...configured, BLOB_READ_WRITE_TOKEN: '' }), { aiReadingAvailable: false, billing: false });
 });
@@ -42,7 +42,7 @@ test('masked secrets, placeholder models and unmeasured policies cannot advertis
     { GEMINI_API_KEY: '[sensitive]' }, { GEMINI_API_KEY: 'redacted' },
     { GEMINI_MODEL: 'your-model' }, { GEMINI_MODEL: 'gemini-placeholder' },
   ]) {
-    assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: true, billing: true });
+    assert.deepEqual(runtimeCapabilities({ ...configured, ...overrides }), { aiReadingAvailable: false, billing: false });
   }
   for (const overrides of [
     { STRIPE_SECRET_KEY: '[sensitive]' }, { STRIPE_WEBHOOK_SECRET: '[sensitive]' },

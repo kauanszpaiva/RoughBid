@@ -242,7 +242,7 @@ export default function App() {
           queue = new ProjectSaveQueue<Project>(
             (updated) => {
               if (!canWriteRef.current) return Promise.reject(new Error("This workspace is read-only for your account."));
-              return updateRemoteProject(resolved.id, updated.remoteId!, projectPayload(updated));
+              return updateRemoteProject(activeWorkspace.id, updated.remoteId!, projectPayload(updated));
             },
             (id, state, error) => {
               if (!active) return;

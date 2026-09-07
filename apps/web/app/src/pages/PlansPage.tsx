@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Upload,
   History,
@@ -11,7 +11,7 @@ import {
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   canWrite?: boolean;
@@ -24,6 +24,8 @@ interface PlansPageProps {
   onOpenAIAssistant: () => void;
 }
 
+const PLAN_TRADES = ['Framing', 'Concrete', 'Drywall', 'Electrical', 'Plumbing', 'HVAC', 'Finishes'];
+
 export const PlansPage: React.FC<PlansPageProps> = ({
   canWrite = false,
   onAppendRevision,
@@ -35,8 +37,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   onOpenAIAssistant,
 }) => {
   const [readingQuote, setReadingQuote] = useState<ReadingQuote | null>(null);
+  const [selectedTrades, setSelectedTrades] = useState(PLAN_TRADES);
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
-  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) setAiReadingAvailable(value.aiReadingAvailable); }).catch(() => undefined); return () => { active = false; }; }, []);
+  const [billingAvailable, setBillingAvailable] = useState(false);
+  const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
+  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
   const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -52,8 +57,23 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
+  const contextRef = useRef('');
+  const contextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}:${selectedTrades.join(',')}`;
+  contextRef.current = contextKey;
 
-  useEffect(() => { setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+  useEffect(() => { setReadingQuote(null); setPlanNotice(null); setNeedsAiConsent(false); setIsStartingAi(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+  useEffect(() => { contextRef.current = contextKey; return () => { contextRef.current = ''; }; }, [contextKey]);
+
+  useEffect(() => {
+    let active = true;
+    setFindings([]);
+    if (workspaceId && currentRevision?.aiPlanJobId) {
+      getAiPlanReading(workspaceId, currentRevision.aiPlanJobId).then(job => {
+        if (active) setFindings(job.plan_reading_findings);
+      }).catch(error => { if (active) setPlanNotice(readableApiError(error)); });
+    }
+    return () => { active = false; };
+  }, [workspaceId, currentRevision?.id, currentRevision?.aiPlanJobId]);
 
   useEffect(() => {
     let canceled = false;
@@ -98,7 +118,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     if (!canWrite) return;
     if (!workspaceId || !project.remoteId || !readingQuote) return;
     setIsPaying(true);
-    try { window.location.assign((await payForReading(workspaceId, project.remoteId, readingQuote.id)).url); }
+    try { const checkout = await payForReading(workspaceId, project.remoteId, readingQuote.id); if (contextRef.current === contextKey) window.location.assign(checkout.url); }
     catch (error) { setPlanNotice(readableApiError(error)); }
     finally { setIsPaying(false); }
   };
@@ -208,22 +228,36 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     setNeedsAiConsent(false);
     try {
+      const quote = await getReadingQuote(workspaceId, project.remoteId, currentRevision.remoteFileId, project.projectType, selectedTrades);
+      if (contextRef.current !== contextKey) return;
+      setReadingQuote(quote);
+      if (quote.status === 'quoted') { setPlanNotice('Your project processing price is ready. Payment is required before analysis.'); return; }
+      if (quote.status === 'revoked') { setPlanNotice('Payment access was revoked. Contact support.'); return; }
+      if (quote.job_id && ['processing', 'complete'].includes(quote.status)) {
+        const existing = await getAiPlanReading(workspaceId, quote.job_id);
+        if (contextRef.current !== contextKey) return;
+        onPatchRevision(currentRevision.id, { aiPlanJobId: existing.id, aiPlanStatus: existing.status });
+        setFindings(existing.plan_reading_findings);
+        setPlanNotice(quote.status === 'complete' ? 'Your reading is ready to review.' : 'Your reading is still processing. Check again shortly.');
+        return;
+      }
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
+        quote_id: quote.id,
         mode: "quick",
         scope: project.projectType,
       });
+      if (contextRef.current !== contextKey) return;
+      setReadingQuote({ ...quote, job_id: job.id, status: job.status === 'failed' ? 'failed' : ['ready','needs_review'].includes(job.status) ? 'complete' : 'processing' });
+      setFindings(job.plan_reading_findings);
       onPatchRevision(currentRevision.id, { aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." });
       setPlanNotice(
         job.status === "failed"
           ? "AI plan reading failed. Open the AI Plan Assistant for details."
           : "AI plan reading complete — findings are ready to review."
       );
-      // The read is synchronous now, so results are already there — jump
-      // straight to the review modal instead of making the estimator click
-      // "AI Plan Assistant" again.
-      onOpenAIAssistant();
     } catch (error) {
+      if (contextRef.current !== contextKey) return;
       if (error instanceof ApiError && [403,409].includes(error.status) && /consent|accept AI|approved/i.test(error.message)) {
         setNeedsAiConsent(true);
         setPlanNotice("This workspace hasn't approved sending plan files to AI yet.");
@@ -231,7 +265,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         setPlanNotice(readableApiError(error));
       }
     } finally {
-      setIsStartingAi(false);
+      if (contextRef.current === contextKey) setIsStartingAi(false);
     }
   };
 
@@ -242,7 +276,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     try {
       await grantWorkspaceAiConsent(workspaceId);
       setNeedsAiConsent(false);
-      setPlanNotice("AI processing approved for this workspace. Click Start AI Plan Reading again.");
+      setPlanNotice("AI processing approved. Refresh payment & analysis to continue.");
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -293,20 +327,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
-      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950" aria-label="Your project steps">
-        <h2 className="font-bold mb-2">From your plan to a proposal</h2>
-        <ol className="grid sm:grid-cols-5 gap-2 text-xs">
-          {['1. Upload your PDF', '2. Review and mark the plan', '3. Add your quantities', '4. Enter your actual costs', '5. Export your proposal'].map(step => <li key={step}>{step}</li>)}
-        </ol>
-        <p className="mt-3 text-xs">The manual workflow uses no AI API. Optional AI reading requires availability, workspace approval, and a server-uploaded PDF.</p>
-      </section>
       {readingQuote && readingQuote.file_id === currentRevision?.remoteFileId && <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="Project payment">
-        <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Your plan reading</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
+        <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Project processing fee</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
           <strong className="text-xl">{new Intl.NumberFormat('en-US',{style:'currency',currency:readingQuote.currency}).format(readingQuote.amount_cents/100)}</strong></div>
         <p className="text-xs text-slate-600">Includes one completed reading and up to two attempts if processing fails. Changes to the plan or scope need a new price. Membership savings are included when active.</p>
-        <p className="text-sm">{readingQuote.status === 'quoted' ? 'Awaiting payment' : readingQuote.status === 'complete' ? 'Reading ready to review' : readingQuote.status === 'processing' ? 'Reading in progress' : readingQuote.status === 'failed' ? 'Reading failed — no substitute quantities were generated' : 'Payment confirmed'}</p>
+        <p className="text-sm">{readingQuote.status === 'quoted' ? 'Awaiting payment' : readingQuote.status === 'complete' ? 'Reading ready to review' : readingQuote.status === 'processing' ? 'Reading in progress' : readingQuote.status === 'failed' ? 'Reading failed — no substitute quantities were generated' : readingQuote.status === 'revoked' ? 'Payment access revoked' : 'Payment confirmed'}</p>
         <div className="flex gap-3 flex-wrap">
-          {readingQuote.status === 'quoted' && <button onClick={handlePay} disabled={!canWrite || isPaying} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button>}
+          {readingQuote.status === 'quoted' && <button onClick={handlePay} disabled={!canWrite || !billingAvailable || isPaying} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button>}
           <button onClick={handleStartAiReading} disabled={!canWrite || isStartingAi} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : 'Check payment & start'}</button>
         </div>
       </section>}
@@ -350,6 +377,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               previewError={previewError}
               onAnnotationsChange={(annotations) => onUpdateProject({ ...project, revisions: project.revisions.map(revision => revision.id === currentRevision.id ? { ...revision, annotations } : revision) })}
               canWrite={canWrite}
+              findings={findings}
             />
           ) : (
             <div className="h-[520px] bg-white border-2 border-dashed border-[#e5e7eb] rounded-xl flex flex-col items-center justify-center p-8 text-center">
@@ -456,6 +484,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <h3 className="text-xs font-bold text-[#111827] mb-3 uppercase tracking-wider">
               Actions
             </h3>
+            <fieldset disabled={!canWrite || isStartingAi || isPaying} className="pb-3 border-b border-slate-200">
+              <legend className="text-xs font-semibold mb-2">Analysis scope</legend>
+              <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => { setSelectedTrades(previous => e.target.checked ? [...previous, trade] : previous.filter(value => value !== trade)); setReadingQuote(null); }} />{trade}</label>)}</div>
+            </fieldset>
 
             {/* Upload New Revision */}
             <label className="w-full flex items-center justify-between px-3 py-2 bg-[#f9fafb] hover:bg-[#f3f4f6] border border-[#e5e7eb] rounded-lg text-xs font-medium text-[#111827] transition cursor-pointer">
@@ -477,19 +509,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             <button
               onClick={handleStartAiReading}
-              disabled={!canWrite || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              disabled={!canWrite || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
-                <span>Start AI Plan Reading</span>
+                <span>{readingQuote ? 'Refresh payment & analysis' : 'Calculate project price'}</span>
               </div>
               <span className="text-[10px] font-mono text-[#2563eb]">
-                {isStartingAi ? "Queueing..." : currentRevision?.aiPlanStatus || "Ready"}
+                {isStartingAi ? "Processing..." : currentRevision?.aiPlanStatus || ""}
               </span>
             </button>
 
-            {!aiReadingAvailable && <p className="text-xs leading-relaxed text-slate-500 px-1 py-2">AI reading is currently unavailable. You can review your PDF, add quantities and costs, and export your estimate manually.</p>}
+            {(!aiReadingAvailable || !billingAvailable) && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
 
             {needsAiConsent && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
