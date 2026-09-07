@@ -15,10 +15,9 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
       const storage = loadObjectStorageConfig(env);
       if (![storage.endpoint, storage.bucket, storage.accessKeyId, storage.secretAccessKey].every(isConfiguredValue)) return { aiReadingAvailable, billing };
     }
-    const hasFreeProvider = isConfiguredValue(env.OPENROUTER_API_KEY);
     let hasPaidProvider = false;
     try { requirePaidPlanReadingConfig(env); hasPaidProvider = true; } catch { /* Billing-gated provider is optional. */ }
-    aiReadingAvailable = hasFreeProvider || hasPaidProvider;
+    aiReadingAvailable = hasPaidProvider;
     if (!aiReadingAvailable) return { aiReadingAvailable, billing };
     const key = env.STRIPE_SECRET_KEY?.trim() || '';
     const live = env.STRIPE_MODE === 'live';

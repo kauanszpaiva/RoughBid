@@ -13,7 +13,6 @@ import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
-import { OpenRouterFreePlanReader } from '../ai-plan/openrouter.ts';
 import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
 import { runtimeCapabilities } from './capabilities.ts';
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
@@ -177,10 +176,6 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
       const readers = [];
-      if (process.env.OPENROUTER_API_KEY?.trim()) {
-        const openRouter = new OpenRouterFreePlanReader(process.env.OPENROUTER_API_KEY);
-        readers.push({ name: 'openrouter/free', read: (input: any) => openRouter.read(input) });
-      }
       try {
         const readingConfig = requirePaidPlanReadingConfig(process.env);
         const geminiClient = await createGeminiClient(readingConfig.apiKey);

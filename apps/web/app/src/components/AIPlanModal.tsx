@@ -118,17 +118,14 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     setFindingActionError(null);
     try {
       await setPlanReadingFindingStatus(workspaceId, finding.id, "accepted");
-      const pricing = finding.geometry?.pricing ?? [];
-      const materialCost = pricing.find((c) => c.category === "material")?.cost ?? 0;
-      const laborCost = pricing.find((c) => c.category === "labor")?.cost ?? 0;
       onAddQuantityItem(
         {
           name: finding.label,
           quantity: finding.quantity ?? 0,
           unit: normalizeUnit(finding.unit),
-          category: finding.finding_type === "labor" ? "AI Plan Reading — Labor" : "AI Plan Reading — Material",
+          category: finding.finding_type === "room" ? "Rooms & Areas" : finding.finding_type === "labor" ? "Labor" : "Plan Takeoff",
         },
-        pricing.length ? { materialCost, laborCost } : undefined
+        undefined
       );
       applyFindingStatus(finding.id, "accepted");
     } catch (error) {
@@ -165,9 +162,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   };
 
   const findings = job?.plan_reading_findings ?? [];
-  const priceableFindings = findings.filter((f) => f.finding_type === "material" || f.finding_type === "labor");
-  const noteFindings = findings.filter((f) => f.finding_type !== "material" && f.finding_type !== "labor");
-  const pricingSummary = job?.output_summary?.pricing;
+  const priceableFindings = findings.filter((f) => f.quantity !== null && f.quantity > 0 && f.unit && KNOWN_UNITS.includes(f.unit as UnitType));
+  const noteFindings = findings.filter((f) => !priceableFindings.includes(f));
 
   const renderAnalyzeTab = () => {
     if (!workspaceId) {
@@ -227,13 +223,6 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             Every item below came from the AI reading of your uploaded plan. Nothing here is final — accept or ignore each one
             before it becomes part of your estimate.
           </p>
-          {pricingSummary && (
-            <p className="text-xs text-[#1e40af] mt-2 font-medium">
-              Priced so far: ${pricingSummary.materialCost.toLocaleString()} material + ${pricingSummary.laborCost.toLocaleString()}{" "}
-              labor across {pricingSummary.pricedFindings} item(s)
-              {pricingSummary.unpricedFindings > 0 ? ` (${pricingSummary.unpricedFindings} need a manual price)` : ""}.
-            </p>
-          )}
         </div>
 
         {findingActionError && (
@@ -242,7 +231,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
         <div>
           <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
-            Materials & Labor (Requires Your Confirmation)
+            Quantities & Areas (Requires Your Confirmation)
           </h4>
           {priceableFindings.length === 0 ? (
             <p className="text-xs text-[#6b7280]">No materials or labor were identified on this plan.</p>
@@ -250,9 +239,6 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             <div className="space-y-2.5">
               {priceableFindings.map((finding) => {
                 const isPending = Boolean(pendingFindingIds[finding.id]);
-                const pricing = finding.geometry?.pricing ?? [];
-                const materialCost = pricing.find((c) => c.category === "material")?.cost;
-                const laborCost = pricing.find((c) => c.category === "labor")?.cost;
                 return (
                   <div
                     key={finding.id}
@@ -272,15 +258,6 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                             {" • "}
                           </>
                         ) : null}
-                        {materialCost != null || laborCost != null ? (
-                          <>
-                            {materialCost != null ? `$${materialCost.toLocaleString()} material` : ""}
-                            {materialCost != null && laborCost != null ? " + " : ""}
-                            {laborCost != null ? `$${laborCost.toLocaleString()} labor` : ""}
-                          </>
-                        ) : (
-                          <span className="italic">needs a manual price</span>
-                        )}
                         {finding.source_excerpt ? ` • ${finding.source_excerpt}` : ""}
                         {finding.page_number ? ` (Sheet ${finding.page_number})` : ""}
                       </div>
@@ -409,7 +386,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         {/* Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 text-xs">
           {/* TAB 1: Plan Analysis — driven by the real plan_reading_jobs/findings */}
-          {activeTab === "analyze" && <p className="rounded-lg bg-amber-50 p-3 text-amber-900">Check every quantity against its source page. Any reference prices shown are provisional; confirm supplier and labor rates before bidding.</p>}
+          {activeTab === "analyze" && <p className="rounded-lg bg-amber-50 p-3 text-amber-900">Review quantities and area boundaries against the source page before accepting them.</p>}
           {activeTab === "analyze" && renderAnalyzeTab()}
 
           {activeTab === "missing" && (

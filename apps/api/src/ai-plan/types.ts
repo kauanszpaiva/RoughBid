@@ -45,6 +45,17 @@ export interface PlanReadingResult {
 
 const MAX_FINDINGS = 200;
 
+/** Only normalized PDF coordinates survive; provider pricing is never persisted. */
+export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object') return {};
+  const input = raw as Record<string, unknown>;
+  const box = input.bbox;
+  if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return {};
+  const [x, y, width, height] = box as number[];
+  if (!width || !height || x! + width > 1 || y! + height > 1) return {};
+  return { bbox: box, coordinate_space: 'normalized', ...(typeof input.area === 'string' ? { area: input.area.trim().slice(0, 100) } : {}) };
+}
+
 /**
  * Cleans raw model (or fallback-generator) output into safe, storable
  * findings — the same hard validation rule an untrusted model output needs
@@ -96,7 +107,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       quantity: hasQuantity ? Math.round((item.quantity as number) * 100) / 100 : null,
       unit: hasQuantity ? unit : null,
       confidence,
-      geometry: (item.geometry && typeof item.geometry === 'object') ? item.geometry as Record<string, unknown> : {},
+      geometry: pageNumber && sourceExcerpt ? sanitizePlanGeometry(item.geometry) : {},
       source_excerpt: sourceExcerpt,
     });
   }

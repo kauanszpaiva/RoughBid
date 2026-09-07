@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GeminiPlanReader } from '../src/ai-plan/gemini.ts';
+import { GeminiPlanReader, MAX_INLINE_PLAN_BYTES } from '../src/ai-plan/gemini.ts';
 import { sanitizePlanReadingResult } from '../src/ai-plan/types.ts';
 
 const baseInput = {
@@ -10,6 +10,41 @@ const baseInput = {
   requestedTrades: ['Framing', 'Concrete'],
   scope: 'Residential addition',
 };
+
+test('large plans use the Files API and remove the temporary provider file after reading', async () => {
+  let uploaded = false;
+  let deleted = false;
+  const client = {
+    files: {
+      upload: async ({file}: {file: Blob}) => { uploaded = true; assert.equal(file.size,MAX_INLINE_PLAN_BYTES+1); return {name:'files/test',uri:'https://provider.test/test',state:'ACTIVE'}; },
+      get: async () => { throw new Error('Active files do not need polling'); },
+      delete: async ({name}: {name:string}) => { assert.equal(name,'files/test'); deleted = true; },
+    },
+    generateContent: async ({contents}: {contents: unknown[]}) => {
+      assert.equal(uploaded,true);
+      assert.ok(contents.some((c:any) => c.fileData?.fileUri === 'https://provider.test/test'));
+      assert.ok(!contents.some((c:any) => c.inlineData));
+      return {text:JSON.stringify({summary:{sheet_count:1},findings:[{finding_type:'room',page_number:1,label:'Kitchen',source_excerpt:'KITCHEN',geometry:{bbox:[0.1,0.1,0.2,0.2]}}]})};
+    },
+  };
+  const result = await new GeminiPlanReader(client,['test-model']).read({...baseInput,fileBytes:new Uint8Array(MAX_INLINE_PLAN_BYTES+1)});
+  assert.equal(result.findings[0]?.finding_type,'room');
+  assert.equal(deleted,true);
+});
+
+test('a failed large-file preparation is cleaned up without inference', async () => {
+  let deleted = false;
+  const client = {
+    files: {
+      upload: async () => ({name:'files/test',state:'FAILED'}),
+      get: async () => ({name:'files/test',state:'FAILED'}),
+      delete: async () => {deleted=true;},
+    },
+    generateContent: async () => {throw new Error('Unexpected inference');},
+  };
+  await assert.rejects(new GeminiPlanReader(client,['test-model']).read({...baseInput,fileBytes:new Uint8Array(MAX_INLINE_PLAN_BYTES+1)}),/could not be prepared/);
+  assert.equal(deleted,true);
+});
 
 test('reads a plan via the injected Gemini client and returns its findings', async () => {
   let calledWith: { model: string; contents: unknown[] } | undefined;
