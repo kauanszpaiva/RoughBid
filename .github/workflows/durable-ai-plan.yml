@@ -1,0 +1,27 @@
+name: Durable AI Plan Gate
+
+on:
+  push:
+    branches:
+      - codex/durable-ai-plan-worker
+  pull_request:
+    paths:
+      - 'apps/api/src/ai-plan/**'
+      - 'apps/api/test/ai-plan-durable.test.ts'
+      - 'scripts/worker.ts'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'Dockerfile.worker'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Durable AI plan regression
+        run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
