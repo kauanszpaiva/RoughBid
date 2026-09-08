@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
+import { presentAiPlanStatus } from "../utils/aiPlanStatus";
 import { BlueprintViewer } from "../components/BlueprintViewer";
 import { getAiPlanEntitlement, getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
@@ -253,22 +254,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       });
       if (contextRef.current !== contextKey) return;
       setFindings(job.plan_reading_findings);
-      // A re-used reservation can hand back a job that is still queued or
-      // processing. Only needs_review/ready are actually finished, so anything
-      // else must read as pending rather than claiming completed findings.
-      const finished = job.status === "needs_review" || job.status === "ready";
+      const presentation = presentAiPlanStatus(job.status);
       onPatchRevision(currentRevision.id, {
         aiPlanJobId: job.id,
         aiPlanStatus: job.status,
-        ...(finished ? { notes: "AI plan reading complete. Review findings before adding them." } : {}),
+        ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
       });
-      setPlanNotice(
-        job.status === "failed"
-          ? "AI plan reading failed. Open the AI Plan Assistant for details."
-          : finished
-            ? "AI plan reading complete — findings are ready to review."
-            : "AI plan reading is still processing. Check again shortly."
-      );
+      setPlanNotice(presentation.notice);
     } catch (error) {
       if (contextRef.current !== contextKey) return;
       if (error instanceof ApiError && [403,409].includes(error.status) && /consent|accept AI|approved/i.test(error.message)) {
@@ -300,9 +292,14 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       if (quote.job_id && ['processing', 'complete'].includes(quote.status)) {
         const existing = await getAiPlanReading(workspaceId, quote.job_id);
         if (contextRef.current !== contextKey) return;
-        onPatchRevision(currentRevision.id, { aiPlanJobId: existing.id, aiPlanStatus: existing.status });
+        const presentation = presentAiPlanStatus(existing.status);
+        onPatchRevision(currentRevision.id, {
+          aiPlanJobId: existing.id,
+          aiPlanStatus: existing.status,
+          ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
+        });
         setFindings(existing.plan_reading_findings);
-        setPlanNotice(quote.status === 'complete' ? 'Your reading is ready to review.' : 'Your reading is still processing. Check again shortly.');
+        setPlanNotice(presentation.notice);
         return;
       }
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
@@ -312,14 +309,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         scope: project.projectType,
       });
       if (contextRef.current !== contextKey) return;
-      setReadingQuote({ ...quote, job_id: job.id, status: job.status === 'failed' ? 'failed' : ['ready','needs_review'].includes(job.status) ? 'complete' : 'processing' });
+      const presentation = presentAiPlanStatus(job.status);
+      setReadingQuote({ ...quote, job_id: job.id, status: job.status === 'failed' ? 'failed' : presentation.finished ? 'complete' : 'processing' });
       setFindings(job.plan_reading_findings);
-      onPatchRevision(currentRevision.id, { aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." });
-      setPlanNotice(
-        job.status === "failed"
-          ? "AI plan reading failed. Open the AI Plan Assistant for details."
-          : "AI plan reading complete — findings are ready to review."
-      );
+      onPatchRevision(currentRevision.id, {
+        aiPlanJobId: job.id,
+        aiPlanStatus: job.status,
+        ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
+      });
+      setPlanNotice(presentation.notice);
     } catch (error) {
       if (contextRef.current !== contextKey) return;
       if (error instanceof ApiError && [403,409].includes(error.status) && /consent|accept AI|approved/i.test(error.message)) {
