@@ -10,6 +10,7 @@ import { StripeHttpGateway, SupabaseBillingRepository } from '../billing/adapter
 import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
+import { createDurableAiPlanQueue, type DurableAiPlanQueue } from '../ai-plan/durable.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
@@ -173,6 +174,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     if (!supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
+    let durableQueue: DurableAiPlanQueue | undefined;
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
@@ -201,16 +203,30 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       if (!readers.length && !freeReader && isCreateReading) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
+      if (isCreateReading && process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
+        const redisUrl = process.env.REDIS_URL?.trim();
+        if (!redisUrl) return json({ error: 'Durable AI plan queue is not configured. No job was queued.' }, 503);
+        durableQueue = await createDurableAiPlanQueue(redisUrl);
+      }
       const reader = readers.length
         ? new MultiProviderPlanReader(readers)
         : { read: async () => { throw new Error(PLAN_READING_UNAVAILABLE); } };
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;
-      const deps: AiPlanRequestDependencies = { findingsWriter, storage, reader, freeReader };
-      return handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
+      const deps: AiPlanRequestDependencies = {
+        findingsWriter,
+        storage,
+        reader,
+        freeReader,
+        paidReaderAvailable: readers.length > 0,
+        ...(durableQueue ? { durableQueue } : {}),
+      };
+      return await handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);
+    } finally {
+      await durableQueue?.close?.().catch(() => {});
     }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {

@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { assertPublicBuildConfig } from './build-public-config.mjs';
+import { resolvePublicBuildConfig } from './build-public-config.mjs';
 
-assertPublicBuildConfig(process.env);
+const publicConfig = resolvePublicBuildConfig(process.env);
+process.env.VITE_SUPABASE_URL = publicConfig.url;
+process.env.VITE_SUPABASE_PUBLISHABLE_KEY = publicConfig.publishableKey;
 
 await rm(new URL('../dist', import.meta.url), { recursive: true, force: true });
 

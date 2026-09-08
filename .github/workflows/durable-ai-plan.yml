@@ -1,0 +1,47 @@
+name: Durable AI Plan Gate
+
+on:
+  push:
+    branches:
+      - codex/durable-ai-plan-worker
+  pull_request:
+    paths:
+      - 'apps/api/src/ai-plan/**'
+      - 'apps/api/src/http/handler.ts'
+      - 'apps/api/test/ai-plan-durable.test.ts'
+      - 'apps/web/app/src/pages/PlansPage.tsx'
+      - 'apps/web/app/src/utils/aiPlanStatus.ts'
+      - 'apps/web/test/ai-plan-status.test.ts'
+      - 'scripts/worker.ts'
+      - 'supabase/migrations/**'
+      - 'supabase/test/durable-ai-plan*.test.mjs'
+      - 'package.json'
+      - 'Dockerfile.worker'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Durable API contract
+        run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
+      - name: Durable database state machine and lease recovery
+        run: node --test supabase/test/durable-ai-plan.test.mjs supabase/test/durable-ai-plan-lease.test.mjs
+      - name: Durable UI status contract
+        run: node --experimental-strip-types --test apps/web/test/ai-plan-status.test.ts
+      - name: Backend and worker typecheck
+        run: npx tsc --noEmit
+      - name: Web app typecheck
+        run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Full monorepo test suite
+        run: npm test
+      - name: Production build with compile-only public config
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
