@@ -1,6 +1,7 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
+import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 
 /** Shared by every PDF-native reader (Gemini, Claude) — both take the raw uploaded PDF inline, no page-rendering step. */
 export interface GeminiPlanReadInput {
@@ -96,7 +97,11 @@ export class GeminiPlanReader {
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     this.assertReady();
-    const prepared = await preparePlan(this.client!, input);
+    const preparationStarted=Date.now();
+    const prepared = await preparePlan(this.client!, input).catch(error=>{
+      const failure=classifyProviderFailure(error,{provider:'gemini',model:this.models[0]??'',stage:'prepare_file',durationMs:Date.now()-preparationStarted},'provider_file_preparation');
+      logProviderFailure(failure);throw failure;
+    });
     try {
     const contents = [
       { text: userPrompt(input.scope) },
@@ -104,8 +109,11 @@ export class GeminiPlanReader {
     ];
 
     let rawResult: unknown = null;
+    let lastFailure:AiProviderError|null=null;
     if (this.client) {
       for (const model of this.models) {
+        const started=Date.now();
+        let stage:'generate'|'parse'|'validate'='generate';
         try {
           const response = await this.client.generateContent({
             model,
@@ -118,13 +126,18 @@ export class GeminiPlanReader {
               httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
             },
           });
+          stage='parse';
           const parsed = JSON.parse(response.text || '{}') as { findings?: unknown };
+          stage='validate';
           if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
             rawResult = parsed;
             break;
           }
-        } catch {
-          // Try the next candidate model.
+          lastFailure=new AiProviderError('provider_empty_output',{provider:'gemini',model,stage,durationMs:Date.now()-started});
+          logProviderFailure(lastFailure);
+        } catch (error) {
+          lastFailure=classifyProviderFailure(error,{provider:'gemini',model,stage,durationMs:Date.now()-started},stage==='parse'?'provider_invalid_output':'provider_unknown');
+          logProviderFailure(lastFailure);
         }
       }
     }
@@ -132,9 +145,11 @@ export class GeminiPlanReader {
     if (rawResult) {
       const result = sanitizePlanReadingResult(rawResult);
       if (result.findings.length) return result;
+      lastFailure=new AiProviderError('provider_empty_output',{provider:'gemini',model:this.models[0]??'',stage:'validate',durationMs:0});
+      logProviderFailure(lastFailure);
     }
 
-    throw new Error('Gemini could not read this plan. No quantities were generated. Please retry or contact support.');
+    throw lastFailure??new AiProviderError('provider_unknown',{provider:'gemini',model:this.models[0]??'',stage:'generate',durationMs:0});
     } finally { await prepared.dispose().catch(() => console.warn('Temporary Gemini file cleanup could not be confirmed.')); }
   }
 

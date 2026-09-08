@@ -37,9 +37,9 @@ export const AuthGate: React.FC = () => {
     <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-4 py-8 font-sans text-slate-900">
       <div className="w-full max-w-[440px]">
         <div className="text-center mb-5">
-          <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-16 h-16 mx-auto object-contain bg-white rounded-xl shadow-xs border border-slate-200" />
-          <h1 className="text-2xl font-extrabold tracking-tight mt-3">RoughBid</h1>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mt-1">
+          <img src="/brand/roughbid-logo.png" alt="RoughBid" className="w-60 max-w-full h-16 mx-auto object-contain" />
+          <h1 className="sr-only">RoughBid</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mt-3">
             Construction estimating & takeoff platform
           </p>
         </div>

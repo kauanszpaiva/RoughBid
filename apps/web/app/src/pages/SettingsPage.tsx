@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Save, Percent, User, Shield, Check, BrainCircuit, Loader2 } from "lucide-react";
 import { UserProfile } from "../types";
 import { grantWorkspaceAiConsent, listWorkspaces, type Workspace } from "../services/api";
+import { ownerProfileImage } from "../utils/branding";
 
 interface SettingsPageProps {
   user: UserProfile;
@@ -78,6 +79,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
 
   const ownsCurrentWorkspace = currentWorkspace?.createdBy === user.id;
   const aiConsented = Boolean(currentWorkspace?.aiProcessingConsentedAt);
+  const ownerAvatar = ownerProfileImage(user.email);
 
   return (
     <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
@@ -102,7 +104,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600" />
+            {ownerAvatar
+              ? <img src={ownerAvatar} alt="RoughBid owner profile" className="w-11 h-11 shrink-0 rounded-full border border-slate-200 bg-white p-1 object-contain" />
+              : <User className="w-4 h-4 text-blue-600" />}
             <span>Estimator & Company Information</span>
           </h2>
 

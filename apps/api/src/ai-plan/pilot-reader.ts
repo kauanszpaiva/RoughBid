@@ -2,6 +2,7 @@ import { ProjectApiError } from '../projects/service.ts';
 import { systemPrompt, type GeminiGenerateContentClient, type GeminiPlanReadInput } from './gemini.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { isConfiguredValue } from './readiness.ts';
+import { runProviderOperation } from './provider-errors.ts';
 
 // Pinned pricing and a single request: no model fallback, tools, caching or retries.
 // https://ai.google.dev/gemini-api/docs/pricing (verified 2026-09-08)
@@ -39,17 +40,18 @@ export class PilotPlanReader {
       { text: `${instruction}\nRead the attached plan. Project scope: ${(input.scope || '').slice(0, 500)}` },
       { inlineData: { mimeType: 'application/pdf', data: Buffer.from(input.fileBytes).toString('base64') } },
     ] }];
-    const counted = await this.client.countTokens!({ model: PILOT_MODEL, contents, config: { httpOptions: { timeout: 30_000, retryOptions: { attempts: 1 } } } });
+    const counted = await runProviderOperation('gemini',PILOT_MODEL,'count_tokens',()=>this.client.countTokens!({ model: PILOT_MODEL, contents, config: { httpOptions: { timeout: 30_000, retryOptions: { attempts: 1 } } } }));
     if (!Number.isSafeInteger(counted.totalTokens) || counted.totalTokens! < 1 || counted.totalTokens! > PILOT_MAX_INPUT_TOKENS) {
       throw new ProjectApiError(413, 'This PDF exceeds the pilot analysis size. Use a smaller, simpler plan.');
     }
     // $0.30/M input + $2.50/M output = <= $0.01984, below the $0.25 reserve.
-    const response = await this.client.generateContent({ model: PILOT_MODEL, contents, config: {
+    const response = await runProviderOperation('gemini',PILOT_MODEL,'generate',()=>this.client.generateContent({ model: PILOT_MODEL, contents, config: {
       responseMimeType: 'application/json', temperature: 0.1,
       maxOutputTokens: PILOT_MAX_OUTPUT_TOKENS, thinkingConfig: { thinkingBudget: 0 },
       httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
-    } });
-    const result = sanitizePlanReadingResult(JSON.parse(response.text || '{}'));
+    } }));
+    const parsed = await runProviderOperation('gemini',PILOT_MODEL,'parse',async()=>JSON.parse(response.text || '{}'));
+    const result = sanitizePlanReadingResult(parsed);
     if (!result.findings.length) throw new Error('No usable pilot findings were returned. The attempt remains counted to protect the pilot budget.');
     const usage = (response as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number } }).usageMetadata;
     return { ...result, summary: { ...result.summary, pilot_usage: {

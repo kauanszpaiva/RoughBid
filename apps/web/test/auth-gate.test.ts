@@ -16,7 +16,7 @@ test('auth gate offers sign-in and account creation without password storage', (
   assert.match(authGate, /requestMagicLink/);
   assert.match(authGate, /No password to remember/);
   assert.match(authGate, /Supabase Auth is configured/);
-  assert.match(authGate, /\/brand\/roughbid-icon\.png/);
+  assert.match(authGate, /\/brand\/roughbid-logo\.png/);
   assert.doesNotMatch(authGate, /signInWithOtp|PrimeBid|Class Pass|60\s+days/i);
 });
 
