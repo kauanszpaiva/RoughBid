@@ -26,7 +26,12 @@ function required(name: string): string {
   return value;
 }
 
-async function buildReaders(): Promise<{ paidReader: PlanReader; freeReader?: PlanReader; providerCount: number }> {
+async function buildReaders(): Promise<{
+  paidReader: PlanReader;
+  freeReader?: PlanReader;
+  paidEnabled: boolean;
+  freeEnabled: boolean;
+}> {
   const paid = [];
   try {
     const config = requirePaidPlanReadingConfig(process.env);
@@ -47,7 +52,12 @@ async function buildReaders(): Promise<{ paidReader: PlanReader; freeReader?: Pl
   const paidReader: PlanReader = paid.length
     ? new MultiProviderPlanReader(paid)
     : { assertReady: () => { throw new Error(PLAN_READING_UNAVAILABLE); }, read: async () => { throw new Error(PLAN_READING_UNAVAILABLE); } };
-  return { paidReader, freeReader, providerCount: paid.length + (freeReader ? 1 : 0) };
+  return {
+    paidReader,
+    freeReader,
+    paidEnabled: paid.length > 0,
+    freeEnabled: Boolean(freeReader),
+  };
 }
 
 async function main() {
@@ -68,8 +78,8 @@ async function main() {
   let aiWorker: Worker | undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
-    const { paidReader, freeReader, providerCount } = await buildReaders();
-    if (!providerCount) throw new Error('AI_PLAN_DURABLE_ENABLED=true but no authorized AI provider is configured on the worker.');
+    const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
+    if (!paidEnabled && !freeEnabled) throw new Error('AI_PLAN_DURABLE_ENABLED=true but no authorized AI provider is configured on the worker.');
     const workerId = (process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || `roughbid-${crypto.randomUUID()}`).slice(0, 160);
     const processor = new DurableAiPlanJobProcessor(
       db as unknown as PlanReadingFindingsWriter,
@@ -90,12 +100,16 @@ async function main() {
     await aiWorker.waitUntilReady();
 
     const touch = async () => {
-      const result = await db.rpc('touch_ai_plan_worker', { p_worker_id: workerId });
+      const result = await db.rpc('touch_ai_plan_worker', {
+        p_worker_id: workerId,
+        p_paid_enabled: paidEnabled,
+        p_free_enabled: freeEnabled,
+      });
       if (result.error) console.error('[worker] ai-plan heartbeat failed', { message: result.error.message });
     };
     await touch();
     workerHeartbeat = setInterval(() => { void touch(); }, 30_000);
-    console.log('[worker] ai-plan-reading queue attached', { workerId });
+    console.log('[worker] ai-plan-reading queue attached', { workerId, paidEnabled, freeEnabled });
   }
 
   let shuttingDown = false;
