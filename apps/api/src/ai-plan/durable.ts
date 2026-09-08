@@ -5,11 +5,15 @@ import { requireFreeProviderConfig } from './free-provider.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
 import type { PlanReadingResult } from './types.ts';
 
-export const AI_PLAN_QUEUE = 'ai-plan-reading';
 export type DurableEntitlement = 'paid' | 'owner_free';
+export const AI_PLAN_QUEUES: Record<DurableEntitlement, string> = {
+  paid: 'ai-plan-reading-paid',
+  owner_free: 'ai-plan-reading-owner-free',
+};
+export const aiPlanQueueName = (entitlement: DurableEntitlement) => AI_PLAN_QUEUES[entitlement];
 
 export interface DurableAiPlanQueue {
-  isWorkerAvailable(): Promise<boolean>;
+  isWorkerAvailable(entitlement: DurableEntitlement): Promise<boolean>;
   add(jobId: string, entitlement: DurableEntitlement): Promise<unknown>;
   close?(): Promise<void>;
 }
@@ -28,22 +32,24 @@ export async function createDurableAiPlanQueue(
 ): Promise<DurableAiPlanQueue> {
   if (!redisUrl) throw new Error('REDIS_URL is required for durable AI plan reading.');
   const bull = await loader();
-  const queue = new bull.Queue(AI_PLAN_QUEUE, {
-    connection: {
-      url: redisUrl,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-      connectTimeout: 5_000,
-      retryStrategy: () => null,
-    },
-  });
+  const connection = {
+    url: redisUrl,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    connectTimeout: 5_000,
+    retryStrategy: () => null,
+  };
+  const queues = {
+    paid: new bull.Queue(AI_PLAN_QUEUES.paid, { connection }),
+    owner_free: new bull.Queue(AI_PLAN_QUEUES.owner_free, { connection }),
+  };
   return {
-    async isWorkerAvailable() {
-      try { return (await queue.getWorkers()).length > 0; }
+    async isWorkerAvailable(entitlement) {
+      try { return (await queues[entitlement].getWorkers()).length > 0; }
       catch { return false; }
     },
     add(jobId, entitlement) {
-      return queue.add('read-plan', { jobId }, {
+      return queues[entitlement].add('read-plan', { jobId }, {
         jobId,
         attempts: entitlement === 'owner_free' ? 1 : 2,
         backoff: { type: 'exponential', delay: 5_000 },
@@ -51,7 +57,9 @@ export async function createDurableAiPlanQueue(
         removeOnFail: 1000,
       });
     },
-    close: () => queue.close(),
+    async close() {
+      await Promise.allSettled([queues.paid.close(), queues.owner_free.close()]);
+    },
   };
 }
 
@@ -115,7 +123,7 @@ export class DurableAiPlanReadingService {
     const freeOwner = isFreeOwnerWorkspace(this.workspaceId, process.env);
     const entitlement: DurableEntitlement = freeOwner ? 'owner_free' : 'paid';
     const heartbeat = await this.writer.rpc('ai_plan_worker_available', { p_entitlement: entitlement });
-    if (heartbeat.error || heartbeat.data !== true || !(await this.queue.isWorkerAvailable())) {
+    if (heartbeat.error || heartbeat.data !== true || !(await this.queue.isWorkerAvailable(entitlement))) {
       throw new ProjectApiError(503, `A live durable worker with ${entitlement === 'paid' ? 'paid' : 'owner-free'} provider access is not available. No job was queued.`);
     }
 
@@ -245,7 +253,7 @@ export class DurableAiPlanJobProcessor {
       if (result.error || result.data !== true) canceled = true;
       return !canceled;
     };
-    const timer = setInterval(() => { void heartbeat(); }, 20_000);
+    const timer = setInterval(() => { void heartbeat(); }, 10_000);
 
     try {
       const checkpoint = context.checkpoint?.provider_result as PlanReadingResult | undefined;
