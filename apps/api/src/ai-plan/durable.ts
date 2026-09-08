@@ -112,15 +112,14 @@ export class DurableAiPlanReadingService {
       throw new ProjectApiError(409, 'Plan file must finish uploading before AI reading can start');
     }
 
-    const heartbeat = await this.writer.rpc('ai_plan_worker_available', {});
-    if (heartbeat.error || heartbeat.data !== true || !(await this.queue.isWorkerAvailable())) {
-      throw new ProjectApiError(503, 'Durable AI plan worker is not available. No job was queued.');
-    }
-
     const freeOwner = isFreeOwnerWorkspace(this.workspaceId, process.env);
     const entitlement: DurableEntitlement = freeOwner ? 'owner_free' : 'paid';
-    let reserved: any;
+    const heartbeat = await this.writer.rpc('ai_plan_worker_available', { p_entitlement: entitlement });
+    if (heartbeat.error || heartbeat.data !== true || !(await this.queue.isWorkerAvailable())) {
+      throw new ProjectApiError(503, `A live durable worker with ${entitlement === 'paid' ? 'paid' : 'owner-free'} provider access is not available. No job was queued.`);
+    }
 
+    let reserved: any;
     if (freeOwner) {
       const config = requireFreeProviderConfig(process.env);
       const normalized = normalizeScope(input);
@@ -175,7 +174,7 @@ export class DurableAiPlanReadingService {
       try {
         await this.writer.rpc('rollback_ai_plan_enqueue', { p_job_id: payload.job.id, p_user_id: this.userId });
       } catch { /* Queue failure remains fail-closed even if compensation reporting fails. */ }
-      throw new ProjectApiError(503, 'AI plan queue is unavailable. The reservation was released and no provider call was made.');
+      throw new ProjectApiError(503, 'AI plan queue is unavailable. No provider call was made; check the job state before retrying.');
     }
     return normalizedJob(payload.job);
   }
