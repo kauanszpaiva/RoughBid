@@ -1,7 +1,6 @@
--- Keep the database lease shorter than the BullMQ worker lock (30s).
--- If a worker dies, BullMQ can re-deliver the stalled job only after this
--- database lease is already reclaimable instead of burning a retry on a stale
--- lease owned by the dead process.
+-- Keep the database lease well below the BullMQ worker lock (30s).
+-- If a worker dies, BullMQ can re-deliver the stalled job after this database
+-- lease is already reclaimable instead of burning a retry on a stale lease.
 
 create or replace function public.claim_ai_plan_reading(p_job_id uuid, p_worker_id text)
 returns jsonb language plpgsql security definer set search_path = public, private, pg_temp as $$
@@ -33,7 +32,7 @@ declare j public.plan_reading_jobs; q public.project_reading_quotes; f public.pr
 
   lease := gen_random_uuid();
   update public.plan_reading_jobs set status='processing',worker_id=trim(p_worker_id),worker_lease_id=lease,
-    worker_lease_expires_at=now()+interval '25 seconds',worker_heartbeat_at=now(),worker_attempt=worker_attempt+1,
+    worker_lease_expires_at=now()+interval '15 seconds',worker_heartbeat_at=now(),worker_attempt=worker_attempt+1,
     started_at=coalesce(started_at,now()),processing_error=null
     where id=j.id returning * into j;
 
@@ -51,7 +50,7 @@ end $$;
 create or replace function public.heartbeat_ai_plan_reading(p_job_id uuid, p_lease_id uuid, p_worker_id text)
 returns boolean language plpgsql security definer set search_path = public, private, pg_temp as $$
 begin
-  update public.plan_reading_jobs set worker_heartbeat_at=now(),worker_lease_expires_at=now()+interval '25 seconds'
+  update public.plan_reading_jobs set worker_heartbeat_at=now(),worker_lease_expires_at=now()+interval '15 seconds'
     where id=p_job_id and worker_lease_id=p_lease_id and worker_id=p_worker_id and status='processing' and cancel_requested_at is null;
   return found;
 end $$;
