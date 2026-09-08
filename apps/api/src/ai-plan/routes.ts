@@ -9,6 +9,7 @@ import {
 import { DurableAiPlanReadingService, type DurableAiPlanQueue } from './durable.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { isFreeProviderConfigured } from './free-provider.ts';
+import { hasPlatformAdminProjectAccess, isPlatformAdmin } from '../access/platform-admin.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -43,6 +44,15 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
+      // Platform owner testing remains synchronous even if durable mode is
+      // enabled later. The durable paid queue currently requires a paid quote;
+      // forcing an admin through it would either charge the owner or weaken the
+      // queue's payment invariant. The service below uses the real paid reader
+      // with a dedicated no-charge reservation instead.
+      if (await isPlatformAdmin(db, data.user.id)) {
+        if (deps.paidReaderAvailable === false) throw new ProjectApiError(503, 'The paid plan-reading provider is not configured. No job was started.');
+        return json(await service.create(parts[1], await request.json()), 201);
+      }
       if (durableEnabled) {
         if (!deps.durableQueue) throw new ProjectApiError(503, 'Durable AI plan queue is not configured. No job was queued.');
         const freeOwner = isFreeOwnerWorkspace(workspaceId, process.env);
@@ -57,9 +67,14 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       return json(await service.create(parts[1], await request.json()), 201);
     }
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
-      // Per-caller, database-backed answer. The workspace header alone proves
-      // nothing, so the allowlist, workspace ownership, project tenancy, role and
-      // consent are all re-checked in SQL against the AUTHENTICATED user id.
+      // Platform-admin complimentary access deliberately uses the paid provider,
+      // but still requires the caller to be an admin/estimator in this workspace,
+      // the project to belong to it, and AI consent to already exist.
+      if (deps.paidReaderAvailable !== false && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
+        return json({ freeReadingAvailable: true });
+      }
+
+      // Per-caller, database-backed answer for the isolated owner-free provider.
       let configured = isFreeOwnerWorkspace(workspaceId, process.env)
         && isFreeProviderConfigured(process.env)
         && Boolean(deps.freeReader);
