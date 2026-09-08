@@ -1,11 +1,14 @@
-import React, { useState } from "react";
-import { Settings, Save, Building, Percent, User, Shield, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Save, Percent, User, Shield, Check, BrainCircuit, Loader2 } from "lucide-react";
 import { UserProfile } from "../types";
+import { grantWorkspaceAiConsent, listWorkspaces, type Workspace } from "../services/api";
 
 interface SettingsPageProps {
   user: UserProfile;
   onUpdateUser: (updated: UserProfile) => void;
 }
+
+const selectedWorkspaceKey = (userId: string) => `roughbid_selected_workspace_v1:${encodeURIComponent(userId)}`;
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }) => {
   const [name, setName] = useState(user.name);
@@ -15,6 +18,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
   const [defaultOverhead, setDefaultOverhead] = useState(user.defaultOverhead);
   const [defaultMarkup, setDefaultMarkup] = useState(user.defaultMarkup);
   const [saved, setSaved] = useState(false);
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
+  const [aiConsentLoading, setAiConsentLoading] = useState(true);
+  const [aiConsentSaving, setAiConsentSaving] = useState(false);
+  const [aiConsentError, setAiConsentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setAiConsentLoading(true);
+    setAiConsentError(null);
+    listWorkspaces()
+      .then((workspaces) => {
+        if (!active) return;
+        let selectedWorkspaceId: string | null = null;
+        try { selectedWorkspaceId = localStorage.getItem(selectedWorkspaceKey(user.id)); }
+        catch { /* The server list remains authoritative if browser storage is unavailable. */ }
+        const selected = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)
+          ?? workspaces.find((workspace) => workspace.createdBy === user.id && workspace.role === "admin")
+          ?? workspaces[0]
+          ?? null;
+        setCurrentWorkspace(selected);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setAiConsentError(error instanceof Error ? error.message : "Workspace AI settings could not be loaded.");
+      })
+      .finally(() => { if (active) setAiConsentLoading(false); });
+    return () => { active = false; };
+  }, [user.id]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +61,23 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
+
+  const handleGrantAiConsent = async () => {
+    if (!currentWorkspace || currentWorkspace.createdBy !== user.id || currentWorkspace.aiProcessingConsentedAt) return;
+    setAiConsentSaving(true);
+    setAiConsentError(null);
+    try {
+      const updated = await grantWorkspaceAiConsent(currentWorkspace.id);
+      setCurrentWorkspace({ ...updated, role: currentWorkspace.role });
+    } catch (error) {
+      setAiConsentError(error instanceof Error ? error.message : "AI plan reading could not be enabled for this workspace.");
+    } finally {
+      setAiConsentSaving(false);
+    }
+  };
+
+  const ownsCurrentWorkspace = currentWorkspace?.createdBy === user.id;
+  const aiConsented = Boolean(currentWorkspace?.aiProcessingConsentedAt);
 
   return (
     <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
@@ -52,7 +100,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
-        {/* Estimator Profile Card */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <User className="w-4 h-4 text-blue-600" />
@@ -114,7 +161,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
           </div>
         </div>
 
-        {/* Default Financial Rates */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <Percent className="w-4 h-4 text-blue-600" />
@@ -159,7 +205,59 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
           </div>
         </div>
 
-        {/* RoughBid account status */}
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 shrink-0 rounded-lg bg-violet-50 text-violet-700 flex items-center justify-center">
+              <BrainCircuit className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-[14px] font-bold text-slate-900">AI plan reading</h3>
+                  <p className="text-[12px] text-slate-500 mt-0.5">
+                    {currentWorkspace ? `Workspace: ${currentWorkspace.name}` : "Current workspace"}
+                  </p>
+                </div>
+                {aiConsented && (
+                  <span className="px-3 py-1 rounded bg-emerald-50 text-emerald-700 text-[12px] font-bold border border-emerald-200">
+                    Enabled
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[12px] text-slate-600 mt-3 leading-5">
+                By enabling AI plan reading, plan files in this workspace may be sent to the configured AI provider for analysis. AI output still requires human review before it becomes estimate data.
+              </p>
+
+              {aiConsentLoading ? (
+                <div className="mt-3 flex items-center gap-2 text-[12px] text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading workspace AI settings…
+                </div>
+              ) : aiConsented ? (
+                <p className="mt-3 text-[12px] text-emerald-700 font-medium">
+                  AI plan reading was enabled {currentWorkspace?.aiProcessingConsentedAt ? new Date(currentWorkspace.aiProcessingConsentedAt).toLocaleString() : "for this workspace"}.
+                </p>
+              ) : ownsCurrentWorkspace ? (
+                <button
+                  type="button"
+                  disabled={aiConsentSaving}
+                  onClick={handleGrantAiConsent}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-md bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12.5px] font-semibold transition"
+                >
+                  {aiConsentSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Enable AI plan reading
+                </button>
+              ) : (
+                <p className="mt-3 text-[12px] text-amber-700 font-medium">
+                  Only the workspace owner can enable AI plan reading for this workspace.
+                </p>
+              )}
+
+              {aiConsentError && <p role="alert" className="mt-3 text-[12px] text-red-700">{aiConsentError}</p>}
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
