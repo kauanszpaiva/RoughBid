@@ -33,16 +33,35 @@ test('platform admin receives the highest commercial tier without a Stripe subsc
     billing_customers: null,
   }) as never, {});
 
-  const tier = await (payments.membership as any)('workspace-1', 'founder-1');
+  const tier = await payments.membership('workspace-1', 'founder-1');
   assert.equal(tier, 'enterprise');
 });
 
-function aiDb(options: { platformAdmin?: boolean; projectExists?: boolean } = {}) {
-  const { platformAdmin = true, projectExists = true } = options;
+test('project checkout is blocked for platform admin before any Stripe request', async () => {
+  let stripeCalled = false;
+  const payments = new ProjectPayments(paymentDb({
+    profiles: { is_platform_admin: true },
+    workspace_members: { role: 'admin' },
+    projects: { id: 'project-1' },
+  }) as never, {}, (async () => {
+    stripeCalled = true;
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch);
+
+  await assert.rejects(
+    payments.checkout('founder-1', 'workspace-1', 'project-1', 'quote-1'),
+    (error: unknown) => error instanceof ProjectApiError && error.status === 409 && /complimentary/i.test(error.message),
+  );
+  assert.equal(stripeCalled, false);
+});
+
+function aiDb(options: { platformAdmin?: boolean; projectExists?: boolean; role?: string } = {}) {
+  const { platformAdmin = true, projectExists = true, role = 'admin' } = options;
   return {
     auth: { getUser: async () => ({ data: { user: { id: 'founder-1', email: 'kauan@kspdominion.group' } }, error: null }) },
     from(table: string) {
       if (table === 'profiles') return queryResult({ is_platform_admin: platformAdmin });
+      if (table === 'workspace_members') return queryResult({ role });
       if (table === 'workspaces') return queryResult({ ai_processing_consented_at: '2026-09-08T00:00:00Z' });
       if (table === 'projects') return queryResult(projectExists ? { id: 'project-1' } : null);
       if (table === 'project_files') return queryResult({
@@ -150,28 +169,27 @@ test('platform admin commercial bypass never bypasses workspace/project tenancy'
   assert.equal(providerCalled, false);
 });
 
-test('AI entitlement endpoint exposes complimentary analysis to platform admin without owner-free provider configuration', async () => {
-  const previousEnabled = process.env.FREE_OWNER_READINGS_ENABLED;
-  const previousWorkspace = process.env.FREE_OWNER_WORKSPACE_ID;
-  delete process.env.FREE_OWNER_READINGS_ENABLED;
-  delete process.env.FREE_OWNER_WORKSPACE_ID;
-  try {
-    const response = await handleAiPlanRequest(
-      new Request('https://roughbid.test/api/projects/project-1/ai-plan-entitlement', {
-        method: 'GET',
-        headers: { 'x-workspace-id': 'workspace-1' },
-      }),
-      aiDb() as never,
-      { findingsWriter: { from: () => ({}) }, storage, reader: realFindingReader, paidReaderAvailable: true },
-    );
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { freeReadingAvailable: true });
-  } finally {
-    if (previousEnabled === undefined) delete process.env.FREE_OWNER_READINGS_ENABLED;
-    else process.env.FREE_OWNER_READINGS_ENABLED = previousEnabled;
-    if (previousWorkspace === undefined) delete process.env.FREE_OWNER_WORKSPACE_ID;
-    else process.env.FREE_OWNER_WORKSPACE_ID = previousWorkspace;
-  }
+test('AI entitlement endpoint exposes complimentary analysis only to authorized platform admin role', async () => {
+  const response = await handleAiPlanRequest(
+    new Request('https://roughbid.test/api/projects/project-1/ai-plan-entitlement', {
+      method: 'GET',
+      headers: { 'x-workspace-id': 'workspace-1' },
+    }),
+    aiDb() as never,
+    { findingsWriter: { from: () => ({}) }, storage, reader: realFindingReader, paidReaderAvailable: true },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { freeReadingAvailable: true });
+
+  const viewerResponse = await handleAiPlanRequest(
+    new Request('https://roughbid.test/api/projects/project-1/ai-plan-entitlement', {
+      method: 'GET',
+      headers: { 'x-workspace-id': 'workspace-1' },
+    }),
+    aiDb({ role: 'viewer' }) as never,
+    { findingsWriter: { from: () => ({}) }, storage, reader: realFindingReader, paidReaderAvailable: true },
+  );
+  assert.deepEqual(await viewerResponse.json(), { freeReadingAvailable: false });
 });
 
 test('generic billing checkout is disabled for platform admin and never contacts Stripe', async () => {
@@ -197,7 +215,7 @@ test('generic billing checkout is disabled for platform admin and never contacts
       id: 'founder-1',
       email: 'kauan@kspdominion.group',
       isPlatformAdmin: true,
-    } as any),
+    }),
   });
 
   const response = await handler(new Request('https://roughbid.test/api/billing/checkout', {
@@ -212,5 +230,30 @@ test('generic billing checkout is disabled for platform admin and never contacts
 
   assert.equal(response.status, 409);
   assert.match(String((await response.json() as { error?: string }).error), /complimentary|platform owner/i);
+  assert.equal(stripeCalled, false);
+});
+
+test('generic billing checkout verifies platform admin server-side even when auth metadata omits the flag', async () => {
+  let stripeCalled = false;
+  const handler = createBillingEndpointHandler({
+    config: { mode: 'test', productId: '', priceId: null, priceIds: { plan_team: 'price_team' } },
+    webhookSecret: 'whsec_test',
+    membershipsEnabled: true,
+    stripe: {
+      createCheckoutSession: async () => { stripeCalled = true; return { url: 'https://checkout.stripe.test/session' }; },
+      createPortalSession: async () => ({ url: 'https://billing.stripe.test/portal' }),
+    },
+    repository: {
+      customerIdForUser: async () => null,
+      isPlatformAdminForUser: async () => true,
+      processStripeEvent: async () => true,
+    },
+    authenticate: async () => ({ id: 'founder-1', email: 'kauan@kspdominion.group' }),
+  });
+  const response = await handler(new Request('https://roughbid.test/api/billing/checkout', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ priceKey: 'plan_team', successUrl: 'https://roughbid.test/app/', cancelUrl: 'https://roughbid.test/app/' }),
+  }));
+  assert.equal(response.status, 409);
   assert.equal(stripeCalled, false);
 });
