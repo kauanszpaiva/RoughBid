@@ -44,14 +44,17 @@ function withEnv<T>(env: Record<string, string | undefined>, fn: () => Promise<T
   });
 }
 
-test('durable POST returns 202 after reservation without invoking the request-local provider', async () => {
+test('durable paid POST requires a paid-capable worker and returns 202 without invoking the request-local provider', async () => {
   let providerReads = 0;
-  const rpcCalls: string[] = [];
+  const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const findingsWriter = {
     from: () => ({}),
-    rpc: async (fn: string) => {
-      rpcCalls.push(fn);
-      if (fn === 'ai_plan_worker_available') return { data: true, error: null };
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      if (fn === 'ai_plan_worker_available') {
+        assert.deepEqual(args, { p_entitlement: 'paid' });
+        return { data: true, error: null };
+      }
       if (fn === 'reserve_project_reading_async') {
         return {
           data: {
@@ -98,5 +101,5 @@ test('durable POST returns 202 after reservation without invoking the request-lo
   });
 
   assert.equal(providerReads, 0);
-  assert.deepEqual(rpcCalls, ['ai_plan_worker_available', 'reserve_project_reading_async']);
+  assert.deepEqual(rpcCalls.map((call) => call.fn), ['ai_plan_worker_available', 'reserve_project_reading_async']);
 });
