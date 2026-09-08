@@ -20,10 +20,16 @@ export async function isPlatformAdmin(db: PlatformAdminDatabase, userId: string)
 }
 
 /**
- * Read-only UI entitlement check. The platform-admin flag does not override
- * workspace tenancy: the caller must still be an admin/estimator in the
- * workspace, the project must belong to that workspace, and AI consent must
- * already be recorded.
+ * Read-only commercial-entitlement check for the Plans UI. The platform-admin
+ * flag never overrides workspace tenancy: the caller must still be an
+ * admin/estimator in the workspace and the project must belong to it.
+ *
+ * AI-processing consent is intentionally NOT part of this read-only answer.
+ * The complimentary action must remain visible before consent so the UI can
+ * guide the user through the explicit consent step instead of falling into a
+ * paid-checkout deadlock. The POST plan-reading service independently requires
+ * ai_processing_consented_at before any reservation, file download, or provider
+ * invocation.
  */
 export async function hasPlatformAdminProjectAccess(
   db: PlatformAdminDatabase,
@@ -40,13 +46,6 @@ export async function hasPlatformAdminProjectAccess(
     .maybeSingle();
   if (member.error) throw new ProjectApiError(503, 'Unable to verify workspace access.');
   if (!member.data || !['admin', 'estimator'].includes(member.data.role)) return false;
-
-  const workspace = await db.from('workspaces')
-    .select('ai_processing_consented_at')
-    .eq('id', workspaceId)
-    .maybeSingle();
-  if (workspace.error) throw new ProjectApiError(503, 'Unable to verify workspace access.');
-  if (!workspace.data?.ai_processing_consented_at) return false;
 
   const project = await db.from('projects')
     .select('id')

@@ -42,6 +42,14 @@ export class ProjectPayments {
   }
   async quote(userId: string, workspaceId: string, projectId: string, input: Record<string,unknown>, storage: AiPlanObjectStorage) {
     await this.access(userId,workspaceId,projectId);
+    // A platform owner uses the dedicated complimentary provider path. Do not
+    // manufacture a paid quote (even an enterprise-discounted one) because that
+    // leaves the browser in an impossible state: quote says pay, checkout says
+    // payment is forbidden. This check runs before provider-config validation,
+    // file download, pricing, or quote persistence.
+    if (await isPlatformAdmin(this.db, userId)) {
+      throw new ProjectApiError(409, 'Platform owner access is complimentary. No project processing quote or checkout is required for this account.');
+    }
     requirePaidPlanReadingConfig(this.env);
     const fileId = input.file_id;
     if (typeof fileId !== 'string') throw new ProjectApiError(400,'Select an uploaded plan.');
