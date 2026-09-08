@@ -45,7 +45,7 @@ async function boot() {
   return db;
 }
 
-test('database lease expires before BullMQ default lock so a stalled job can be reclaimed', async () => {
+test('database lease expires well before the 30s BullMQ lock so a stalled job can be reclaimed', async () => {
   const db = await boot();
   try {
     const reserved = (await db.query(
@@ -59,7 +59,7 @@ test('database lease expires before BullMQ default lock so a stalled job can be 
       'select extract(epoch from (worker_lease_expires_at-now()))::int as seconds from plan_reading_jobs where id=$1',
       [reserved.job.id],
     );
-    assert.ok(lease.rows[0].seconds <= 25, `DB lease must be <=25s, got ${lease.rows[0].seconds}s`);
+    assert.ok(lease.rows[0].seconds <= 15, `DB lease must be <=15s, got ${lease.rows[0].seconds}s`);
 
     await assert.rejects(
       () => db.query('select claim_ai_plan_reading($1,$2)',[reserved.job.id,'worker-b']),
