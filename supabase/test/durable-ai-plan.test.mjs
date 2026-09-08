@@ -126,18 +126,34 @@ const realResult = JSON.stringify({
   findings: [{ page_number: 1, finding_type: 'measurement', label: 'Wall', quantity: 10, unit: 'LF', confidence: 0.9, geometry: {}, source_excerpt: '10 LF wall' }],
 });
 
-test('worker heartbeat is closed by default, service-role only, and becomes available when touched', async () => {
+test('worker heartbeat is closed by default, capability-specific, expiring, and service-role only', async () => {
   const db = await boot();
   try {
-    let available = await db.query('select ai_plan_worker_available() as value');
-    assert.equal(available.rows[0].value, false);
-    await db.query('select touch_ai_plan_worker($1)', ['worker-a']);
-    available = await db.query('select ai_plan_worker_available() as value');
-    assert.equal(available.rows[0].value, true);
+    for (const entitlement of ['paid', 'owner_free']) {
+      const unavailable = await db.query('select ai_plan_worker_available($1) as value', [entitlement]);
+      assert.equal(unavailable.rows[0].value, false);
+    }
+
+    await db.query('select touch_ai_plan_worker($1,$2,$3)', ['worker-free', false, true]);
+    let free = await db.query('select ai_plan_worker_available($1) as value', ['owner_free']);
+    let paid = await db.query('select ai_plan_worker_available($1) as value', ['paid']);
+    assert.equal(free.rows[0].value, true, 'free-capable heartbeat advertises only owner-free work');
+    assert.equal(paid.rows[0].value, false, 'free-only worker must not authorize paid jobs');
+
+    await db.query('select touch_ai_plan_worker($1,$2,$3)', ['worker-paid', true, false]);
+    paid = await db.query('select ai_plan_worker_available($1) as value', ['paid']);
+    assert.equal(paid.rows[0].value, true);
+
+    await db.exec(`update private.ai_plan_worker_heartbeats set heartbeat_at=now()-interval '2 minutes' where worker_id='worker-free'`);
+    free = await db.query('select ai_plan_worker_available($1) as value', ['owner_free']);
+    paid = await db.query('select ai_plan_worker_available($1) as value', ['paid']);
+    assert.equal(free.rows[0].value, false, 'stale free heartbeat expires closed');
+    assert.equal(paid.rows[0].value, true, 'fresh paid worker remains available');
+    await assert.rejects(() => db.query('select ai_plan_worker_available($1)', ['bogus']), /Invalid AI plan entitlement/);
 
     const functions = [
-      'public.touch_ai_plan_worker(text)',
-      'public.ai_plan_worker_available()',
+      'public.touch_ai_plan_worker(text,boolean,boolean)',
+      'public.ai_plan_worker_available(text)',
       'public.reserve_project_reading_async(uuid,uuid,uuid,uuid,uuid,text)',
       'public.reserve_owner_free_reading_async(uuid,uuid,uuid,uuid,text,text,text,jsonb,text,text,integer)',
       'public.claim_ai_plan_reading(uuid,text)',
