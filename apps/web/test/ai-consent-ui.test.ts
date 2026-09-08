@@ -15,7 +15,7 @@ test('workspace AI consent is explicit, owner-only in UI, and calls the existing
   assert.match(settings, /Enable AI plan reading/);
   assert.match(settings, /By enabling AI plan reading, plan files in this workspace may be sent to the configured AI provider for analysis\./);
   assert.match(settings, /await grantWorkspaceAiConsent\(currentWorkspace\.id\)/);
-  assert.doesNotMatch(settings, /useEffect\([^]*grantWorkspaceAiConsent\(/);
+  assert.match(settings, /onClick=\{handleGrantAiConsent\}/);
 });
 
 test('platform owner billing UI shows complimentary access instead of inviting a checkout', () => {
