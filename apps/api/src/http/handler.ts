@@ -15,6 +15,8 @@ import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
 import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
 import { runtimeCapabilities } from './capabilities.ts';
+import { requireFreeProviderConfig } from '../ai-plan/free-provider.ts';
+import { assertNoPaidFallback } from '../ai-plan/owner-free.ts';
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage/vercel-blob-storage.ts';
@@ -182,8 +184,21 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         const gemini = new GeminiPlanReader(geminiClient, [readingConfig.model]);
         readers.push({ name: 'gemini', read: (input: any) => gemini.read(input) });
       } catch { /* Paid Gemini remains disabled unless explicitly configured. */ }
+      // The owner-only free reader is built from its OWN credentials and kept in
+      // a separate dependency, never appended to `readers`. A free reading can
+      // therefore never fall through to the billed Gemini project, and a paid
+      // reading can never be served by the free one.
+      let freeReader: { read(input: any): Promise<any> } | undefined;
+      try {
+        const freeConfig = requireFreeProviderConfig(process.env);
+        const freeClient = await createGeminiClient(freeConfig.apiKey);
+        const freeGemini = new GeminiPlanReader(freeClient, [freeConfig.model]);
+        assertNoPaidFallback('gemini-free-tier');
+        freeReader = { read: (input: any) => freeGemini.read(input) };
+      } catch { /* Free owner route stays closed until its own config is verified. */ }
+
       const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
-      if (!readers.length && isCreateReading) {
+      if (!readers.length && !freeReader && isCreateReading) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
       const reader = readers.length
@@ -192,7 +207,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;
-      const deps: AiPlanRequestDependencies = { findingsWriter, storage, reader };
+      const deps: AiPlanRequestDependencies = { findingsWriter, storage, reader, freeReader };
       return handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);

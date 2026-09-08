@@ -6,6 +6,10 @@ import { loadObjectStorageConfig } from '../storage/object-storage.ts';
 export function runtimeCapabilities(env: Record<string, string | undefined>) {
   let aiReadingAvailable = false;
   let billing = false;
+  // Free owner entitlement is deliberately NOT reported here. This endpoint is
+  // public and env-only, so a global flag would advertise "free analysis" to
+  // every customer workspace. Entitlement is per-workspace and is answered by
+  // the authenticated GET /api/projects/:id/ai-plan-entitlement route instead.
   try {
     if (!isConfiguredValue(env.SUPABASE_URL) || !isConfiguredValue(env.SUPABASE_PUBLISHABLE_KEY) || !isConfiguredValue(env.SUPABASE_SERVICE_ROLE_KEY?.trim() || env.SUPABASE_PLAN_FUNCTION?.trim())) {
       return { aiReadingAvailable, billing };

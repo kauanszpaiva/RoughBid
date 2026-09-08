@@ -286,7 +286,16 @@ export type PlanReadingJob = {
  * the common case, but getAiPlanReading below still works for reloading a
  * past job.
  */
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+/**
+ * GET /api/projects/:id/ai-plan-entitlement — whether THIS workspace may run a
+ * free reading. Authenticated and workspace-scoped: a customer workspace always
+ * receives false, and the POST route re-checks the allowlist server-side.
+ */
+export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
+  return request<{ freeReadingAvailable: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+}
+
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,

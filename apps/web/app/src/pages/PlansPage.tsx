@@ -11,7 +11,7 @@ import {
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getAiPlanEntitlement, getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   canWrite?: boolean;
@@ -41,7 +41,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [billingAvailable, setBillingAvailable] = useState(false);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
+  // Per-workspace entitlement. Never derived from a global flag: a customer
+  // workspace must not be shown a free-analysis action it cannot use.
+  const [freeReadingAvailable, setFreeReadingAvailable] = useState(false);
   useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => {
+    let active = true;
+    const remoteId = project.remoteId;
+    if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
+    getAiPlanEntitlement(workspaceId, remoteId)
+      .then(value => { if (active) setFreeReadingAvailable(value.freeReadingAvailable); })
+      .catch(() => { if (active) setFreeReadingAvailable(false); });
+    return () => { active = false; };
+  }, [workspaceId, project.remoteId]);
   const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -215,6 +227,48 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     } finally {
       setIsUploading(false);
       input.value = "";
+    }
+  };
+
+  /**
+   * Owner-workspace analysis with no quote and no payment. The button is only
+   * rendered when the authenticated entitlement said yes, and the server
+   * re-checks the allowlist, so a customer reaching here still gets 403.
+   */
+  const handleStartFreeReading = async () => {
+    if (!canWrite) return;
+    if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
+      setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
+      return;
+    }
+    setIsStartingAi(true);
+    setPlanNotice(null);
+    setNeedsAiConsent(false);
+    try {
+      const job = await createAiPlanReading(workspaceId, project.remoteId, {
+        file_id: currentRevision.remoteFileId,
+        mode: "quick",
+        trades: selectedTrades,
+        scope: project.projectType,
+      });
+      if (contextRef.current !== contextKey) return;
+      setFindings(job.plan_reading_findings);
+      onPatchRevision(currentRevision.id, { aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." });
+      setPlanNotice(
+        job.status === "failed"
+          ? "AI plan reading failed. Open the AI Plan Assistant for details."
+          : "AI plan reading complete — findings are ready to review."
+      );
+    } catch (error) {
+      if (contextRef.current !== contextKey) return;
+      if (error instanceof ApiError && [403,409].includes(error.status) && /consent|accept AI|approved/i.test(error.message)) {
+        setNeedsAiConsent(true);
+        setPlanNotice("This workspace hasn't approved sending plan files to AI yet.");
+      } else {
+        setPlanNotice(readableApiError(error));
+      }
+    } finally {
+      if (contextRef.current === contextKey) setIsStartingAi(false);
     }
   };
 
@@ -507,6 +561,20 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               />
             </label>
 
+            {freeReadingAvailable && (
+              <button
+                onClick={handleStartFreeReading}
+                disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+                className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>{isStartingAi ? 'Analyzing plan…' : 'Run AI analysis (owner workspace)'}</span>
+                </div>
+                <span className="text-[10px] font-mono text-emerald-700">no charge</span>
+              </button>
+            )}
+
             <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
@@ -521,7 +589,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               </span>
             </button>
 
-            {(!aiReadingAvailable || !billingAvailable) && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
+            {(!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
 
             {needsAiConsent && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
