@@ -28,6 +28,11 @@ test('plan viewer fits its container and lets phones scroll the actual PDF', () 
   assert.match(blueprint, /overflow-auto/);
 });
 
+test('plan viewer calculates container width immediately on mount with 0x0 fallback', () => {
+  assert.match(blueprint, /updateWidth\(\);/);
+  assert.match(blueprint, /effectiveWidth = measuredWidth > 0 \? measuredWidth : 632/);
+});
+
 test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(blueprint, /<canvas/);
   assert.match(blueprint, /pdfjs\.getDocument/);
