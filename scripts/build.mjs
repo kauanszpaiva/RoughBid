@@ -3,15 +3,17 @@ import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolvePublicBuildConfig } from './build-public-config.mjs';
 import { probeAiRuntime } from './probe-ai-runtime.mjs';
+import { probeReadingSchema } from './probe-reading-schema.mjs';
 
 const publicConfig = resolvePublicBuildConfig(process.env);
 process.env.VITE_SUPABASE_URL = publicConfig.url;
 process.env.VITE_SUPABASE_PUBLISHABLE_KEY = publicConfig.publishableKey;
 
-// Read-only metadata probe, not an inference call. It does not send documents
-// or expose a diagnostic endpoint. Never claim that env presence proves readiness.
+// Read-only probes: no inference, plan contents, new sessions, or public endpoint.
 if (process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview') {
-  console.log('ai_runtime_preflight', JSON.stringify(await probeAiRuntime()));
+  const [provider, schema] = await Promise.all([probeAiRuntime(), probeReadingSchema()]);
+  console.log('ai_runtime_preflight', JSON.stringify(provider));
+  console.log('ai_reading_schema_preflight', JSON.stringify(schema));
 }
 
 await rm(new URL('../dist', import.meta.url), { recursive: true, force: true });

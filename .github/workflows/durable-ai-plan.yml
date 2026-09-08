@@ -22,6 +22,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Provider HTTP boundary, safe diagnostics, and persisted result reload
-        run: node --experimental-strip-types --test apps/api/test/ai-reading-reload.test.ts apps/api/test/ai-provider-diagnostics.test.ts apps/web/test/provider-preflight.test.ts
+        run: node --experimental-strip-types --test apps/api/test/ai-reading-reload.test.ts apps/api/test/ai-provider-diagnostics.test.ts apps/web/test/provider-preflight.test.ts apps/web/test/reading-schema-preflight.test.ts
       - name: Founder consent and billing regression
         run: node --experimental-strip-types --test apps/api/test/founder-consent-regression.test.ts
       - name: Durable API contract
@@ -50,3 +51,16 @@ jobs:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
         run: npm run build
+      - name: Install isolated browser verification tools
+        run: |
+          npm install --prefix .browser-tests --no-package-lock --no-audit --no-fund playwright@1.58.2
+          node .browser-tests/node_modules/playwright/cli.js install --with-deps chromium webkit
+      - name: Desktop and mobile PDF viewer under production CSP
+        run: node scripts/test-blueprint-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-blueprint-browser-evidence
+          path: test-results/*.png
+          retention-days: 2
+          if-no-files-found: ignore
