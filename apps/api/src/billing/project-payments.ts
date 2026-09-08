@@ -115,7 +115,7 @@ export class ProjectPayments {
     if (!quoteId || obj.mode !== 'payment' || obj.payment_status !== 'paid') return;
     if (typeof obj.payment_intent !== 'string' || !Number.isSafeInteger(obj.amount_total) || typeof obj.currency !== 'string') throw new Error('Invalid project payment event');
     databaseValue(await this.db.rpc('confirm_project_reading_payment',{p_event_id:event.id,p_quote_id:quoteId,p_session_id:obj.id,
-      p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency,p_livemode:event.livemode}));
+      p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency.toLowerCase(),p_livemode:event.livemode}));
   }
 }
 export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage?: AiPlanObjectStorage): Promise<Response> {

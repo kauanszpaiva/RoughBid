@@ -44,6 +44,108 @@ test('unpaid and unrelated Stripe events never grant a project reading',async()=
   assert.equal(calls[0].args.p_amount,100);
 });
 
+test('reconcile normalizes currency to lowercase and handles refund and dispute revocation', async () => {
+  const calls: any[] = [];
+  const db = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: { id: 'quote-1' }, error: null })
+        })
+      })
+    }),
+    rpc: async (fn: string, args: any) => { calls.push({ fn, args }); return { data: true, error: null }; }
+  };
+  const payments = new ProjectPayments(db as never, {});
+
+  // Uppercase currency is lowercased before passing to confirm RPC
+  await payments.reconcile({
+    id: 'evt_upper',
+    type: 'checkout.session.completed',
+    livemode: false,
+    data: {
+      object: {
+        mode: 'payment',
+        payment_status: 'paid',
+        payment_intent: 'pi_test',
+        amount_total: 500,
+        currency: 'USD',
+        id: 'cs_test',
+        metadata: { roughbid_quote_id: 'quote-1' }
+      }
+    }
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].fn, 'confirm_project_reading_payment');
+  assert.equal(calls[0].args.p_currency, 'usd');
+
+  // Refund with positive amount revokes payment
+  await payments.reconcile({
+    id: 'evt_refund',
+    type: 'charge.refunded',
+    livemode: false,
+    data: {
+      object: {
+        payment_intent: 'pi_test',
+        amount_refunded: 500,
+        metadata: { roughbid_quote_id: 'quote-1' }
+      }
+    }
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].fn, 'revoke_project_reading_payment');
+
+  // Refund with 0 amount is ignored
+  await payments.reconcile({
+    id: 'evt_zero_refund',
+    type: 'charge.refunded',
+    livemode: false,
+    data: {
+      object: {
+        payment_intent: 'pi_test',
+        amount_refunded: 0,
+        metadata: { roughbid_quote_id: 'quote-1' }
+      }
+    }
+  });
+  assert.equal(calls.length, 2);
+
+  // Dispute creation revokes payment
+  await payments.reconcile({
+    id: 'evt_dispute',
+    type: 'charge.dispute.created',
+    livemode: false,
+    data: {
+      object: {
+        payment_intent: 'pi_test',
+        metadata: { roughbid_quote_id: 'quote-1' }
+      }
+    }
+  });
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].fn, 'revoke_project_reading_payment');
+
+  // Malformed payment event payloads throw Error
+  await assert.rejects(
+    payments.reconcile({
+      id: 'evt_bad',
+      type: 'checkout.session.completed',
+      livemode: false,
+      data: {
+        object: {
+          mode: 'payment',
+          payment_status: 'paid',
+          payment_intent: null,
+          amount_total: 500,
+          currency: 'usd',
+          metadata: { roughbid_quote_id: 'quote-1' }
+        }
+      }
+    }),
+    /Invalid project payment event/
+  );
+});
+
 const pilotEnv = {
   PAID_PLAN_READINGS_ENABLED: 'true', PAID_PLAN_READINGS_STAGE: 'test', STRIPE_MODE: 'test',
   GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
