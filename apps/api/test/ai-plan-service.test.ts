@@ -97,14 +97,32 @@ test('create() still blocks a file that has not finished uploading', async () =>
   );
 });
 
-function directWriter(onInsert: (rows: any[])=>void = () => {}) {
+function directWriter(onInsert: (rows: any[])=>void = () => {}, quoteOverrides: Record<string, unknown> = {}) {
   return { from: () => { throw new Error('Reading writes must be atomic'); }, rpc: async (fn: string, args: any) => {
-    if (fn === 'reserve_project_reading') return { data: { job: { id: 'job-1' }, quote: { trades: ['Framing'], scope: '', file_sha256: PDF_DIGEST(new Uint8Array([1,2,3])), page_count: 1 }, reused: false }, error: null };
+    if (fn === 'reserve_project_reading') return { data: { job: { id: 'job-1' }, quote: { trades: ['Framing'], scope: '', file_sha256: PDF_DIGEST(new Uint8Array([1,2,3])), page_count: 1, ...quoteOverrides }, reused: false }, error: null };
     assert.equal(fn, 'finish_project_reading');
     if (!args.p_error) onInsert(args.p_findings);
     return { data: { id: 'job-1', status: args.p_error ? 'failed' : 'needs_review', output_summary: args.p_summary, plan_reading_findings: args.p_findings }, error: null };
   } };
 }
+
+test('TEST-paid quote in production mode rejects provider call and records test-mode error', async () => {
+  const originalEnv = process.env.STRIPE_MODE;
+  process.env.STRIPE_MODE = 'live';
+  try {
+    let readerCalled = false;
+    const reader = { read: async () => { readerCalled = true; throw new Error('Reader must not be called'); } };
+    const writer = directWriter(() => {}, { livemode: false });
+    const service = new AiPlanReadingService(fakeDb(baseResolver()) as never, writer, noopStorage, reader, 'user-1', 'workspace-1', noopFetcher as never);
+    await assert.rejects(
+      service.create('project-1', { file_id: 'file-1', quote_id: 'quote-1' }),
+      (error: any) => error.status === 402 && /Test payment received/i.test(error.message),
+    );
+    assert.equal(readerCalled, false);
+  } finally {
+    process.env.STRIPE_MODE = originalEnv;
+  }
+});
 
 test('paid reading persists evidence without generating construction prices', async () => {
   let inserted: any[] = [];

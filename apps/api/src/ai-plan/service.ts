@@ -194,6 +194,20 @@ export class AiPlanReadingService {
       if (reused) return this.get(paidJob.id);
       job = paidJob;
       quote = paidQuote;
+
+      // Server Guard: In production or test environments, a quote paid in test mode
+      // (livemode === false) must NEVER invoke the paid production Gemini reader.
+      // This stops TEST-paid quotes from triggering real Tier 1 Gemini API costs.
+      const isTestPaidQuote = quote && quote.livemode === false;
+      const isLiveModeEnv = process.env.STRIPE_MODE === 'live';
+      if (isTestPaidQuote && (isLiveModeEnv || process.env.NODE_ENV === 'production')) {
+        await this.findingsWriter.rpc('finish_project_reading', {
+          p_quote_id: quoteId, p_job_id: job.id, p_summary: { test_mode: true }, p_findings: [],
+          p_error: 'Test payment received. Paid production AI analysis is disabled for test-mode quotes.',
+        });
+        throw new ProjectApiError(402, 'Test payment received. Production AI plan reading is not performed for test-mode payments.');
+      }
+
       requestedTrades = quote.trades as string[];
       scope = quote.scope as string;
     }
