@@ -1,29 +1,12 @@
 name: Durable AI Plan Gate
 
+# Pull requests are covered by the unconditional gate in ci.yml, which runs a
+# strict superset of the steps below. This workflow stays for pushes to the
+# durable worker branch, where ci.yml does not run.
 on:
   push:
     branches:
       - codex/durable-ai-plan-worker
-  pull_request:
-    paths:
-      - '.github/workflows/durable-ai-plan.yml'
-      - 'apps/api/src/ai-plan/**'
-      - 'apps/api/src/access/**'
-      - 'apps/api/src/billing/project-payments.ts'
-      - 'apps/api/src/http/handler.ts'
-      - 'apps/api/test/ai-plan-durable.test.ts'
-      - 'apps/api/test/founder-consent-regression.test.ts'
-      - 'api/workspaces/**'
-      - 'api/ai-plan-readings/**'
-      - 'apps/web/app/src/pages/PlansPage.tsx'
-      - 'apps/web/app/src/pages/SettingsPage.tsx'
-      - 'apps/web/app/src/utils/aiPlanStatus.ts'
-      - 'apps/web/test/ai-plan-status.test.ts'
-      - 'scripts/worker.ts'
-      - 'supabase/migrations/**'
-      - 'supabase/test/durable-ai-plan*.test.mjs'
-      - 'package.json'
-      - 'Dockerfile.worker'
 
 jobs:
   verify:
