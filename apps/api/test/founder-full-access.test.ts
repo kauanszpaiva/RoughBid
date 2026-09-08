@@ -136,6 +136,8 @@ test('platform admin can run the paid provider without a Stripe quote or fake pa
     'founder-1',
     'workspace-1',
     (async () => new Response(pdf)) as typeof fetch,
+    undefined,
+    true,
   );
 
   const result = await service.create('project-1', {
@@ -160,6 +162,8 @@ test('platform admin commercial bypass never bypasses workspace/project tenancy'
     'founder-1',
     'workspace-1',
     (async () => new Response(pdf)) as typeof fetch,
+    undefined,
+    true,
   );
 
   await assert.rejects(
