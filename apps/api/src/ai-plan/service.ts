@@ -2,7 +2,6 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
-import { isPlatformAdmin } from '../access/platform-admin.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 
@@ -75,6 +74,7 @@ export class AiPlanReadingService {
   private readonly fetcher: typeof fetch;
   private readonly userId: string;
   private readonly workspaceId: string;
+  private readonly platformAdmin: boolean;
 
   constructor(
     db: SupabaseLike,
@@ -85,6 +85,7 @@ export class AiPlanReadingService {
     workspaceId: string,
     fetcher: typeof fetch = fetch,
     freeReader?: PlanReader,
+    platformAdmin = false,
   ) {
     if (!userId || !workspaceId) throw new ProjectApiError(401, 'Authentication and workspace are required');
     this.db = db;
@@ -95,6 +96,7 @@ export class AiPlanReadingService {
     this.workspaceId = workspaceId;
     this.fetcher = fetcher;
     this.freeReader = freeReader;
+    this.platformAdmin = platformAdmin;
   }
 
   async create(projectId: string, input: Record<string, unknown>) {
@@ -121,10 +123,11 @@ export class AiPlanReadingService {
       throw new ProjectApiError(409, 'Plan file must finish uploading before AI reading can start');
     }
 
-    // Platform-admin status is a commercial bypass only. The workspace/project
-    // reads above still go through the caller's RLS-scoped client, and the
-    // reservation RPC repeats the role/tenancy checks before provider work.
-    const platformAdmin = await isPlatformAdmin(this.db, this.userId);
+    // Platform-admin status is verified once at the trusted HTTP boundary and
+    // injected into this service. It is a commercial bypass only: the scoped
+    // workspace/project reads above still enforce tenancy, and the reservation
+    // RPC repeats role/tenancy checks before provider work.
+    const platformAdmin = this.platformAdmin;
 
     // This advisory pre-check only bounds NEW work. Platform administrators use
     // the same paid-workspace daily guardrail as customers; complimentary means
