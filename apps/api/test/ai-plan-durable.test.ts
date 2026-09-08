@@ -45,9 +45,9 @@ function withEnv<T>(env: Record<string, string | undefined>, fn: () => Promise<T
   });
 }
 
-test('durable queue isolates paid and owner-free jobs onto different BullMQ queues', async () => {
+test('durable queue isolates provider classes and keeps infrastructure retries separate from provider limits', async () => {
   const created: string[] = [];
-  const added: Array<{ queue: string; jobId: string }> = [];
+  const added: Array<{ queue: string; jobId: string; attempts: number }> = [];
   const workers = new Map<string, number>([
     ['ai-plan-reading-paid', 1],
     ['ai-plan-reading-owner-free', 0],
@@ -55,7 +55,7 @@ test('durable queue isolates paid and owner-free jobs onto different BullMQ queu
   class FakeQueue {
     name: string;
     constructor(name: string) { this.name = name; created.push(name); }
-    async add(_name: string, data: any) { added.push({ queue: this.name, jobId: data.jobId }); }
+    async add(_name: string, data: any, options: any) { added.push({ queue: this.name, jobId: data.jobId, attempts: options.attempts }); }
     async getWorkers() { return Array.from({ length: workers.get(this.name) ?? 0 }, () => ({})); }
     async close() {}
   }
@@ -66,8 +66,8 @@ test('durable queue isolates paid and owner-free jobs onto different BullMQ queu
   await queue.add('paid-job', 'paid');
   await queue.add('free-job', 'owner_free');
   assert.deepEqual(added, [
-    { queue: 'ai-plan-reading-paid', jobId: 'paid-job' },
-    { queue: 'ai-plan-reading-owner-free', jobId: 'free-job' },
+    { queue: 'ai-plan-reading-paid', jobId: 'paid-job', attempts: 3 },
+    { queue: 'ai-plan-reading-owner-free', jobId: 'free-job', attempts: 2 },
   ]);
 });
 
