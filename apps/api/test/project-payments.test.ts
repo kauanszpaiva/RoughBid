@@ -21,6 +21,40 @@ test('no invented pricing defaults and no free generation in an unconfigured dep
   assert.ok(quoteProject(10,3,'standard',env).amountCents>quoteProject(1,3,'standard',env).amountCents);
   assert.ok(quoteProject(1,3,'standard',env).amountCents>quoteProject(1,3,'team',env).amountCents);
 });
+
+test('quoteProject calculates exact all-in markup pricing for $10 illustrative cost (1000 cents)', () => {
+  // Configured so base + pages*perPage + trades*perTrade = 1000 cents ($10.00)
+  const env = {
+    PROJECT_COST_BASE_CENTS: '500',
+    PROJECT_COST_PAGE_CENTS: '50', // 8 pages = 400
+    PROJECT_COST_TRADE_CENTS: '50', // 2 trades = 100 => 500 + 400 + 100 = 1000 cents
+    PROJECT_PAYMENT_FIXED_CENTS: '30',
+    PROJECT_PAYMENT_FEE_BPS: '290',
+    PROJECT_PRICING_VERSION: 'test-v1',
+  };
+
+  const noSub = quoteProject(8, 2, 'standard', env);
+  assert.equal(noSub.costCents, 1000);
+  assert.equal(noSub.bufferedCostUsd, 13.00);
+  assert.equal(noSub.markupPercent, 50);
+  assert.equal(noSub.finalPriceUsd, 19.50);
+  assert.equal(noSub.amountCents, 1950);
+
+  const starter = quoteProject(8, 2, 'starter', env);
+  assert.equal(starter.markupPercent, 40);
+  assert.equal(starter.finalPriceUsd, 18.20);
+  assert.equal(starter.amountCents, 1820);
+
+  const pro = quoteProject(8, 2, 'pro', env);
+  assert.equal(pro.markupPercent, 33);
+  assert.equal(pro.finalPriceUsd, 17.29);
+  assert.equal(pro.amountCents, 1729);
+
+  const team = quoteProject(8, 2, 'team', env);
+  assert.equal(team.markupPercent, 25);
+  assert.equal(team.finalPriceUsd, 16.25);
+  assert.equal(team.amountCents, 1625);
+});
 test('PDF preflight reads pages without AI and rejects oversized/invalid data',async()=>{
   const doc=await PDFDocument.create();doc.addPage();doc.addPage();
   const result=await inspectPdf(await doc.save());assert.equal(result.pages,2);assert.match(result.sha256,/^[a-f0-9]{64}$/);

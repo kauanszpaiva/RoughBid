@@ -32,10 +32,9 @@ test('POST /api/workspaces creates a workspace derived from the authenticated us
       select() { return this; }, eq() { return this; },
       then(resolve: (result: unknown) => unknown) { return Promise.resolve(resolve({ data: [{ role: 'admin' }], error: null })); },
     } : ({
-      insert(value: Record<string, unknown>) { inserted = value; return { error: null }; },
+      insert(value: Record<string, unknown>) { inserted = value; return this; },
       select() { return this; },
-      eq() { return this; },
-      single: async () => ({ data: { id: inserted?.id ?? 'ws-1', ...inserted, created_at: '2026-09-02T00:00:00Z' }, error: null }),
+      single: async () => ({ data: { id: 'ws-1', ...inserted, created_at: '2026-09-02T00:00:00Z' }, error: null }),
     }),
   };
   const response = await handleWorkspacesRequest(
@@ -45,8 +44,7 @@ test('POST /api/workspaces creates a workspace derived from the authenticated us
     client as never,
   );
   assert.equal(response.status, 201);
-  assert.equal(inserted?.name, 'Main Shop');
-  assert.equal(inserted?.created_by, 'user-1');
+  assert.deepEqual(inserted, { name: 'Main Shop', created_by: 'user-1' });
 });
 
 test('POST /api/workspaces/:id/invites returns a one-time organization invite token', async () => {

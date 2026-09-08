@@ -69,18 +69,11 @@ export async function getWorkspace(client: AuthenticatedSupabaseClient, id: stri
 
 export async function createWorkspace(client: AuthenticatedSupabaseClient, input: CreateWorkspaceInput): Promise<WorkspaceWithRole> {
   const user = await requireUser(client);
-  const id = crypto.randomUUID();
-  const name = normalizeWorkspaceName(input.name);
-  const { error: insertError } = await client.from('workspaces')
-    .insert({ id, name, created_by: user.id });
-  throwIfError(insertError);
-
-  const { data, error: selectError } = await client.from('workspaces')
-    .select('*').eq('id', id).single();
-  throwIfError(selectError);
+  const { data, error } = await client.from('workspaces')
+    .insert({ name: normalizeWorkspaceName(input.name), created_by: user.id }).select('*').single();
+  throwIfError(error);
   if (!data) throw new Error('Workspace insert returned no row.');
-
-  const ownMembership = await client.from('workspace_members').select('role').eq('workspace_id', id).eq('user_id', user.id);
+  const ownMembership = await client.from('workspace_members').select('role').eq('workspace_id', String(data.id)).eq('user_id', user.id);
   throwIfError(ownMembership.error);
   const rows = Array.isArray(ownMembership.data) ? ownMembership.data as Record<string, unknown>[] : [];
   return { ...workspace(data), role: knownRole(rows[0]?.role) };
