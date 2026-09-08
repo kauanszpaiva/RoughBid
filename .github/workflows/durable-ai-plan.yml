@@ -14,7 +14,7 @@ on:
       - 'apps/web/test/ai-plan-status.test.ts'
       - 'scripts/worker.ts'
       - 'supabase/migrations/**'
-      - 'supabase/test/durable-ai-plan.test.mjs'
+      - 'supabase/test/durable-ai-plan*.test.mjs'
       - 'package.json'
       - 'Dockerfile.worker'
 
@@ -30,8 +30,8 @@ jobs:
       - run: npm ci
       - name: Durable API contract
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
-      - name: Durable database state machine
-        run: node --test supabase/test/durable-ai-plan.test.mjs
+      - name: Durable database state machine and lease recovery
+        run: node --test supabase/test/durable-ai-plan.test.mjs supabase/test/durable-ai-plan-lease.test.mjs
       - name: Durable UI status contract
         run: node --experimental-strip-types --test apps/web/test/ai-plan-status.test.ts
       - name: Backend and worker typecheck
