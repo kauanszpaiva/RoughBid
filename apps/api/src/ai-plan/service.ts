@@ -350,8 +350,10 @@ export class AiPlanReadingService {
   }
 
   async get(jobId: string) {
+    // Both legacy job_id and composite tenant FKs exist. Choose the composite
+    // relationship explicitly so PostgREST does not reject reload with PGRST201.
     const job = dbResult<any>(
-      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings(*)').eq('workspace_id', this.workspaceId).eq('id', jobId).maybeSingle(),
+      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings!plan_reading_findings_job_workspace_project_file_fkey(*)').eq('workspace_id', this.workspaceId).eq('id', jobId).maybeSingle(),
       true,
     );
     if (job.output_summary?.synthetic) throw new ProjectApiError(409, 'This older reading contains simulated quantities. Select your real plan and request a new reading.');

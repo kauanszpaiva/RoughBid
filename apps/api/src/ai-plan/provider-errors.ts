@@ -4,7 +4,7 @@ import { ProjectApiError } from '../projects/service.ts';
 export type AiFailureStage = 'prepare_file' | 'generate' | 'parse' | 'validate' | 'count_tokens';
 export type AiFailureCode = 'provider_credentials' | 'provider_permissions' | 'provider_quota' | 'provider_model_unavailable'
   | 'provider_request_rejected' | 'provider_timeout' | 'provider_unavailable' | 'provider_invalid_output'
-  | 'provider_empty_output' | 'provider_file_preparation' | 'provider_unknown';
+  | 'provider_empty_output' | 'provider_file_preparation' | 'provider_unknown' | 'provider_output_truncated';
 const reasons = new Set(['API_KEY_INVALID','API_KEY_EXPIRED','API_KEY_SERVICE_BLOCKED','API_KEY_HTTP_REFERRER_BLOCKED','API_KEY_IP_ADDRESS_BLOCKED',
   'SERVICE_DISABLED','BILLING_DISABLED','RATE_LIMIT_EXCEEDED','QUOTA_EXCEEDED','RESOURCE_EXHAUSTED','PERMISSION_DENIED','UNAUTHENTICATED',
   'NOT_FOUND','INVALID_ARGUMENT','FAILED_PRECONDITION','INTERNAL','UNAVAILABLE','DEADLINE_EXCEEDED']);
@@ -20,6 +20,7 @@ const messages: Record<AiFailureCode,string> = {
   provider_empty_output:'The AI returned no usable findings. Review the plan manually or contact support.',
   provider_file_preparation:'The uploaded PDF could not be prepared for visual reading. Contact support.',
   provider_unknown:'AI could not read this plan. Contact support.',
+  provider_output_truncated:'The AI response reached its output limit. Reduce the selected trade scope or contact support before retrying.',
 };
 
 export class AiProviderError extends ProjectApiError {
