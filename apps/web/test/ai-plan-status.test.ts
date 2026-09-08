@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { presentAiPlanStatus } from '../app/src/utils/aiPlanStatus.ts';
 
 test('queued and processing readings are pending, never presented as complete', () => {
@@ -27,4 +28,15 @@ test('only persisted review-ready states are presented as complete', () => {
   assert.equal(failed.finished, false);
   assert.match(failed.notice, /failed/i);
   assert.equal(failed.revisionNote, undefined);
+});
+
+test('platform-owner AI testing keeps workspace consent explicit and billing complimentary', () => {
+  const settings = readFileSync(new URL('../app/src/pages/SettingsPage.tsx', import.meta.url), 'utf8');
+  const billing = readFileSync(new URL('../app/src/pages/BillingPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(settings, /onClick=\{handleGrantAiConsent\}/);
+  assert.match(settings, /Enable AI plan reading/);
+  assert.match(settings, /Only the workspace owner can enable AI plan reading/);
+  assert.match(billing, /Complimentary full access/);
+  assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !billingAvailable\}/);
 });
