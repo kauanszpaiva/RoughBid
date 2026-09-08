@@ -2,6 +2,7 @@ import { ProjectPayments, handleProjectPayment } from '../billing/project-paymen
 import { createClient } from '@supabase/supabase-js';
 import { handleAuthBootstrapRequest, handleMagicLinkRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
+import type { WorkspaceConsentWriter } from '../workspaces/actions.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
 import { createDocumentQueue, type JobQueue } from '../documents/service.ts';
@@ -100,9 +101,18 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         idempotencyKey: `workspace-invite/${input.inviteId}`,
       })
       : undefined;
+    let consentWriter: WorkspaceConsentWriter | undefined;
+    if (request.method === 'POST' && pathname.endsWith('/ai-consent')) {
+      const supabaseUrl = process.env.SUPABASE_URL?.trim();
+      const serviceRoleKey = loadSupabaseServiceRoleKey();
+      if (supabaseUrl && serviceRoleKey) {
+        consentWriter = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } }) as unknown as WorkspaceConsentWriter;
+      }
+    }
     return handleWorkspacesRequest(request, client as unknown as AuthenticatedSupabaseClient, {
       appUrl,
       ...(inviteMailer ? { sendInviteEmail: inviteMailer } : {}),
+      ...(consentWriter ? { consentWriter } : {}),
     });
   }
   if (/^\/api\/projects\/[^/]+\/(reading-quote|reading-checkout)$/.test(pathname)) {
