@@ -11,8 +11,10 @@ on:
       - 'apps/api/src/access/**'
       - 'apps/api/src/billing/project-payments.ts'
       - 'apps/api/src/http/handler.ts'
+      - 'apps/api/src/workspaces/**'
       - 'apps/api/test/ai-plan-durable.test.ts'
       - 'apps/api/test/founder-consent-regression.test.ts'
+      - 'apps/api/test/platform-admin-ai-consent.test.ts'
       - 'api/workspaces/**'
       - 'api/ai-plan-readings/**'
       - 'apps/web/app/src/pages/PlansPage.tsx'
@@ -37,6 +39,8 @@ jobs:
       - run: npm ci
       - name: Founder consent and billing regression
         run: node --experimental-strip-types --test apps/api/test/founder-consent-regression.test.ts
+      - name: Platform admin AI consent regression
+        run: node --experimental-strip-types --test apps/api/test/platform-admin-ai-consent.test.ts
       - name: Durable API contract
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
       - name: Durable database state machine and lease recovery
