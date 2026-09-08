@@ -13,7 +13,7 @@ function makeQuery(resolve: () => { data?: unknown; error?: unknown }) {
   return builder;
 }
 
-function fakeDb() {
+function fakeDb(existingJob?: Record<string, unknown>) {
   return {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
     from(table: string) {
@@ -23,7 +23,7 @@ function fakeDb() {
         if (table === 'project_files') {
           return { data: { id: 'file-1', original_name: 'plan.pdf', storage_path: 'workspace-1/project-1/file-1/source.pdf', processing_status: 'ready' }, error: null };
         }
-        if (table === 'plan_reading_jobs') return { data: [], error: null };
+        if (table === 'plan_reading_jobs') return { data: existingJob ?? [], error: null };
         throw new Error(`unexpected table ${table}`);
       });
     },
@@ -131,4 +131,60 @@ test('durable paid POST requires a paid-capable worker and returns 202 without i
   assert.equal(queueCapability, 'paid');
   assert.equal(providerReads, 0);
   assert.deepEqual(rpcCalls.map((call) => call.fn), ['ai_plan_worker_available', 'reserve_project_reading_async']);
+});
+
+test('ambiguous queue acknowledgement returns the durable job when rollback proves the worker already advanced it', async () => {
+  const rpcCalls: string[] = [];
+  const findingsWriter = {
+    from: () => ({}),
+    rpc: async (fn: string) => {
+      rpcCalls.push(fn);
+      if (fn === 'ai_plan_worker_available') return { data: true, error: null };
+      if (fn === 'reserve_project_reading_async') {
+        return {
+          data: {
+            reused: false,
+            job: { id: 'job-ambiguous', workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1', status: 'queued', processing_error: null, output_summary: {} },
+            quote: { id: 'quote-1', status: 'processing' },
+          },
+          error: null,
+        };
+      }
+      if (fn === 'rollback_ai_plan_enqueue') {
+        return { data: null, error: { message: 'Queue reservation cannot be released' } };
+      }
+      throw new Error(`unexpected rpc ${fn}`);
+    },
+  };
+
+  await withEnv({ AI_PLAN_DURABLE_ENABLED: 'true' }, async () => {
+    const response = await handleAiPlanRequest(
+      new Request('https://roughbid.test/api/projects/project-1/ai-plan-readings', {
+        method: 'POST',
+        headers: { 'x-workspace-id': 'workspace-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ file_id: 'file-1', quote_id: 'quote-1', mode: 'quick' }),
+      }),
+      fakeDb({
+        id: 'job-ambiguous', workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1',
+        status: 'processing', processing_error: null, output_summary: {}, plan_reading_findings: [],
+      }) as never,
+      {
+        findingsWriter: findingsWriter as never,
+        storage: { presign: async () => ({ url: 'https://storage.invalid/source.pdf' }) },
+        reader: { async read() { throw new Error('request-local provider must not run'); } } as never,
+        durableQueue: {
+          isWorkerAvailable: async () => true,
+          add: async () => { throw new Error('connection reset after Redis accepted the job'); },
+          close: async () => undefined,
+        },
+      } as never,
+    );
+
+    assert.equal(response.status, 202);
+    const body = await response.json() as { id: string; status: string };
+    assert.equal(body.id, 'job-ambiguous');
+    assert.equal(body.status, 'processing');
+  });
+
+  assert.deepEqual(rpcCalls, ['ai_plan_worker_available', 'reserve_project_reading_async', 'rollback_ai_plan_enqueue']);
 });
