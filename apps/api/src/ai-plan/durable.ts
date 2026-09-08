@@ -66,15 +66,31 @@ function normalizedJob(job: any) {
 }
 
 export class DurableAiPlanReadingService {
+  private readonly db: SupabaseLike;
+  private readonly writer: PlanReadingFindingsWriter;
+  private readonly storage: AiPlanObjectStorage;
+  private readonly queue: DurableAiPlanQueue;
+  private readonly userId: string;
+  private readonly workspaceId: string;
+  private readonly fetcher: typeof fetch;
+
   constructor(
-    private readonly db: SupabaseLike,
-    private readonly writer: PlanReadingFindingsWriter,
-    private readonly storage: AiPlanObjectStorage,
-    private readonly queue: DurableAiPlanQueue,
-    private readonly userId: string,
-    private readonly workspaceId: string,
-    private readonly fetcher: typeof fetch = fetch,
-  ) {}
+    db: SupabaseLike,
+    writer: PlanReadingFindingsWriter,
+    storage: AiPlanObjectStorage,
+    queue: DurableAiPlanQueue,
+    userId: string,
+    workspaceId: string,
+    fetcher: typeof fetch = fetch,
+  ) {
+    this.db = db;
+    this.writer = writer;
+    this.storage = storage;
+    this.queue = queue;
+    this.userId = userId;
+    this.workspaceId = workspaceId;
+    this.fetcher = fetcher;
+  }
 
   async reserve(projectId: string, input: Record<string, unknown>) {
     if (!this.writer.rpc) throw new ProjectApiError(503, 'Durable AI plan reservation is unavailable.');
@@ -156,7 +172,9 @@ export class DurableAiPlanReadingService {
     try {
       await this.queue.add(payload.job.id, entitlement);
     } catch {
-      await this.writer.rpc('rollback_ai_plan_enqueue', { p_job_id: payload.job.id, p_user_id: this.userId }).catch(() => undefined);
+      try {
+        await this.writer.rpc('rollback_ai_plan_enqueue', { p_job_id: payload.job.id, p_user_id: this.userId });
+      } catch { /* Queue failure remains fail-closed even if compensation reporting fails. */ }
       throw new ProjectApiError(503, 'AI plan queue is unavailable. The reservation was released and no provider call was made.');
     }
     return normalizedJob(payload.job);
@@ -188,14 +206,28 @@ export interface DurableAiPlanWorkerJob {
 }
 
 export class DurableAiPlanJobProcessor {
+  private readonly writer: PlanReadingFindingsWriter;
+  private readonly storage: AiPlanObjectStorage;
+  private readonly paidReader: PlanReader;
+  private readonly freeReader: PlanReader | undefined;
+  private readonly workerId: string;
+  private readonly fetcher: typeof fetch;
+
   constructor(
-    private readonly writer: PlanReadingFindingsWriter,
-    private readonly storage: AiPlanObjectStorage,
-    private readonly paidReader: PlanReader,
-    private readonly freeReader: PlanReader | undefined,
-    private readonly workerId: string,
-    private readonly fetcher: typeof fetch = fetch,
-  ) {}
+    writer: PlanReadingFindingsWriter,
+    storage: AiPlanObjectStorage,
+    paidReader: PlanReader,
+    freeReader: PlanReader | undefined,
+    workerId: string,
+    fetcher: typeof fetch = fetch,
+  ) {
+    this.writer = writer;
+    this.storage = storage;
+    this.paidReader = paidReader;
+    this.freeReader = freeReader;
+    this.workerId = workerId;
+    this.fetcher = fetcher;
+  }
 
   async process(queueJob: DurableAiPlanWorkerJob) {
     if (!this.writer.rpc) throw new Error('Durable AI plan RPC support is required.');
