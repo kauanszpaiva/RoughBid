@@ -88,8 +88,7 @@ async function boot() {
     insert into projects values('${id(11)}','${id(10)}'),('${id(21)}','${id(20)}');
     insert into project_files values(
       '${id(12)}','${id(10)}','${id(11)}','${id(10)}/${id(11)}/${id(12)}/source.pdf','owner.pdf','ready'),
-      ('${id(22)}','${id(20)}','${id(21)}','${id(20)}/${id(21)}/${id(22)}/source.pdf','paid.pdf','ready')
-    );
+      ('${id(22)}','${id(20)}','${id(21)}','${id(20)}/${id(21)}/${id(22)}/source.pdf','paid.pdf','ready');
     insert into private.free_owner_workspaces values('${id(10)}');
   `);
   await db.exec(readFileSync(new URL('../migrations/0023_durable_ai_plan_jobs.sql', import.meta.url), 'utf8'));
