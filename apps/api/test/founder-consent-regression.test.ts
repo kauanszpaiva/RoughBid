@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { hasPlatformAdminProjectAccess } from '../src/access/platform-admin.ts';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
 import { ProjectPayments } from '../src/billing/project-payments.ts';
@@ -73,4 +73,11 @@ test('Vercel exposes the explicit AI consent and finding-review routes', () => {
   for (const path of ['../../../api/workspaces/[id]/ai-consent.ts', '../../../api/ai-plan-readings/findings/[id].ts']) {
     assert.equal(existsSync(new URL(path, import.meta.url)), true, `Missing production route: ${path}`);
   }
+});
+
+test('plans UI removes every paid-reading action once complimentary entitlement is known', () => {
+  const plans = readFileSync(new URL('../../web/app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+  assert.match(plans, /if \(freeReadingAvailable\) setReadingQuote\(null\)/);
+  assert.match(plans, /\{!freeReadingAvailable && readingQuote/);
+  assert.match(plans, /\{!freeReadingAvailable && \(\s*<button[\s\S]*?handleStartAiReading/);
 });
