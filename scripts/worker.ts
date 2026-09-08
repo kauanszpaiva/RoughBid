@@ -1,15 +1,16 @@
 // Standalone background worker for work that must outlive a Vercel request.
 // It drains the optional PDF page-rendering queue and, when explicitly enabled,
-// the durable AI plan-reading queue. Deploy this process only on a host that
-// supports a continuously running worker (Railway/Fly/Render worker/VM/etc.).
+// provider-specific durable AI plan-reading queues. Deploy this process only on
+// a host that supports a continuously running worker (Railway/Fly/Render/VM).
 import { createClient } from '@supabase/supabase-js';
 import { Worker } from 'bullmq';
 import type { DocumentDb } from '../apps/api/src/documents/service.ts';
 import { PdfJobProcessor, PopplerPdfConverter, createBullMqPipeline } from '../apps/api/src/documents/worker.ts';
 import {
-  AI_PLAN_QUEUE,
+  aiPlanQueueName,
   DurableAiPlanJobProcessor,
   type DurableAiPlanWorkerJob,
+  type DurableEntitlement,
 } from '../apps/api/src/ai-plan/durable.ts';
 import { createGeminiClient, GeminiPlanReader } from '../apps/api/src/ai-plan/gemini.ts';
 import { requirePaidPlanReadingConfig, PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
@@ -75,7 +76,7 @@ async function main() {
   );
   console.log('[worker] pdf-processing queue attached');
 
-  let aiWorker: Worker | undefined;
+  const aiWorkers: Worker[] = [];
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
     const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
@@ -89,15 +90,29 @@ async function main() {
       workerId,
     );
     const connection = { url: redisUrl, maxRetriesPerRequest: null };
-    aiWorker = new Worker(
-      AI_PLAN_QUEUE,
-      (job) => processor.process(job as unknown as DurableAiPlanWorkerJob),
-      { connection, concurrency: 1, maxStalledCount: 1 },
-    );
-    aiWorker.on('stalled', (jobId) => console.error('[worker] ai-plan job stalled', { jobId }));
-    aiWorker.on('failed', (job, error) => console.error('[worker] ai-plan job failed', { jobId: job?.id, message: error.message }));
-    aiWorker.on('error', (error) => console.error('[worker] ai-plan worker error', { message: error.message }));
-    await aiWorker.waitUntilReady();
+
+    const attach = async (entitlement: DurableEntitlement) => {
+      const worker = new Worker(
+        aiPlanQueueName(entitlement),
+        (job) => processor.process(job as unknown as DurableAiPlanWorkerJob),
+        {
+          connection,
+          concurrency: 1,
+          lockDuration: 30_000,
+          stalledInterval: 30_000,
+          maxStalledCount: 1,
+        },
+      );
+      worker.on('stalled', (jobId) => console.error('[worker] ai-plan job stalled', { jobId, entitlement }));
+      worker.on('failed', (job, error) => console.error('[worker] ai-plan job failed', { jobId: job?.id, entitlement, message: error.message }));
+      worker.on('error', (error) => console.error('[worker] ai-plan worker error', { entitlement, message: error.message }));
+      await worker.waitUntilReady();
+      aiWorkers.push(worker);
+      console.log('[worker] ai-plan queue attached', { queue: aiPlanQueueName(entitlement), workerId });
+    };
+
+    if (paidEnabled) await attach('paid');
+    if (freeEnabled) await attach('owner_free');
 
     const touch = async () => {
       const result = await db.rpc('touch_ai_plan_worker', {
@@ -109,7 +124,7 @@ async function main() {
     };
     await touch();
     workerHeartbeat = setInterval(() => { void touch(); }, 30_000);
-    console.log('[worker] ai-plan-reading queue attached', { workerId, paidEnabled, freeEnabled });
+    console.log('[worker] ai-plan heartbeat active', { workerId, paidEnabled, freeEnabled });
   }
 
   let shuttingDown = false;
@@ -120,7 +135,7 @@ async function main() {
     if (workerHeartbeat) clearInterval(workerHeartbeat);
     await Promise.allSettled([
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
-      aiWorker?.close(),
+      ...aiWorkers.map((worker) => worker.close()),
     ]);
     process.exit(0);
   };
