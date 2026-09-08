@@ -121,7 +121,8 @@ export class GeminiPlanReader {
             config: {
               systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
               responseMimeType: 'application/json',
-              temperature: 0.1,
+              // Gemini 3 uses thinking levels and rejects legacy sampling settings.
+              ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'LOW' } } : { temperature: 0.1 }),
               maxOutputTokens: 8000,
               httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
             },

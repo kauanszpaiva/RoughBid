@@ -72,6 +72,16 @@ test('reads a plan via the injected Gemini client and returns its findings', asy
   assert.equal(result.summary.limitations.length, 0);
 });
 
+test('Gemini 3 requests use supported thinking settings without legacy sampling parameters', async () => {
+  const reader = new GeminiPlanReader({ generateContent: async ({config}) => {
+    assert.deepEqual(config.thinkingConfig, { thinkingLevel: 'LOW' });
+    assert.equal('temperature' in config, false);
+    assert.equal(config.maxOutputTokens, 8000);
+    return { text: JSON.stringify({ summary: { sheet_count: 1 }, findings: [{ page_number: 1, finding_type: 'room', label: 'Kitchen', source_excerpt: 'KITCHEN' }] }) };
+  } }, ['gemini-3.8-flash']);
+  assert.equal((await reader.read(baseInput)).findings.length, 1);
+});
+
 test('tries the next candidate model when the first returns no findings, before falling back', async () => {
   const attempts: string[] = [];
   const client = {
