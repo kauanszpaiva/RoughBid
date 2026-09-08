@@ -14,7 +14,7 @@ export interface GeminiPlanReadInput {
 
 /** The subset of @google/genai's client this reader needs — narrow enough to fake in tests. */
 export interface GeminiGenerateContentClient {
-  generateContent(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{ text?: string }>;
+  generateContent(args: { model: string; contents: unknown[]; config: Record<string, unknown> }): Promise<{ text?: string; candidates?: Array<{ finishReason?: string }> }>;
   countTokens?(args: { model: string; contents: unknown[]; config?: Record<string, unknown> }): Promise<{ totalTokens?: number }>;
   files?: GeminiFilesClient;
 }
@@ -121,13 +121,16 @@ export class GeminiPlanReader {
             config: {
               systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
               responseMimeType: 'application/json',
-              // Gemini 3 uses thinking levels and rejects legacy sampling settings.
+              // Preserve the model-family settings verified by the existing tests.
               ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'LOW' } } : { temperature: 0.1 }),
               maxOutputTokens: 8000,
               httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
             },
           });
           stage='parse';
+          if (response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+            throw new AiProviderError('provider_output_truncated', { provider: 'gemini', model, stage, durationMs: Date.now() - started });
+          }
           const parsed = JSON.parse(response.text || '{}') as { findings?: unknown };
           stage='validate';
           if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
@@ -139,6 +142,9 @@ export class GeminiPlanReader {
         } catch (error) {
           lastFailure=classifyProviderFailure(error,{provider:'gemini',model,stage,durationMs:Date.now()-started},stage==='parse'?'provider_invalid_output':'provider_unknown');
           logProviderFailure(lastFailure);
+          // A different model cannot repair these failures. Keep the request
+          // within its authorized attempt rather than fan out and spend again.
+          if (['provider_credentials', 'provider_permissions', 'provider_quota', 'provider_output_truncated'].includes(lastFailure.diagnostic.code)) break;
         }
       }
     }
