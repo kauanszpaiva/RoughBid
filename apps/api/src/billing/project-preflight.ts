@@ -56,6 +56,9 @@ export function normalizeScope(input: Record<string, unknown>) {
 
 /** No speculative production defaults. Operations must configure a measured cost policy. */
 export function quoteProject(pages: number, trades: number, membership: ProjectMembership, env: Record<string, string | undefined>) {
+  if (membership === 'enterprise') {
+    throw new ProjectApiError(503, 'Enterprise project pricing requires custom configuration. Contact support.');
+  }
   const read = (name: string, min: number) => {
     const raw = env[name];
     const value = raw && /^\d+$/.test(raw) ? Number(raw) : NaN;
@@ -69,15 +72,29 @@ export function quoteProject(pages: number, trades: number, membership: ProjectM
   const feeBps = read('PROJECT_PAYMENT_FEE_BPS', 0);
   const version = env.PROJECT_PRICING_VERSION?.trim();
   if (!isConfiguredValue(version) || version.length > 80) throw new ProjectApiError(503, 'Project pricing is not configured. Please contact support.');
-  // Cost policy covers bounded attempts, output limits, storage, domain, security and support.
-  const costCents = base + pages * perPage + trades * perTrade;
-  const allInCostUsd = costCents / 100;
+
+  const directCostCents = base + pages * perPage + trades * perTrade;
+  if (!Number.isSafeInteger(directCostCents) || directCostCents <= 0) {
+    throw new ProjectApiError(400, 'Invalid project cost calculation.');
+  }
+
+  // Include payment processing fees into total raw processing cost
+  const rawFeeCents = fixed + Math.round((directCostCents + fixed) * (feeBps / 10000));
+  const totalCostCents = directCostCents + rawFeeCents;
+  const allInCostUsd = totalCostCents / 100;
+
   const planTier: RoughBidPlanId | null = (membership === 'starter' || membership === 'pro' || membership === 'team') ? membership : null;
   const pricing = calculateAllInProcessingPrice(allInCostUsd, planTier);
 
+  if (!Number.isSafeInteger(pricing.finalPriceCents) || pricing.finalPriceCents > 99_999_999) {
+    throw new ProjectApiError(400, 'Project quote exceeds maximum allowable total.');
+  }
+
   return {
     amountCents: pricing.finalPriceCents,
-    costCents,
+    costCents: totalCostCents,
+    directCostCents,
+    paymentFeeCents: rawFeeCents,
     bufferedCostUsd: pricing.bufferedCostUsd,
     markupPercent: pricing.markupPercent,
     finalPriceUsd: pricing.finalPriceUsd,

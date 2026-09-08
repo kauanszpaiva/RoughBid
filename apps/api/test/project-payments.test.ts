@@ -23,37 +23,70 @@ test('no invented pricing defaults and no free generation in an unconfigured dep
 });
 
 test('quoteProject calculates exact all-in markup pricing for $10 illustrative cost (1000 cents)', () => {
-  // Configured so base + pages*perPage + trades*perTrade = 1000 cents ($10.00)
-  const env = {
+  // Configured so base + pages*perPage + trades*perTrade + payment fees = 1000 cents ($10.00)
+  const envZeroFee = {
     PROJECT_COST_BASE_CENTS: '500',
     PROJECT_COST_PAGE_CENTS: '50', // 8 pages = 400
     PROJECT_COST_TRADE_CENTS: '50', // 2 trades = 100 => 500 + 400 + 100 = 1000 cents
-    PROJECT_PAYMENT_FIXED_CENTS: '30',
-    PROJECT_PAYMENT_FEE_BPS: '290',
+    PROJECT_PAYMENT_FIXED_CENTS: '0',
+    PROJECT_PAYMENT_FEE_BPS: '0',
     PROJECT_PRICING_VERSION: 'test-v1',
   };
 
-  const noSub = quoteProject(8, 2, 'standard', env);
+  const noSub = quoteProject(8, 2, 'standard', envZeroFee);
   assert.equal(noSub.costCents, 1000);
   assert.equal(noSub.bufferedCostUsd, 13.00);
   assert.equal(noSub.markupPercent, 50);
   assert.equal(noSub.finalPriceUsd, 19.50);
   assert.equal(noSub.amountCents, 1950);
 
-  const starter = quoteProject(8, 2, 'starter', env);
+  const starter = quoteProject(8, 2, 'starter', envZeroFee);
   assert.equal(starter.markupPercent, 40);
   assert.equal(starter.finalPriceUsd, 18.20);
   assert.equal(starter.amountCents, 1820);
 
-  const pro = quoteProject(8, 2, 'pro', env);
+  const pro = quoteProject(8, 2, 'pro', envZeroFee);
   assert.equal(pro.markupPercent, 33);
   assert.equal(pro.finalPriceUsd, 17.29);
   assert.equal(pro.amountCents, 1729);
 
-  const team = quoteProject(8, 2, 'team', env);
+  const team = quoteProject(8, 2, 'team', envZeroFee);
   assert.equal(team.markupPercent, 25);
   assert.equal(team.finalPriceUsd, 16.25);
   assert.equal(team.amountCents, 1625);
+});
+
+test('quoteProject incorporates configured payment fees and rejects enterprise or oversized amounts', () => {
+  const envWithFees = {
+    PROJECT_COST_BASE_CENTS: '500',
+    PROJECT_COST_PAGE_CENTS: '50', // 8 pages = 400
+    PROJECT_COST_TRADE_CENTS: '50', // 2 trades = 100 => 1000 direct cost
+    PROJECT_PAYMENT_FIXED_CENTS: '30', // 30c fixed
+    PROJECT_PAYMENT_FEE_BPS: '290', // 2.9% fee
+    PROJECT_PRICING_VERSION: 'test-v1',
+  };
+
+  const quotedWithFee = quoteProject(8, 2, 'standard', envWithFees);
+  // Direct cost: 1000, fixed fee: 30, pct fee: round((1000+30)*0.029) = 30 => total fee = 60 cents
+  // Total cost = 1060 cents ($10.60)
+  assert.equal(quotedWithFee.directCostCents, 1000);
+  assert.equal(quotedWithFee.paymentFeeCents, 60);
+  assert.equal(quotedWithFee.costCents, 1060);
+  assert.ok(quotedWithFee.amountCents > 1950);
+
+  // Enterprise tier fails closed with 503
+  assert.throws(() => quoteProject(8, 2, 'enterprise', envWithFees), (err: any) => err.status === 503);
+
+  // Oversized total fails closed
+  const envOversized = {
+    PROJECT_COST_BASE_CENTS: '1000000000',
+    PROJECT_COST_PAGE_CENTS: '1000000',
+    PROJECT_COST_TRADE_CENTS: '0',
+    PROJECT_PAYMENT_FIXED_CENTS: '0',
+    PROJECT_PAYMENT_FEE_BPS: '0',
+    PROJECT_PRICING_VERSION: 'test-v1',
+  };
+  assert.throws(() => quoteProject(100, 5, 'standard', envOversized), (err: any) => err.status === 400);
 });
 test('PDF preflight reads pages without AI and rejects oversized/invalid data',async()=>{
   const doc=await PDFDocument.create();doc.addPage();doc.addPage();
