@@ -24,6 +24,8 @@ export interface AiPlanRequestDependencies {
    * provider, and a paid reading can never be served by the free one.
    */
   freeReader?: PlanReader | undefined;
+  /** Whether the paid provider is actually configured on this server. */
+  paidReaderAvailable?: boolean | undefined;
   /** Durable BullMQ queue. Required only when AI_PLAN_DURABLE_ENABLED=true. */
   durableQueue?: DurableAiPlanQueue | undefined;
 }
@@ -43,6 +45,9 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
       if (durableEnabled) {
         if (!deps.durableQueue) throw new ProjectApiError(503, 'Durable AI plan queue is not configured. No job was queued.');
+        const freeOwner = isFreeOwnerWorkspace(workspaceId, process.env);
+        if (freeOwner && !deps.freeReader) throw new ProjectApiError(503, 'The isolated free provider is not configured. No job was queued.');
+        if (!freeOwner && deps.paidReaderAvailable === false) throw new ProjectApiError(503, 'The paid plan-reading provider is not configured. No job was queued.');
         const durable = new DurableAiPlanReadingService(
           db, deps.findingsWriter, deps.storage, deps.durableQueue, data.user.id, workspaceId,
         );
