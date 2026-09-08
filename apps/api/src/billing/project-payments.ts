@@ -2,6 +2,7 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import type { AiPlanObjectStorage } from '../ai-plan/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, quoteProject } from './project-preflight.ts';
 import { isConfiguredValue, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { isPlatformAdmin } from '../access/platform-admin.ts';
 import type { ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import type { StripeEvent } from './stripe.ts';
 export interface ServerDatabase { from(table: string): any; rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: any }> }
@@ -25,7 +26,11 @@ export class ProjectPayments {
     const project = databaseValue(await this.db.from('projects').select('id').eq('workspace_id',workspaceId).eq('id',projectId).maybeSingle());
     if (!project) throw new ProjectApiError(404,'Project not found.');
   }
-  async membership(workspaceId: string): Promise<ProjectMembership> {
+  async membership(workspaceId: string, userId?: string): Promise<ProjectMembership> {
+    // Platform administrators receive the highest commercial treatment for
+    // pricing/feature calculations without manufacturing a Stripe subscription.
+    // Workspace/project authorization is still enforced separately by access().
+    if (userId && await isPlatformAdmin(this.db, userId)) return 'enterprise';
     const workspace = databaseValue(await this.db.from('workspaces').select('created_by').eq('id',workspaceId).single());
     const bill = databaseValue(await this.db.from('billing_customers').select('stripe_price_id,subscription_status,current_period_end').eq('user_id',workspace.created_by).maybeSingle());
     if (!bill || bill.subscription_status !== 'active' || !bill.current_period_end || Date.parse(bill.current_period_end) <= Date.now()) return 'standard';
@@ -47,7 +52,7 @@ export class ProjectPayments {
     const scope = normalizeScope(input);
     const bytes = await downloadPlan((await storage.presign('GET',file.storage_path,{expiresIn:300})).url,this.fetcher);
     const fileInfo = await inspectPdf(bytes);
-    const membership = await this.membership(workspaceId);
+    const membership = await this.membership(workspaceId, userId);
     const price = quoteProject(fileInfo.pages,scope.trades.length,membership,this.env);
     const row = databaseValue(await this.db.rpc('create_project_reading_quote', { p_input: { workspace_id:workspaceId,project_id:projectId,file_id:fileId,user_id:userId,
       file_sha256:fileInfo.sha256,page_count:fileInfo.pages,trades:scope.trades,scope:scope.scope,amount_cents:price.amountCents,cost_cents:price.costCents,
@@ -56,6 +61,9 @@ export class ProjectPayments {
   }
   async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string) {
     await this.access(userId,workspaceId,projectId);
+    if (await isPlatformAdmin(this.db, userId)) {
+      throw new ProjectApiError(409, 'Platform owner access is complimentary. No checkout is required for this account.');
+    }
     requirePaidPlanReadingConfig(this.env);
     const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id',quoteId).eq('project_id',projectId).eq('workspace_id',workspaceId).maybeSingle());
     if (!q) throw new ProjectApiError(404,'Quote not found.');

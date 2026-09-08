@@ -74,6 +74,7 @@ export class AiPlanReadingService {
   private readonly fetcher: typeof fetch;
   private readonly userId: string;
   private readonly workspaceId: string;
+  private readonly platformAdmin: boolean;
 
   constructor(
     db: SupabaseLike,
@@ -84,6 +85,7 @@ export class AiPlanReadingService {
     workspaceId: string,
     fetcher: typeof fetch = fetch,
     freeReader?: PlanReader,
+    platformAdmin = false,
   ) {
     if (!userId || !workspaceId) throw new ProjectApiError(401, 'Authentication and workspace are required');
     this.db = db;
@@ -94,6 +96,7 @@ export class AiPlanReadingService {
     this.workspaceId = workspaceId;
     this.fetcher = fetcher;
     this.freeReader = freeReader;
+    this.platformAdmin = platformAdmin;
   }
 
   async create(projectId: string, input: Record<string, unknown>) {
@@ -120,12 +123,16 @@ export class AiPlanReadingService {
       throw new ProjectApiError(409, 'Plan file must finish uploading before AI reading can start');
     }
 
-    // This advisory pre-check only bounds NEW work. It deliberately does not run
-    // on the free path, where the reservation RPC decides atomically under the
-    // workspace lock: re-using an existing job consumes no provider request, so
-    // being at the cap must not stop the owner reading back a job already
-    // running. A genuinely new free attempt is still capped inside the RPC.
-    const freeOwnerCandidate = isFreeOwnerWorkspace(this.workspaceId, process.env);
+    // Platform-admin status is verified once at the trusted HTTP boundary and
+    // injected into this service. It is a commercial bypass only: the scoped
+    // workspace/project reads above still enforce tenancy, and the reservation
+    // RPC repeats role/tenancy checks before provider work.
+    const platformAdmin = this.platformAdmin;
+
+    // This advisory pre-check only bounds NEW work. Platform administrators use
+    // the same paid-workspace daily guardrail as customers; complimentary means
+    // no checkout, not unlimited provider spend.
+    const freeOwnerCandidate = !platformAdmin && isFreeOwnerWorkspace(this.workspaceId, process.env);
     if (!freeOwnerCandidate) {
       const dailyLimit = Number(process.env.AI_PLAN_DAILY_JOB_LIMIT) || DEFAULT_DAILY_JOB_LIMIT;
       const since = new Date(Date.now() - DAY_MS).toISOString();
@@ -137,10 +144,6 @@ export class AiPlanReadingService {
       }
     }
 
-    // The owner's own workspace may run a reading without payment, but only when
-    // the entitlement AND a verified non-billed provider are both configured.
-    // Every other workspace keeps the confirmed-payment requirement below.
-    const freeOwner = freeOwnerCandidate;
     const quoteId = typeof input.quote_id === 'string' ? input.quote_id : '';
     if (!this.findingsWriter.rpc) throw new ProjectApiError(503, 'Project payment authorization is unavailable.');
 
@@ -148,40 +151,69 @@ export class AiPlanReadingService {
     let quote: any = null;
     let requestedTrades: string[];
     let scope: string;
-    let freePlan: { bytes: Uint8Array; sha256: string; pages: number } | null = null;
+    let unquotedPlan: { bytes: Uint8Array; sha256: string; pages: number } | null = null;
+    let accessMode: 'platform_admin' | 'owner_free' | 'paid';
 
-    if (freeOwner) {
-      // Hard failure before any provider call when the free project is not
-      // configured and attested. Never falls back to the billed credential.
+    if (platformAdmin) {
+      // Platform owner/tester uses the real paid provider but never manufactures
+      // a Stripe payment or zero-dollar quote. The dedicated database RPC is the
+      // server-side authorization boundary for this complimentary path.
+      this.reader.assertReady?.();
+      const normalized = normalizeScope(input);
+      requestedTrades = normalized.trades;
+      scope = normalized.scope;
+      const model = process.env.GEMINI_MODEL || 'gemini';
+      unquotedPlan = await this.loadPlanBytes(file, projectId, fileId);
+      const fingerprint = await requestFingerprint({
+        trades: requestedTrades,
+        scope,
+        model,
+        mode: typeof input.mode === 'string' ? input.mode : 'quick',
+        sha256: unquotedPlan.sha256,
+      });
+      const reserved = await this.findingsWriter.rpc('reserve_platform_admin_reading', {
+        p_user_id: this.userId,
+        p_workspace_id: this.workspaceId,
+        p_project_id: projectId,
+        p_file_id: fileId,
+        p_model: model,
+        p_file_sha256: unquotedPlan.sha256,
+        p_request_fingerprint: fingerprint,
+        p_requested_trades: requestedTrades,
+        p_scope: scope,
+      });
+      if (reserved.error) {
+        throw new ProjectApiError(403, reserved.error.message ?? 'Platform owner complimentary reading is not authorized.');
+      }
+      if (reserved.data.reused) return this.get(reserved.data.job.id);
+      job = reserved.data.job;
+      accessMode = 'platform_admin';
+    } else if (freeOwnerCandidate) {
+      // Hard failure before any provider call when the isolated free project is
+      // not configured and attested. Never falls back to the billed credential.
       const freeConfig = requireFreeProviderConfig(process.env);
-      // Structural guarantee: the free path uses the free reader or nothing.
-      // It never borrows `this.reader`, which is built from the billed project.
       if (!this.freeReader) throw new ProjectApiError(503, FREE_PROVIDER_UNCONFIGURED);
       this.freeReader.assertReady?.();
       const normalized = normalizeScope(input);
       requestedTrades = normalized.trades;
       scope = normalized.scope;
-      // The free path has no quote to carry a server-verified digest, so the
-      // file is fetched and inspected BEFORE reserving. The digest and the
-      // normalized request identity form the re-use key, so a re-run with a
-      // different scope, trade set or model is a distinct analysis rather than
-      // a silent re-use of the previous one.
-      freePlan = await this.loadPlanBytes(file, projectId, fileId);
+      unquotedPlan = await this.loadPlanBytes(file, projectId, fileId);
       const fingerprint = await requestFingerprint({
         trades: requestedTrades, scope, model: freeConfig.model,
         mode: typeof input.mode === 'string' ? input.mode : 'quick',
-        sha256: freePlan.sha256,
+        sha256: unquotedPlan.sha256,
       });
       const reservedFree = await this.findingsWriter.rpc('reserve_owner_free_reading', {
         p_user_id: this.userId, p_workspace_id: this.workspaceId,
         p_project_id: projectId, p_file_id: fileId, p_model: freeConfig.model,
-        p_file_sha256: freePlan.sha256, p_request_fingerprint: fingerprint,
+        p_file_sha256: unquotedPlan.sha256, p_request_fingerprint: fingerprint,
       });
       if (reservedFree.error) {
         throw new ProjectApiError(403, reservedFree.error.message ?? 'This workspace is not authorized for free plan reading.');
       }
       if (reservedFree.data.reused) return this.get(reservedFree.data.job.id);
       job = reservedFree.data.job;
+      accessMode = 'owner_free';
     } else {
       if (!quoteId) throw new ProjectApiError(402, 'Review and pay the project processing price before starting AI.');
       this.reader.assertReady?.();
@@ -196,15 +228,16 @@ export class AiPlanReadingService {
       quote = paidQuote;
       requestedTrades = quote.trades as string[];
       scope = quote.scope as string;
+      accessMode = 'paid';
     }
 
     try {
-      // The free path already fetched and digested the plan to build its
-      // re-use key; re-using those bytes avoids a second download and keeps the
-      // analysed bytes identical to the ones the reservation was keyed on.
+      // Complimentary paths pre-fetch and digest the plan to create their
+      // idempotency key. Reusing those bytes guarantees the provider receives
+      // exactly the bytes that were authorized by the reservation.
       let fileBytes: Uint8Array;
-      if (freePlan) {
-        fileBytes = freePlan.bytes;
+      if (unquotedPlan) {
+        fileBytes = unquotedPlan.bytes;
       } else {
         assertPlanStoragePath(file.storage_path,this.workspaceId,projectId,fileId);
         const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
@@ -212,7 +245,7 @@ export class AiPlanReadingService {
         if (PDF_DIGEST(fileBytes) !== quote.file_sha256) throw new ProjectApiError(409, 'The plan changed after payment. Contact support before processing.');
       }
 
-      const activeReader = freeOwner ? this.freeReader! : this.reader;
+      const activeReader = accessMode === 'owner_free' ? this.freeReader! : this.reader;
       const result = await activeReader.read({
         fileBytes,
         mimeType: 'application/pdf',
@@ -221,10 +254,7 @@ export class AiPlanReadingService {
         scope,
       });
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
-      // Page bound comes from the paid quote, or from the server's own
-      // inspection of the bytes on the free path. Findings carrying a quantity
-      // or geometry must cite a real page in this document either way.
-      const pageCount = freePlan ? freePlan.pages : quote.page_count;
+      const pageCount = unquotedPlan ? unquotedPlan.pages : quote.page_count;
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > pageCount))) throw new Error('The reading contains quantities or locations without valid source pages.');
       const findingsRows = result.findings.map((finding) => {
         return {
@@ -244,20 +274,29 @@ export class AiPlanReadingService {
         };
       });
 
-      const finished = freeOwner
-        ? await this.findingsWriter.rpc('finish_owner_free_reading', {
+      const finished = accessMode === 'platform_admin'
+        ? await this.findingsWriter.rpc('finish_platform_admin_reading', {
             p_job_id: job.id, p_user_id: this.userId, p_error: null,
             p_findings: findingsRows, p_summary: result.summary,
           })
-        : await this.findingsWriter.rpc('finish_project_reading', {
-            p_quote_id: quoteId, p_job_id: job.id, p_error: null,
-            p_findings: findingsRows, p_summary: result.summary,
-          });
+        : accessMode === 'owner_free'
+          ? await this.findingsWriter.rpc('finish_owner_free_reading', {
+              p_job_id: job.id, p_user_id: this.userId, p_error: null,
+              p_findings: findingsRows, p_summary: result.summary,
+            })
+          : await this.findingsWriter.rpc('finish_project_reading', {
+              p_quote_id: quoteId, p_job_id: job.id, p_error: null,
+              p_findings: findingsRows, p_summary: result.summary,
+            });
       if (finished.error) throw new Error('Could not save the reading. Check its status before retrying.');
       return finished.data;
     } catch (error) {
       const failure = error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed';
-      if (freeOwner) {
+      if (accessMode === 'platform_admin') {
+        await this.findingsWriter.rpc('finish_platform_admin_reading', {
+          p_job_id: job.id, p_user_id: this.userId, p_summary: {}, p_findings: [], p_error: failure,
+        });
+      } else if (accessMode === 'owner_free') {
         await this.findingsWriter.rpc('finish_owner_free_reading', {
           p_job_id: job.id, p_user_id: this.userId, p_summary: {}, p_findings: [], p_error: failure,
         });
@@ -271,10 +310,7 @@ export class AiPlanReadingService {
     }
   }
 
-  /**
-   * Fetches and inspects the stored plan. Used by the free path, which has no
-   * paid quote to carry a server-verified digest or page count.
-   */
+  /** Fetches and inspects the stored plan for non-quote complimentary paths. */
   private async loadPlanBytes(file: any, projectId: string, fileId: string) {
     assertPlanStoragePath(file.storage_path, this.workspaceId, projectId, fileId);
     const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });

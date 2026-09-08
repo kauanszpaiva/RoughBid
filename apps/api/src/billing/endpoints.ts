@@ -3,13 +3,14 @@ import {
   createCheckoutRequest, createPortalRequest, isBillingPriceKey, subscriptionUpdateFromEvent, verifyStripeWebhook,
 } from './stripe.ts';
 
-export type AuthenticatedUser = { id: string; email: string };
+export type AuthenticatedUser = { id: string; email: string; isPlatformAdmin?: boolean };
 export interface StripeGateway {
   createCheckoutSession(input: ReturnType<typeof createCheckoutRequest>): Promise<{ url: string }>;
   createPortalSession(input: ReturnType<typeof createPortalRequest>): Promise<{ url: string }>;
 }
 export interface BillingRepository {
   customerIdForUser(userId: string): Promise<string | null>;
+  isPlatformAdminForUser?(userId: string): Promise<boolean>;
   /** Must insert stripe_events and apply update in one transaction; false means event_id already exists. */
   processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: BillingCustomerUpdate | null): Promise<boolean>;
 }
@@ -43,10 +44,23 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
       }
     }
 
-    const user = await deps.authenticate(request);
+    let user: AuthenticatedUser | null;
+    try {
+      user = await deps.authenticate(request);
+    } catch {
+      return json(503, { error: 'Unable to verify account billing access. Please try again.' });
+    }
     if (!user) return json(401, { error: 'Unauthorized' });
     try {
       const body = await input(request);
+      // Check with the server-side repository even when the auth adapter does
+      // not carry profile metadata. Billing fails closed: inability to verify
+      // the complimentary flag never falls through into an accidental charge.
+      const isPlatformAdmin = user.isPlatformAdmin === true
+        || (deps.repository.isPlatformAdminForUser ? await deps.repository.isPlatformAdminForUser(user.id) : false);
+      if (path === '/api/billing/checkout' && isPlatformAdmin) {
+        return json(409, { error: 'Platform owner access is complimentary. No checkout is required for this account.' });
+      }
       const customerId = await deps.repository.customerIdForUser(user.id);
       if (path === '/api/billing/checkout') {
         const priceKey = isBillingPriceKey(body.priceKey) ? body.priceKey : undefined;
