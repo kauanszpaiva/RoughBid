@@ -8,6 +8,9 @@ on:
     paths:
       - 'apps/api/src/ai-plan/**'
       - 'apps/api/test/ai-plan-durable.test.ts'
+      - 'apps/web/app/src/pages/PlansPage.tsx'
+      - 'apps/web/app/src/utils/aiPlanStatus.ts'
+      - 'apps/web/test/ai-plan-status.test.ts'
       - 'scripts/worker.ts'
       - 'supabase/migrations/**'
       - 'supabase/test/durable-ai-plan.test.mjs'
@@ -28,3 +31,5 @@ jobs:
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
       - name: Durable database state machine
         run: node --test supabase/test/durable-ai-plan.test.mjs
+      - name: Durable UI status contract
+        run: node --experimental-strip-types --test apps/web/test/ai-plan-status.test.ts
