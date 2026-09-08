@@ -38,5 +38,6 @@ test('platform-owner AI testing keeps workspace consent explicit and billing com
   assert.match(settings, /Enable AI plan reading/);
   assert.match(settings, /Only the workspace owner can enable AI plan reading/);
   assert.match(billing, /Complimentary full access/);
-  assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !billingAvailable\}/);
+  assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !memberships\[tier\]\}/);
+  assert.match(billing, /starter: capabilities\.membershipStarter, pro: capabilities\.membershipPro, team: capabilities\.membershipTeam/);
 });

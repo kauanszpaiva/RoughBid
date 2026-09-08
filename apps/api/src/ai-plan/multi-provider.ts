@@ -1,5 +1,7 @@
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
+import { ProjectApiError } from '../projects/service.ts';
+import { classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 
 export interface NamedPlanReader {
   name: string;
@@ -16,12 +18,21 @@ export class MultiProviderPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
-    for (const { read } of this.readers) {
+    let lastFailure:ProjectApiError|null=null;
+    for (const { name,read } of this.readers) {
+      const started=Date.now();
       try {
         const result = await read(input);
         if (!result.summary.synthetic && result.findings.length) return result;
-      } catch { /* Try the next explicitly configured provider. */ }
+      } catch(error) {
+        if(error instanceof ProjectApiError)lastFailure=error;
+        else {
+          lastFailure=classifyProviderFailure(error,{provider:name,model:'',stage:'generate',durationMs:Date.now()-started});
+          logProviderFailure(lastFailure as ReturnType<typeof classifyProviderFailure>);
+        }
+      }
     }
-    throw new Error('AI could not read this plan. No quantities were generated. Please retry or contact support.');
+    if(lastFailure)throw lastFailure;
+    throw classifyProviderFailure(null,{provider:'other',model:'',stage:'validate',durationMs:0},'provider_empty_output');
   }
 }

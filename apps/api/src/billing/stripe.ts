@@ -35,12 +35,14 @@ export function isBillingPriceKey(value: unknown): value is BillingPriceKey {
 
 export type BillingConfigInput = {
   stripeMode: StripeMode;
+  appUrl?: string | undefined;
   productId: string;
   priceId?: string;
   priceIds?: Partial<Record<BillingPriceKey, string>>;
 };
 export type BillingConfig = {
   mode: StripeMode;
+  appUrl?: string | undefined;
   productId: string;
   priceId: string | null;
   priceIds: Partial<Record<BillingPriceKey, string>>;
@@ -52,6 +54,7 @@ export type CheckoutInput = {
   userId?: string;
   customerId?: string | null;
   priceKey?: BillingPriceKey;
+  expiresAt?: number;
 };
 export type PortalInput = { customerId: string; returnUrl: string };
 
@@ -61,6 +64,7 @@ export type HostedCheckoutRequest = {
   success_url: string; cancel_url: string; client_reference_id?: string;
   subscription_data?: { metadata: { user_id: string } };
   metadata?: { user_id?: string; price_key?: string };
+  expires_at?: number;
 };
 
 export type PortalRequest = { customer: string; return_url: string };
@@ -71,7 +75,7 @@ export function createBillingConfig(input: BillingConfigInput): BillingConfig {
   const priceIds = Object.fromEntries(
     Object.entries(input.priceIds ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => [key, String(value).trim()]),
   ) as Partial<Record<BillingPriceKey, string>>;
-  return { mode: input.stripeMode, productId: input.productId.trim(), priceId: input.priceId?.trim() || null, priceIds };
+  return { mode: input.stripeMode, appUrl: input.appUrl, productId: input.productId.trim(), priceId: input.priceId?.trim() || null, priceIds };
 }
 
 export function createBillingConfigFromEnv(env: Record<string, string | undefined>): BillingConfig {
@@ -93,6 +97,7 @@ export function createBillingConfigFromEnv(env: Record<string, string | undefine
   }
   return createBillingConfig({
     stripeMode: env.STRIPE_MODE === 'live' ? 'live' : 'test',
+    appUrl: env.APP_URL,
     productId: env.STRIPE_PRODUCT_ID ?? '',
     priceId: env.STRIPE_PRICE_ID ?? '',
     priceIds,
@@ -116,9 +121,13 @@ export function createCheckoutRequest(config: BillingConfig, input: CheckoutInpu
   };
   if (input.customerId) request.customer = input.customerId;
   else request.customer_email = input.customerEmail;
+  if (input.expiresAt) request.expires_at = input.expiresAt;
   if (input.userId) {
     request.client_reference_id = input.userId;
-    if (checkoutMode === 'subscription') request.subscription_data = { metadata: { user_id: input.userId } };
+    if (checkoutMode === 'subscription') {
+      request.subscription_data = { metadata: { user_id: input.userId } };
+      request.metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}) };
+    }
     else request.metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}) };
   }
   return request;
@@ -151,14 +160,17 @@ export function verifyStripeWebhook(rawBody: string | Uint8Array, signature: str
 export type BillingCustomerUpdate = {
   userId: string; stripeCustomerId: string; stripeSubscriptionId: string;
   stripePriceId: string | null; subscriptionStatus: string; currentPeriodEnd: string | null;
+  invoicePaid?: boolean;
+  syncRevision?: number;
 };
 
-type StripeSubscription = {
+export type StripeSubscription = {
   id: string; customer: string | { id: string }; status: string; current_period_end?: number;
-  metadata?: { user_id?: string }; items?: { data?: Array<{ price?: { id?: string } }> };
+  metadata?: { user_id?: string }; items?: { data?: Array<{ current_period_end?: number; price?: { id?: string } }> };
+  latest_invoice?: string | { status?: string; amount_paid?: number; amount_due?: number } | null;
 };
 
-const SUBSCRIPTION_EVENTS = new Set(['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted']);
+const SUBSCRIPTION_EVENTS = new Set(['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'customer.subscription.paused', 'customer.subscription.resumed']);
 
 /** Convert only authoritative subscription webhooks into the billing row shape. */
 export function subscriptionUpdateFromEvent(event: StripeEvent): BillingCustomerUpdate | null {
@@ -167,10 +179,29 @@ export function subscriptionUpdateFromEvent(event: StripeEvent): BillingCustomer
   const userId = subscription.metadata?.user_id;
   if (!userId) throw new Error('Stripe subscription is missing metadata.user_id.');
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+  const periodEnd = subscription.items?.data?.[0]?.current_period_end ?? subscription.current_period_end;
   return {
     userId, stripeCustomerId: customerId, stripeSubscriptionId: subscription.id,
     stripePriceId: subscription.items?.data?.[0]?.price?.id ?? null,
     subscriptionStatus: subscription.status,
-    currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null,
+    currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
   };
+}
+
+export function subscriptionIdFromEvent(event: StripeEvent): string | null {
+  const object = event.data.object as Record<string, any>;
+  if (SUBSCRIPTION_EVENTS.has(event.type)) return typeof object.id === 'string' ? object.id : null;
+  if (!['invoice.paid', 'invoice.payment_failed', 'invoice.payment_action_required'].includes(event.type)) return null;
+  const subscription = object.parent?.subscription_details?.subscription ?? object.subscription;
+  return typeof subscription === 'string' ? subscription : subscription?.id ?? null;
+}
+
+/** Called with a fresh Stripe read, never with the potentially stale webhook snapshot. */
+export function verifiedSubscriptionUpdate(subscription: StripeSubscription, allowedPrices: readonly string[], revision: number): BillingCustomerUpdate | null {
+  if (!subscription.metadata?.user_id || !subscription.items?.data?.some(item => allowedPrices.includes(item.price?.id ?? ''))) return null;
+  if (subscription.items.data.length !== 1) throw new Error('Membership must have exactly one approved price.');
+  const invoice = subscription.latest_invoice;
+  const invoicePaid = typeof invoice === 'object' && invoice !== null && invoice.status === 'paid'
+    && typeof invoice.amount_paid === 'number' && typeof invoice.amount_due === 'number' && invoice.amount_paid >= invoice.amount_due;
+  return { ...subscriptionUpdateFromEvent({ id: 'current', type: 'customer.subscription.updated', livemode: false, data: { object: subscription } })!, invoicePaid, syncRevision: revision };
 }

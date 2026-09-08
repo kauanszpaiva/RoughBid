@@ -8,7 +8,7 @@
   "theme_color": "#2563eb",
   "icons": [
     {
-      "src": "/brand/roughbid-icon.png",
+      "src": "/brand/roughbid-mark.png",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"

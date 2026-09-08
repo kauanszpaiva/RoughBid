@@ -23,8 +23,9 @@ export const AuthGate: React.FC = () => {
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
+    const pilotInviteToken = new URLSearchParams(window.location.search).get("pilot_invite");
     try {
-      await requestMagicLink({ email: email.trim(), inviteToken, mode });
+      await requestMagicLink({ email: email.trim(), inviteToken, pilotInviteToken, mode });
       setState("sent");
     } catch (error) {
       setState("error");
@@ -36,14 +37,15 @@ export const AuthGate: React.FC = () => {
     <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-4 py-8 font-sans text-slate-900">
       <div className="w-full max-w-[440px]">
         <div className="text-center mb-5">
-          <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-16 h-16 mx-auto object-contain bg-white rounded-xl shadow-xs border border-slate-200" />
-          <h1 className="text-2xl font-extrabold tracking-tight mt-3">RoughBid</h1>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mt-1">
+          <img src="/brand/roughbid-logo.png" alt="RoughBid" className="w-60 max-w-full h-16 mx-auto object-contain" />
+          <h1 className="sr-only">RoughBid</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mt-3">
             Construction estimating & takeoff platform
           </p>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4 sm:p-5">
+          {new URLSearchParams(window.location.search).has('pilot_invite') && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">You have an access invitation. Sign in or create your account using the exact email that received it. Your private workspace and access period activate after your email is verified.</p>}
           <div className="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-5">
             <button
               type="button"
@@ -76,7 +78,7 @@ export const AuthGate: React.FC = () => {
                 Check your email
               </div>
               <p className="text-blue-800 text-xs leading-relaxed mt-2">
-                We sent a secure RoughBid link to <strong>{email}</strong>. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
+                Check the inbox and spam folder for <strong>{email}</strong>. If your request can be completed, a secure RoughBid link will arrive. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
               </p>
               <button
                 type="button"

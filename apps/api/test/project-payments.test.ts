@@ -44,7 +44,7 @@ test('unpaid and unrelated Stripe events never grant a project reading',async()=
   assert.equal(calls[0].args.p_amount,100);
 });
 
-function checkoutFixture(env: Record<string, string | undefined>) {
+function checkoutFixture(env: Record<string, string | undefined>, pilot: any = { active: false, status: 'none' }) {
   const mutations: string[] = [];
   const requests: string[] = [];
   const quote = { id: 'quote-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
@@ -59,7 +59,7 @@ function checkoutFixture(env: Record<string, string | undefined>) {
       }).then(resolve, reject),
     };
     return query;
-  }, rpc: async () => { mutations.push('rpc'); return { data: null, error: null }; } };
+  }, rpc: async (fn: string) => { if (fn === 'get_pilot_access') return { data: pilot, error: null }; mutations.push('rpc'); return { data: null, error: null }; } };
   const fetcher = (async (input: string | URL | Request) => {
     requests.push(String(input));
     return Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
@@ -103,4 +103,19 @@ test('deliberately configured paid checkout still works with an injected test ga
   assert.equal(checkout.url, 'https://checkout.stripe.test/session');
   assert.deepEqual(f.requests, ['https://api.stripe.com/v1/checkout/sessions']);
   assert.deepEqual(f.mutations, ['project_reading_quotes']);
+});
+
+test('active pilot cannot pay around its limits and unknown pilot status fails closed', async () => {
+  for (const [pilot,status] of [[{ active:true },409],[null,503]] as const) {
+    const f=checkoutFixture({},pilot);
+    const storage={presign:async()=>{throw new Error('Storage must not be contacted');}};
+    await assert.rejects(f.payments.quote('user-1','workspace-1','project-1',{file_id:'file-1'},storage),(error:any)=>error.status===status);
+    await assert.rejects(f.payments.checkout('user-1','workspace-1','project-1','quote-1'),(error:any)=>error.status===status);
+    assert.deepEqual(f.requests,[]);assert.deepEqual(f.mutations,[]);
+  }
+});
+
+test('expired pilot returns to the ordinary paid project checkout', async () => {
+  const f=checkoutFixture({PAID_PLAN_READINGS_ENABLED:'true',GEMINI_API_KEY:'unit-provider-credential',GEMINI_MODEL:'gemini-2.5-flash',STRIPE_SECRET_KEY:'sk_test_unitcredential',STRIPE_WEBHOOK_SECRET:'whsec_test_unitcredential',APP_URL:'https://roughbid.test'},{active:false,status:'expired'});
+  assert.equal((await f.payments.checkout('user-1','workspace-1','project-1','quote-1')).url,'https://checkout.stripe.test/session');
 });

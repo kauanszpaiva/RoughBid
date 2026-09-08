@@ -45,7 +45,7 @@ export class S3ObjectStorage {
   private readonly now: () => Date;
   constructor(config: ObjectStorageConfig, now = () => new Date()) { this.config = config; this.now = now; }
 
-  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options: { expiresIn?: number; contentType?: string; downloadName?: string } = {}): PresignedObjectRequest {
+  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options: { expiresIn?: number; contentType?: string; downloadName?: string; maximumSizeInBytes?: number } = {}): PresignedObjectRequest {
     if (!key || key.startsWith('/') || key.includes('..')) throw new Error('Invalid object key');
     const expiresIn = Math.min(Math.max(Math.floor(options.expiresIn ?? 300), 1), 900);
     const date = this.now();

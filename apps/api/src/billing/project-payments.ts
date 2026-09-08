@@ -20,6 +20,11 @@ export class ProjectPayments {
   constructor(db: ServerDatabase, env: Record<string,string|undefined>, fetcher: typeof fetch = fetch) {
     this.db=db; this.env=env; this.fetcher=fetcher;
   }
+  async assertNoActivePilot(userId: string) {
+    const pilot = databaseValue(await this.db.rpc('get_pilot_access', { p_user_id: userId }));
+    if (!pilot || typeof pilot.active !== 'boolean') throw new ProjectApiError(503, 'Unable to verify pilot billing access. Please try again.');
+    if (pilot?.active === true) throw new ProjectApiError(409, 'Pilot access is active. Use your included analysis within its limits; paid project checkout becomes available when the pilot ends.');
+  }
   async access(userId: string, workspaceId: string, projectId: string) {
     const member = databaseValue(await this.db.from('workspace_members').select('role').eq('workspace_id',workspaceId).eq('user_id',userId).maybeSingle());
     if (!member || !['admin','estimator'].includes(member.role)) throw new ProjectApiError(403,'Only company administrators and estimators can purchase or start a reading.');
@@ -32,8 +37,8 @@ export class ProjectPayments {
     // Workspace/project authorization is still enforced separately by access().
     if (userId && await isPlatformAdmin(this.db, userId)) return 'enterprise';
     const workspace = databaseValue(await this.db.from('workspaces').select('created_by').eq('id',workspaceId).single());
-    const bill = databaseValue(await this.db.from('billing_customers').select('stripe_price_id,subscription_status,current_period_end').eq('user_id',workspace.created_by).maybeSingle());
-    if (!bill || bill.subscription_status !== 'active' || !bill.current_period_end || Date.parse(bill.current_period_end) <= Date.now()) return 'standard';
+    const bill = databaseValue(await this.db.from('billing_customers').select('stripe_price_id,subscription_status,current_period_end,invoice_paid').eq('user_id',workspace.created_by).maybeSingle());
+    if (!bill || bill.subscription_status !== 'active' || bill.invoice_paid !== true || !bill.current_period_end || Date.parse(bill.current_period_end) <= Date.now()) return 'standard';
     for (const tier of ['starter','pro','team','enterprise'] as const) {
       const id = this.env[`STRIPE_PRICE_PLAN_${tier.toUpperCase()}`];
       if (id && id === bill.stripe_price_id) return tier;
@@ -50,6 +55,7 @@ export class ProjectPayments {
     if (await isPlatformAdmin(this.db, userId)) {
       throw new ProjectApiError(409, 'Platform owner access is complimentary. No project processing quote or checkout is required for this account.');
     }
+    await this.assertNoActivePilot(userId);
     requirePaidPlanReadingConfig(this.env);
     const fileId = input.file_id;
     if (typeof fileId !== 'string') throw new ProjectApiError(400,'Select an uploaded plan.');
@@ -72,6 +78,7 @@ export class ProjectPayments {
     if (await isPlatformAdmin(this.db, userId)) {
       throw new ProjectApiError(409, 'Platform owner access is complimentary. No checkout is required for this account.');
     }
+    await this.assertNoActivePilot(userId);
     requirePaidPlanReadingConfig(this.env);
     const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id',quoteId).eq('project_id',projectId).eq('workspace_id',workspaceId).maybeSingle());
     if (!q) throw new ProjectApiError(404,'Quote not found.');

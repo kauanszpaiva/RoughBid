@@ -2,6 +2,9 @@ import { ProjectPayments, handleProjectPayment } from '../billing/project-paymen
 import { createClient } from '@supabase/supabase-js';
 import { handleAuthBootstrapRequest, handleMagicLinkRequest } from '../auth/routes.ts';
 import { handleWorkspacesRequest } from '../workspaces/routes.ts';
+import { handlePilotRequest } from '../pilot/routes.ts';
+import { handlePilotReminders, handleResendWebhook } from '../pilot/notifications.ts';
+import { PilotPlanReader, requirePilotReaderConfig } from '../ai-plan/pilot-reader.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
 import { createDocumentQueue, type JobQueue } from '../documents/service.ts';
@@ -83,6 +86,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   }
 
   let client: ReturnType<typeof clientForRequest>;
+  if (pathname === '/api/pilot/reminders' || pathname === '/api/webhooks/resend') {
+    const key = loadSupabaseServiceRoleKey();
+    if (!key || !process.env.SUPABASE_URL) return json({ error: 'Pilot notifications are not configured.' }, 503);
+    const admin = createClient(process.env.SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    return pathname === '/api/pilot/reminders'
+      ? handlePilotReminders(request, admin, process.env)
+      : handleResendWebhook(request, admin, process.env);
+  }
   try {
     client = clientForRequest(request);
   } catch (error) {
@@ -91,6 +102,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
+  }
+  if (pathname.startsWith('/api/pilot/')) {
+    const key = loadSupabaseServiceRoleKey();
+    if (!key || !process.env.SUPABASE_URL) return json({ error: 'Pilot administration is not configured.' }, 503);
+    const admin = createClient(process.env.SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    return handlePilotRequest(request, client as any, admin as any, process.env);
   }
   if (pathname === '/api/workspaces' || pathname === '/api/workspace-invites/accept' || /^\/api\/workspaces\/[^/]+\/(invites|ai-consent)$/.test(pathname)) {
     const appUrl = process.env.APP_URL?.trim() || 'https://roughbid.vercel.app';
@@ -129,7 +146,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       membershipsEnabled: process.env.BILLING_MEMBERSHIPS_ENABLED === 'true',
       webhookSecret: stripeWebhookSecret,
       reconcileProjectPayment: event => new ProjectPayments(createClient(supabaseUrl,supabaseServiceRoleKey,{auth:{persistSession:false,autoRefreshToken:false}}),process.env).reconcile(event),
-      stripe: new StripeHttpGateway(stripeSecretKey),
+      stripe: new StripeHttpGateway(stripeSecretKey, fetch, process.env.STRIPE_MODE === 'live' ? 'live' : 'test'),
       repository: new SupabaseBillingRepository(supabaseUrl, supabaseServiceRoleKey),
       authenticate: async () => {
         const { data } = await client.auth.getUser();
@@ -180,6 +197,11 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
       const readers = [];
+      let pilotReader: PilotPlanReader | undefined;
+      try {
+        const config = requirePilotReaderConfig(process.env);
+        pilotReader = new PilotPlanReader(await createGeminiClient(config.apiKey));
+      } catch { /* Pilot calls cannot fall through to an unrestricted reader. */ }
       try {
         const readingConfig = requirePaidPlanReadingConfig(process.env);
         const geminiClient = await createGeminiClient(readingConfig.apiKey);
@@ -200,13 +222,17 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       } catch { /* Free owner route stays closed until its own config is verified. */ }
 
       const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
-      if (!readers.length && !freeReader && isCreateReading) {
+      if (!readers.length && !freeReader && !pilotReader && isCreateReading) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
       if (isCreateReading && process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
         const redisUrl = process.env.REDIS_URL?.trim();
-        if (!redisUrl) return json({ error: 'Durable AI plan queue is not configured. No job was queued.' }, 503);
-        durableQueue = await createDurableAiPlanQueue(redisUrl);
+        // Only the durable paid route requires a queue. Owner and pilot routes
+        // remain synchronous and must not inherit an unrelated Redis outage.
+        if (redisUrl) {
+          try { durableQueue = await createDurableAiPlanQueue(redisUrl); }
+          catch { /* The selected durable route will fail closed without a queue. */ }
+        }
       }
       const reader = readers.length
         ? new MultiProviderPlanReader(readers)
@@ -215,6 +241,8 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;
       const deps: AiPlanRequestDependencies = {
+        pilotEnforcement: true,
+        ...(pilotReader ? { pilotReader } : {}),
         findingsWriter,
         storage,
         reader,

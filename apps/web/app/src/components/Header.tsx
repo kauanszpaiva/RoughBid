@@ -1,6 +1,7 @@
 import React from "react";
 import { FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
 import { Project, UserProfile } from "../types";
+import { ownerProfileImage } from "../utils/branding";
 
 export type ProjectStep = "plans" | "quantities" | "estimate" | "review" | "export";
 
@@ -49,6 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
         .map((n) => n[0])
         .join("")
     : "JS";
+  const ownerAvatar = ownerProfileImage(user?.email);
 
   return (
     <div className="flex flex-col shrink-0 z-20 select-none bg-white font-sans">
@@ -87,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <div className="flex items-center gap-2">
               <img
-                src="/brand/roughbid-icon.png"
+                src="/brand/roughbid-mark.png"
                 alt="RoughBid"
                 className="w-8 h-8 object-contain rounded bg-white md:hidden"
               />
@@ -170,7 +172,9 @@ export const Header: React.FC<HeaderProps> = ({
               : "h-8 px-3 rounded-md bg-[#111827] hover:bg-black text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"}
             title={isSignedIn ? user?.name || "Account Profile" : "Sign in or create account"}
           >
-            {isSignedIn ? userInitials : (
+            {isSignedIn ? (ownerAvatar
+              ? <img src={ownerAvatar} alt="RoughBid owner profile" className="w-full h-full rounded-full bg-white p-0.5 object-contain ring-1 ring-slate-200" />
+              : userInitials) : (
               <>
                 <LogIn className="w-3.5 h-3.5" />
                 <span>Sign in</span>

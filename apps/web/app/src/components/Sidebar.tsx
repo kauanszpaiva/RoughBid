@@ -15,6 +15,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import { UserProfile } from "../types";
+import { ownerProfileImage } from "../utils/branding";
 
 export type NavTab =
   | "dashboard"
@@ -24,6 +25,7 @@ export type NavTab =
   | "assemblies"
   | "pricelists"
   | "billing"
+  | "access"
   | "settings"
   | "help";
 
@@ -37,6 +39,7 @@ interface SidebarProps {
   isCollapsed?: boolean;
   onToggleCollapsed?: () => void;
   isSignedIn?: boolean;
+  isPlatformOwner?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -49,7 +52,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed = false,
   onToggleCollapsed,
   isSignedIn = false,
+  isPlatformOwner = false,
 }) => {
+  const ownerAvatar = ownerProfileImage(user.email);
   const mainNavItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     {
       id: "dashboard",
@@ -87,6 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <CreditCard className="w-4 h-4" />,
     },
   ];
+  if (isPlatformOwner) mainNavItems.push({ id: 'access', label: 'Access invitations', icon: <LayoutDashboard className="w-4 h-4" /> });
 
   const handleItemClick = (tab: NavTab) => {
     onSelectTab(tab);
@@ -107,9 +113,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className={`${collapsed ? "w-full flex justify-center" : ""}`}>
             <img
-              src="/brand/roughbid-icon.png"
+              src={collapsed ? "/brand/roughbid-mark.png" : "/brand/roughbid-logo.png"}
               alt="RoughBid"
-              className={`${collapsed ? "w-9 h-9" : "w-10 h-10"} object-contain rounded bg-white`}
+              className={`${collapsed ? "w-9 h-9" : "w-44 h-11"} object-contain object-left`}
             />
             {!collapsed && (
               <p className="sr-only">
@@ -212,7 +218,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className={`${isSignedIn ? "bg-[#d1d5db] text-[#374151]" : "bg-[#111827] text-white"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
             {isSignedIn
-              ? user.name
+              ? ownerAvatar
+                ? <img src={ownerAvatar} alt="RoughBid owner profile" className="w-full h-full rounded-full bg-white p-0.5 object-contain ring-1 ring-slate-200" />
+                : user.name
                   .split(" ")
                   .map((n) => n[0])
                   .join("") || "JA"

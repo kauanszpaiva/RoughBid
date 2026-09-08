@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X, Mail, LogOut, ShieldCheck, Link as LinkIcon, Copy, UserPlus } from "lucide-react";
 import { supabase, isAuthConfigured, type Session } from "../services/supabaseClient";
 import { createWorkspaceInvite, requestMagicLink, type Workspace } from "../services/api";
+import { ownerProfileImage } from "../utils/branding";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -37,8 +38,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
+    const pilotInviteToken = new URLSearchParams(window.location.search).get("pilot_invite");
     try {
-      await requestMagicLink({ email: email.trim(), inviteToken });
+      await requestMagicLink({ email: email.trim(), inviteToken, pilotInviteToken });
     } catch (error) {
       setState("error");
       setError(error instanceof Error ? error.message : "We could not send your sign-in link.");
@@ -87,7 +89,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
       <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md overflow-hidden">
         <div className="px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-[#e5e7eb] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <img src="/brand/roughbid-icon.png" alt="RoughBid" className="w-8 h-8 rounded-lg bg-white object-contain" />
+            <img src="/brand/roughbid-mark.png" alt="RoughBid" className="w-8 h-8 object-contain" />
             <div>
               <h3 className="text-sm font-bold text-[#111827]">Sign in / Create account</h3>
               <p className="text-xs text-[#6b7280]">Enter your email. RoughBid sends a secure access link.</p>
@@ -112,7 +114,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
             <>
               <div className="flex items-center gap-3 p-3 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
                 <div className="w-12 h-12 rounded-full bg-[#eff6ff] text-[#2563eb] font-bold text-sm flex items-center justify-center border border-blue-200 shrink-0">
-                  <ShieldCheck className="w-5 h-5" />
+                  {ownerProfileImage(session.user.email)
+                    ? <img src="/brand/roughbid-mark.png" alt="RoughBid owner profile" className="w-full h-full rounded-full bg-white p-1 object-contain" />
+                    : <ShieldCheck className="w-5 h-5" />}
                 </div>
                 <div>
                   <div className="text-sm font-bold text-[#111827]">{session.user.email}</div>
@@ -233,7 +237,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
             <div className="p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
               <div className="font-semibold mb-1">Check your email</div>
               <p className="text-[#3b82f6]">
-                We sent a sign-in link to <strong>{email}</strong>. Open it on this device to finish signing in.
+                Check the inbox and spam folder for <strong>{email}</strong>. If your request can be completed, a sign-in link will arrive. Open it on this device to finish signing in.
               </p>
             </div>
           )}

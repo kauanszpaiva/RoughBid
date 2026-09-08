@@ -4,6 +4,7 @@
   "outputDirectory": "dist",
   "framework": null,
   "cleanUrls": true,
+  "crons": [{ "path": "/api/pilot/reminders", "schedule": "0 * * * *" }],
   "rewrites": [
     {
       "source": "/proposal/:token",

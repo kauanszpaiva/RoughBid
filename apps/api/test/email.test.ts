@@ -145,6 +145,7 @@ test('proposal notification emails use published Resend templates', () => {
       CLIENT_NAME: 'Jane Client',
       PROJECT_NAME: 'Newton Kitchen',
       PROPOSAL_URL: 'https://roughbid.vercel.app/client-proposals/token_123',
+      APP_URL: 'https://roughbid.vercel.app/client-proposals/token_123',
     },
   });
   assert.equal(createProposalSignedEmail(input).templateAlias, 'roughbid-proposal-signed');

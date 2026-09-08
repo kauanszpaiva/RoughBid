@@ -1,3 +1,5 @@
+import { roughbidEmailHtml } from './brand.ts';
+
 export type WorkspaceWelcomeInput = {
   to: string;
   appUrl: string;
@@ -56,6 +58,7 @@ export type ProposalNotificationEmail = {
     CLIENT_NAME: string;
     PROJECT_NAME: string;
     PROPOSAL_URL: string;
+    APP_URL: string;
   };
 };
 
@@ -125,6 +128,7 @@ export function createProposalNotificationEmail(
       CLIENT_NAME: clientName,
       PROJECT_NAME: projectName,
       PROPOSAL_URL: proposalUrl.toString(),
+      APP_URL: proposalUrl.toString(),
     },
   };
 }
@@ -170,10 +174,6 @@ async function sendTemplateEmail(
   return { id: result.id };
 }
 
-function roughbidEmailHtml(magicLink: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="X-UA-Compatible" content="IE=edge"></head><body style="margin:0;background-color:#f8fafc;"><table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f8fafc" style="background-color:#f8fafc;"><tr><td align="center" bgcolor="#f8fafc" style="padding-top:32px;padding-right:16px;padding-bottom:32px;padding-left:16px;background-color:#f8fafc;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background-color:#ffffff;border-width:1px;border-style:solid;border-color:#e2e8f0;"><tr><td style="padding-top:28px;padding-right:28px;padding-bottom:8px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:30px;color:#0f172a;font-weight:700;">Open RoughBid</td></tr><tr><td style="padding-top:4px;padding-right:28px;padding-bottom:20px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#475569;">Use this secure link to sign in or finish creating your RoughBid account.</td></tr><tr><td align="left" style="padding-top:0;padding-right:28px;padding-bottom:28px;padding-left:28px;"><table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;"><a href="${magicLink}" style="display:inline-block;padding-top:12px;padding-right:18px;padding-bottom:12px;padding-left:18px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;text-decoration:none;font-weight:700;">Sign in to RoughBid</a></td></tr></table></td></tr><tr><td style="padding-top:0;padding-right:28px;padding-bottom:28px;padding-left:28px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#64748b;">If you did not request this, you can ignore this email.</td></tr></table></td></tr></table></body></html>`;
-}
-
 export async function sendMagicLinkEmail(
   config: ResendServerConfig,
   input: MagicLinkEmailInput,
@@ -197,7 +197,7 @@ export async function sendMagicLinkEmail(
       to: [input.to],
       subject: 'Sign in to RoughBid',
       text: `Open RoughBid: ${magicLink.toString()}\n\nIf you did not request this, you can ignore this email.`,
-      html: roughbidEmailHtml(magicLink.toString()),
+      html: roughbidEmailHtml({ title: 'Open RoughBid', paragraphs: ['Use this secure link to sign in or finish creating your RoughBid account.'], action: { label: 'Sign in to RoughBid', url: magicLink.toString() }, footer: 'If you did not request this, you can ignore this email.' }),
     }),
   });
   if (!response.ok) {
