@@ -18,6 +18,9 @@ function fakeDb(existingJob?: Record<string, unknown>) {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
     from(table: string) {
       return makeQuery(() => {
+        // Durable customer fixtures are explicitly non-platform-admin so the
+        // existing paid/owner-free queue contract remains under test.
+        if (table === 'profiles') return { data: { is_platform_admin: false }, error: null };
         if (table === 'workspaces') return { data: { ai_processing_consented_at: '2026-09-01T00:00:00Z' }, error: null };
         if (table === 'projects') return { data: { id: 'project-1' }, error: null };
         if (table === 'project_files') {
@@ -239,4 +242,39 @@ test('reused queued reservation is re-enqueued so a request crash cannot strand 
   });
 
   assert.equal(enqueues, 1, 'the deterministic queued job is re-enqueued on retry');
+});
+
+test('durable entitlement requires a provider-specific worker capability as well as the provider config', async () => {
+  const findingsWriter = {
+    from: () => ({}),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === 'ai_plan_worker_available') {
+        assert.deepEqual(args, { p_entitlement: 'owner_free' });
+        return { data: false, error: null };
+      }
+      throw new Error(`unexpected rpc ${fn}`);
+    },
+  };
+  await withEnv({
+    AI_PLAN_DURABLE_ENABLED: 'true',
+    FREE_OWNER_READINGS_ENABLED: 'true',
+    FREE_OWNER_WORKSPACE_ID: 'workspace-1',
+    FREE_GEMINI_API_KEY: 'free-key',
+    FREE_GEMINI_MODEL: 'gemini-free',
+  }, async () => {
+    const response = await handleAiPlanRequest(
+      new Request('https://roughbid.test/api/projects/project-1/ai-plan-entitlement', {
+        method: 'GET', headers: { 'x-workspace-id': 'workspace-1' },
+      }),
+      fakeDb() as never,
+      {
+        findingsWriter: findingsWriter as never,
+        storage: { presign: async () => ({ url: 'https://storage.invalid/source.pdf' }) },
+        reader: { async read() { throw new Error('not called'); } } as never,
+        freeReader: { async read() { throw new Error('not called'); } } as never,
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { freeReadingAvailable: false });
+  });
 });
