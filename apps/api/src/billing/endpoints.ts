@@ -3,7 +3,7 @@ import {
   createCheckoutRequest, createPortalRequest, isBillingPriceKey, subscriptionUpdateFromEvent, verifyStripeWebhook,
 } from './stripe.ts';
 
-export type AuthenticatedUser = { id: string; email: string };
+export type AuthenticatedUser = { id: string; email: string; isPlatformAdmin?: boolean };
 export interface StripeGateway {
   createCheckoutSession(input: ReturnType<typeof createCheckoutRequest>): Promise<{ url: string }>;
   createPortalSession(input: ReturnType<typeof createPortalRequest>): Promise<{ url: string }>;
@@ -43,10 +43,21 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
       }
     }
 
-    const user = await deps.authenticate(request);
+    let user: AuthenticatedUser | null;
+    try {
+      user = await deps.authenticate(request);
+    } catch {
+      // Billing fails closed when we cannot determine whether the caller has
+      // complimentary platform-owner access. A verification outage must never
+      // turn into an accidental charge.
+      return json(503, { error: 'Unable to verify account billing access. Please try again.' });
+    }
     if (!user) return json(401, { error: 'Unauthorized' });
     try {
       const body = await input(request);
+      if (path === '/api/billing/checkout' && user.isPlatformAdmin) {
+        return json(409, { error: 'Platform owner access is complimentary. No checkout is required for this account.' });
+      }
       const customerId = await deps.repository.customerIdForUser(user.id);
       if (path === '/api/billing/checkout') {
         const priceKey = isBillingPriceKey(body.priceKey) ? body.priceKey : undefined;
