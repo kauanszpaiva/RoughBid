@@ -10,6 +10,7 @@ on:
       - 'apps/api/test/ai-plan-durable.test.ts'
       - 'scripts/worker.ts'
       - 'supabase/migrations/**'
+      - 'supabase/test/durable-ai-plan.test.mjs'
       - 'package.json'
       - 'Dockerfile.worker'
 
@@ -23,5 +24,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Durable AI plan regression
+      - name: Durable API contract
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
+      - name: Durable database state machine
+        run: node --test supabase/test/durable-ai-plan.test.mjs
