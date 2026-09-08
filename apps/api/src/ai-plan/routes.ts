@@ -66,7 +66,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       let entitled = false;
       if (configured && deps.findingsWriter.rpc) {
         if (durableEnabled) {
-          const worker = await deps.findingsWriter.rpc('ai_plan_worker_available', {});
+          const worker = await deps.findingsWriter.rpc('ai_plan_worker_available', { p_entitlement: 'owner_free' });
           configured = !worker.error && worker.data === true;
         }
         if (configured) {
