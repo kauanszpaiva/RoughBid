@@ -210,7 +210,8 @@ export default function App() {
             setInviteNotice("Invite accepted. Your organization access is ready.");
           } catch (error) {
             if (!active) return;
-            setInviteNotice(error instanceof Error ? error.message : "Invite could not be accepted.");
+            const message = error instanceof Error ? error.message : "Invite could not be accepted.";
+            setInviteNotice(`Invite notice: ${message} (Invite link token preserved in URL for retry or verification)`);
           }
         }
         const workspaces = await listWorkspaces();
@@ -219,11 +220,7 @@ export default function App() {
         const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
         const savedWorkspace = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId);
         const newestRealWorkspace = sortedWorkspaces.find((candidate) => !/\b(?:validation|qa|test|synthetic)\b/i.test(candidate.name));
-        const resolved = invitedWorkspaceId
-          ? sortedWorkspaces.find((candidate) => candidate.id === invitedWorkspaceId)
-          : savedWorkspace && !/\b(?:validation|qa|test|synthetic)\b/i.test(savedWorkspace.name)
-            ? savedWorkspace
-            : newestRealWorkspace;
+        const resolved = savedWorkspace ?? newestRealWorkspace;
         const activeWorkspace = resolved
           ?? sortedWorkspaces[0]
           ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));

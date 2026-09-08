@@ -91,6 +91,7 @@ export function createWorkspaceInviteEmail(input: WorkspaceInviteEmailInput): Wo
   if (inviteUrl.protocol !== 'https:') throw new Error('Invite URL must use HTTPS.');
   const workspaceName = input.workspaceName.trim();
   if (!workspaceName) throw new Error('Workspace name is required.');
+  const role = input.role.trim() || 'estimator';
   return {
     from: 'RoughBid <hello@mail.kspdominion.group>',
     to: input.to,
@@ -98,7 +99,7 @@ export function createWorkspaceInviteEmail(input: WorkspaceInviteEmailInput): Wo
     variables: {
       WORKSPACE_NAME: workspaceName,
       INVITE_URL: inviteUrl.toString(),
-      ROLE: input.role.trim() || 'estimator',
+      ROLE: role === 'viewer' ? 'viewer (read-only access to review saved projects and estimates)' : role,
     },
   };
 }
