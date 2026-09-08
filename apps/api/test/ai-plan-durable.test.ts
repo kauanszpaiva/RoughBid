@@ -188,3 +188,55 @@ test('ambiguous queue acknowledgement returns the durable job when rollback prov
 
   assert.deepEqual(rpcCalls, ['ai_plan_worker_available', 'reserve_project_reading_async', 'rollback_ai_plan_enqueue']);
 });
+
+test('reused queued reservation is re-enqueued so a request crash cannot strand the durable job', async () => {
+  let enqueues = 0;
+  const findingsWriter = {
+    from: () => ({}),
+    rpc: async (fn: string) => {
+      if (fn === 'ai_plan_worker_available') return { data: true, error: null };
+      if (fn === 'reserve_project_reading_async') {
+        return {
+          data: {
+            reused: true,
+            job: { id: 'job-orphan', workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1', status: 'queued', processing_error: null, output_summary: {} },
+            quote: { id: 'quote-1', status: 'processing' },
+          },
+          error: null,
+        };
+      }
+      throw new Error(`unexpected rpc ${fn}`);
+    },
+  };
+
+  await withEnv({ AI_PLAN_DURABLE_ENABLED: 'true' }, async () => {
+    const response = await handleAiPlanRequest(
+      new Request('https://roughbid.test/api/projects/project-1/ai-plan-readings', {
+        method: 'POST',
+        headers: { 'x-workspace-id': 'workspace-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ file_id: 'file-1', quote_id: 'quote-1', mode: 'quick' }),
+      }),
+      fakeDb({
+        id: 'job-orphan', workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1',
+        status: 'queued', processing_error: null, output_summary: {}, plan_reading_findings: [],
+      }) as never,
+      {
+        findingsWriter: findingsWriter as never,
+        storage: { presign: async () => ({ url: 'https://storage.invalid/source.pdf' }) },
+        reader: { async read() { throw new Error('request-local provider must not run'); } } as never,
+        durableQueue: {
+          isWorkerAvailable: async () => true,
+          add: async (jobId: string) => { assert.equal(jobId, 'job-orphan'); enqueues += 1; },
+          close: async () => undefined,
+        },
+      } as never,
+    );
+
+    assert.equal(response.status, 202);
+    const body = await response.json() as { id: string; status: string };
+    assert.equal(body.id, 'job-orphan');
+    assert.equal(body.status, 'queued');
+  });
+
+  assert.equal(enqueues, 1, 'the deterministic queued job is re-enqueued on retry');
+});
