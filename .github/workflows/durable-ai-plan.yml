@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'apps/api/src/ai-plan/**'
+      - 'apps/api/src/http/handler.ts'
       - 'apps/api/test/ai-plan-durable.test.ts'
       - 'apps/web/app/src/pages/PlansPage.tsx'
       - 'apps/web/app/src/utils/aiPlanStatus.ts'
@@ -18,7 +19,7 @@ on:
       - 'Dockerfile.worker'
 
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,3 +34,14 @@ jobs:
         run: node --test supabase/test/durable-ai-plan.test.mjs
       - name: Durable UI status contract
         run: node --experimental-strip-types --test apps/web/test/ai-plan-status.test.ts
+      - name: Backend and worker typecheck
+        run: npx tsc --noEmit
+      - name: Web app typecheck
+        run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Full monorepo test suite
+        run: npm test
+      - name: Production build with compile-only public config
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
