@@ -219,10 +219,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : "IN"}
           </div>
           {!collapsed && <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-[#111827] truncate">{isSignedIn ? user.name : "Sign in"}</p>
+            <p className="text-xs font-semibold text-[#111827] truncate flex items-center gap-1">
+              <span>{isSignedIn ? user.name : "Sign in"}</span>
+              {user?.isAdmGod && (
+                <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded uppercase">
+                  GOD
+                </span>
+              )}
+            </p>
             <p className="text-[10px] text-[#6b7280] truncate flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
-              <span>{isSignedIn ? user.plan : "Create account"}</span>
+              <span>{isSignedIn ? (user.isAdmGod ? "Platform Owner (GOD)" : user.plan) : "Create account"}</span>
             </p>
           </div>}
         </div>

@@ -119,5 +119,7 @@ export interface UserProfile {
   licenseNumber?: string;
   defaultOverhead: number;
   defaultMarkup: number;
+  isPlatformAdmin?: boolean;
+  isAdmGod?: boolean;
 }
 

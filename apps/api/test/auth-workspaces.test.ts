@@ -61,10 +61,11 @@ test('branded magic link creation preserves invite redirects and never exposes t
 test('workspace creation derives created_by from the authenticated user', async () => {
   let inserted: Record<string, unknown> | undefined;
   const query = {
-    insert(value: Record<string, unknown>) { inserted = value; return this; },
+    insert(value: Record<string, unknown>) { inserted = value; return { error: null }; },
     select() { return this; },
+    eq() { return this; },
     single: async () => ({ data: {
-      id: 'workspace-1', ...inserted, created_at: '2026-09-02T00:00:00Z',
+      id: inserted?.id ?? 'workspace-1', ...inserted, created_at: '2026-09-02T00:00:00Z',
     }, error: null }),
   };
   const client = {
@@ -76,7 +77,8 @@ test('workspace creation derives created_by from the authenticated user', async 
   };
 
   const result = await createWorkspace(client as never, { name: '  Main Shop  ' });
-  assert.deepEqual(inserted, { name: 'Main Shop', created_by: 'user-1' });
+  assert.equal(inserted?.name, 'Main Shop');
+  assert.equal(inserted?.created_by, 'user-1');
   assert.equal(result.createdBy, 'user-1');
   assert.equal(result.role, 'admin');
 });
