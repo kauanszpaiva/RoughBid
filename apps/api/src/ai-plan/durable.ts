@@ -182,10 +182,28 @@ export class DurableAiPlanReadingService {
     try {
       await this.queue.add(payload.job.id, entitlement);
     } catch {
+      let released = false;
       try {
-        await this.writer.rpc('rollback_ai_plan_enqueue', { p_job_id: payload.job.id, p_user_id: this.userId });
-      } catch { /* Queue failure remains fail-closed even if compensation reporting fails. */ }
-      throw new ProjectApiError(503, 'AI plan queue is unavailable. No provider call was made; check the job state before retrying.');
+        const rollback = await this.writer.rpc('rollback_ai_plan_enqueue', {
+          p_job_id: payload.job.id,
+          p_user_id: this.userId,
+        });
+        released = !rollback.error && rollback.data === true;
+      } catch { /* Ambiguous acknowledgement: reconcile from durable state below. */ }
+
+      if (released) {
+        throw new ProjectApiError(503, 'AI plan queue is unavailable. The reservation was released before provider work began.');
+      }
+
+      try {
+        // Redis may have accepted the deterministic job id even when the client
+        // lost the acknowledgement. If rollback is refused because the worker
+        // already advanced the job, the database is authoritative: return that
+        // durable state instead of lying that no provider call occurred.
+        return normalizedJob(await this.get(payload.job.id));
+      } catch {
+        throw new ProjectApiError(503, 'AI plan queue acknowledgement failed. The job may have started. Check its status before retrying.');
+      }
     }
     return normalizedJob(payload.job);
   }
