@@ -197,9 +197,6 @@ export default function App() {
           id: userId,
           email: session.user.email ?? "",
           name: savedProfile.name === "RoughBid Estimator" ? auth.profile.displayName ?? "RoughBid Estimator" : savedProfile.name,
-          isPlatformAdmin: auth.profile.isPlatformAdmin,
-          isAdmGod: auth.profile.isAdmGod,
-          plan: auth.profile.isAdmGod ? "Platform Owner (GOD)" : savedProfile.plan,
         };
         setUser(profile);
         const pendingInvite = new URLSearchParams(window.location.search).get("invite");
@@ -662,7 +659,7 @@ export default function App() {
           {activeTab === "materials" && <MaterialsPage scope={scopeRef.current!} canWrite={canWrite} />}
           {activeTab === "assemblies" && <AssembliesPage scope={scopeRef.current!} canWrite={canWrite} />}
           {activeTab === "pricelists" && <PriceListsPage scope={scopeRef.current!} onOpenMaterials={() => setActiveTab("materials")} />}
-          {activeTab === "billing" && <fieldset disabled={!canWrite}><BillingPage user={user} /></fieldset>}
+          {activeTab === "billing" && <fieldset disabled={!canWrite}><BillingPage /></fieldset>}
           {activeTab === "templates" && (
             <fieldset disabled={!canWrite}><TemplatesPage onUseTemplate={handleUseTemplate} /></fieldset>
           )}

@@ -240,34 +240,6 @@ export function calculateProjectUnitEconomics(revenueUsd: number, cogsUsd = TARG
   });
 }
 
-export function calculateAllInProcessingPrice(
-  allInCostUsd: number,
-  membershipTier?: RoughBidPlanId | null,
-): {
-  bufferedCostUsd: number;
-  markupPercent: number;
-  finalPriceUsd: number;
-  finalPriceCents: number;
-} {
-  assertMoney(allInCostUsd, 'All-in cost');
-  const bufferedCostUsd = money(allInCostUsd * 1.30);
-  let markupPercent = 50;
-  if (membershipTier === 'starter') markupPercent = 40;
-  else if (membershipTier === 'pro') markupPercent = 33;
-  else if (membershipTier === 'team') markupPercent = 25;
-
-  const rawFinalPrice = bufferedCostUsd * (1 + markupPercent / 100);
-  const finalPriceCents = Math.round((rawFinalPrice + Number.EPSILON) * 100);
-  const finalPriceUsd = finalPriceCents / 100;
-
-  return {
-    bufferedCostUsd,
-    markupPercent,
-    finalPriceUsd,
-    finalPriceCents,
-  };
-}
-
 export function projectPriceForSize(size: RoughBidProjectSizePricing, subscriptionPlan?: RoughBidCommercialPlan | null): number {
   const discount = subscriptionPlan ? subscriptionPlan.projectDiscountPercent / 100 : 0;
   return money(size.basePriceUsd * (1 - discount));

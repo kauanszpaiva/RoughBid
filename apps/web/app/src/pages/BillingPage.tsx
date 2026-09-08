@@ -1,13 +1,7 @@
 import React from 'react';
 import { getCapabilities, createBillingCheckout, type BillingPriceKey } from '../services/api';
 
-import { UserProfile } from '../types';
-
-interface BillingPageProps {
-  user?: UserProfile;
-}
-
-export const BillingPage: React.FC<BillingPageProps> = ({ user }) => {
+export const BillingPage: React.FC = () => {
   const [error,setError] = React.useState<string|null>(null);
   const [busy,setBusy] = React.useState(false);
   const [billingAvailable,setBillingAvailable] = React.useState(false);
@@ -19,27 +13,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ user }) => {
     finally { setBusy(false); }
   };
   return <div className="max-w-5xl mx-auto p-5 sm:p-8 space-y-6">
-    <header className="flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold">Billing & membership</h1>
-        <p className="text-slate-600 mt-2">Review plans, enter quantities and costs, and export manually without an AI API.</p>
-      </div>
-      {user?.isAdmGod && (
-        <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 text-xs font-black rounded-full uppercase tracking-wider">
-          ADM GOD: Full Free Access
-        </span>
-      )}
-    </header>
-    {user?.isAdmGod && (
-      <section className="rounded-xl bg-amber-50 border border-amber-300 p-5 text-amber-950">
-        <h2 className="font-bold flex items-center gap-2">
-          <span>Platform Owner Account (ADM GOD)</span>
-        </h2>
-        <p className="text-sm mt-1">
-          Your identity is verified as Platform Owner. You have full product capability and free AI plan analysis enabled for your workspace without commercial paywalls or RoughBid payments.
-        </p>
-      </section>
-    )}
+    <header><h1 className="text-2xl font-bold">Billing & membership</h1><p className="text-slate-600 mt-2">Review plans, enter quantities and costs, and export manually without an AI API.</p></header>
     {!billingAvailable && <section className="rounded-xl bg-blue-50 border border-blue-200 p-5 text-blue-950"><h2 className="font-bold">Manual estimating is available</h2><p className="text-sm mt-2">Paid AI reading and checkout are currently unavailable. No payment is required to use the manual workflow.</p></section>}
     <section className="bg-white border rounded-xl p-5 space-y-2"><h2 className="font-bold">A clear price before you pay</h2>
       <p>Open your project, upload its PDF, and choose Check price & start. Your quote includes the pages, trades and processing attempts covered.</p>

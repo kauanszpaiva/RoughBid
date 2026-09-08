@@ -1,14 +1,11 @@
-import { isPlatformOwnerUserId, type AuthBootstrap, type UserProfile } from '../../../../packages/domain/src/index.ts';
+import type { AuthBootstrap, UserProfile } from '../../../../packages/domain/src/index.ts';
 import { ApiActionError, requireUser, throwIfError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
 
 function profileFromRow(row: Record<string, unknown>): UserProfile {
-  const userId = String(row.id);
-  const isOwner = isPlatformOwnerUserId(userId);
   return {
-    id: userId,
+    id: String(row.id),
     displayName: row.display_name == null ? null : String(row.display_name),
-    isPlatformAdmin: row.is_platform_admin === true || isOwner,
-    isAdmGod: isOwner,
+    isPlatformAdmin: row.is_platform_admin === true,
     createdAt: String(row.created_at),
   };
 }

@@ -1,17 +1,7 @@
-export const ROUGHBID_PLATFORM_OWNER_USER_ID = 'c6453b85-f0e2-4af0-aad7-dcecb6fbb487';
-export const ROUGHBID_PLATFORM_OWNER_WORKSPACE_ID = '60d9e2bc-06f6-4f2b-a648-aee6bdf4fb72';
-export const ROUGHBID_HYGG_PROJECT_ID = '1b70ecc8-3797-40f2-849b-764aa022e4dc';
-
-export function isPlatformOwnerUserId(userId: string | null | undefined): boolean {
-  if (!userId) return false;
-  return userId.trim().toLowerCase() === ROUGHBID_PLATFORM_OWNER_USER_ID;
-}
-
 export type UserProfile = {
   id: string;
   displayName: string | null;
   isPlatformAdmin: boolean;
-  isAdmGod: boolean;
   createdAt: string;
 };
 

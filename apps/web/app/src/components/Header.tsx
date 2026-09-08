@@ -82,11 +82,6 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden sm:inline-block px-2 py-0.5 bg-[#f3f4f6] text-[#6b7280] text-[10px] font-bold rounded uppercase shrink-0">
                   {project.id.toUpperCase().slice(0, 8)}
                 </span>
-                {user?.isAdmGod && (
-                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black rounded uppercase tracking-wider shrink-0" title="Platform Owner ADM GOD Mode Enabled">
-                    ADM GOD
-                  </span>
-                )}
               </div>
             </div>
           ) : (
