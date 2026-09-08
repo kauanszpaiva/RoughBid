@@ -41,6 +41,7 @@ async function boot() {
   `);
   await db.exec(readFileSync(new URL('../migrations/0023_durable_ai_plan_jobs.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../migrations/0024_durable_ai_worker_capabilities.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../migrations/0025_durable_ai_lease_alignment.sql', import.meta.url), 'utf8'));
   return db;
 }
 
