@@ -60,6 +60,13 @@ export class SupabaseBillingRepository implements BillingRepository {
     return rows[0]?.stripe_customer_id ?? null;
   }
 
+  async isPlatformAdminForUser(userId: string): Promise<boolean> {
+    const response = await this.request(`profiles?select=is_platform_admin&id=eq.${encodeURIComponent(userId)}&limit=1`, { method: 'GET' });
+    if (!response.ok) throw new Error('Unable to verify platform owner billing access.');
+    const rows = await response.json() as Array<{ is_platform_admin: boolean | null }>;
+    return rows[0]?.is_platform_admin === true;
+  }
+
   async processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: BillingCustomerUpdate | null): Promise<boolean> {
     const response = await this.request('rpc/process_stripe_event', { method: 'POST', body: JSON.stringify({
       p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
