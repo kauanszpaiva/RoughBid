@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
+import { createDurableAiPlanQueue } from '../src/ai-plan/durable.ts';
 
 function makeQuery(resolve: () => { data?: unknown; error?: unknown }) {
   const builder: Record<string, unknown> = {};
@@ -44,9 +45,36 @@ function withEnv<T>(env: Record<string, string | undefined>, fn: () => Promise<T
   });
 }
 
+test('durable queue isolates paid and owner-free jobs onto different BullMQ queues', async () => {
+  const created: string[] = [];
+  const added: Array<{ queue: string; jobId: string }> = [];
+  const workers = new Map<string, number>([
+    ['ai-plan-reading-paid', 1],
+    ['ai-plan-reading-owner-free', 0],
+  ]);
+  class FakeQueue {
+    name: string;
+    constructor(name: string) { this.name = name; created.push(name); }
+    async add(_name: string, data: any) { added.push({ queue: this.name, jobId: data.jobId }); }
+    async getWorkers() { return Array.from({ length: workers.get(this.name) ?? 0 }, () => ({})); }
+    async close() {}
+  }
+  const queue = await createDurableAiPlanQueue('redis://test', async () => ({ Queue: FakeQueue as never }));
+  assert.deepEqual(created.sort(), ['ai-plan-reading-owner-free', 'ai-plan-reading-paid']);
+  assert.equal(await queue.isWorkerAvailable('paid'), true);
+  assert.equal(await queue.isWorkerAvailable('owner_free'), false);
+  await queue.add('paid-job', 'paid');
+  await queue.add('free-job', 'owner_free');
+  assert.deepEqual(added, [
+    { queue: 'ai-plan-reading-paid', jobId: 'paid-job' },
+    { queue: 'ai-plan-reading-owner-free', jobId: 'free-job' },
+  ]);
+});
+
 test('durable paid POST requires a paid-capable worker and returns 202 without invoking the request-local provider', async () => {
   let providerReads = 0;
   const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  let queueCapability: string | undefined;
   const findingsWriter = {
     from: () => ({}),
     rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -86,7 +114,7 @@ test('durable paid POST requires a paid-capable worker and returns 202 without i
         storage: { presign: async () => ({ url: 'https://storage.invalid/source.pdf' }) },
         reader: reader as never,
         durableQueue: {
-          isWorkerAvailable: async () => true,
+          isWorkerAvailable: async (entitlement: string) => { queueCapability = entitlement; return true; },
           add: async () => undefined,
           close: async () => undefined,
         },
@@ -100,6 +128,7 @@ test('durable paid POST requires a paid-capable worker and returns 202 without i
     assert.deepEqual(body.plan_reading_findings, []);
   });
 
+  assert.equal(queueCapability, 'paid');
   assert.equal(providerReads, 0);
   assert.deepEqual(rpcCalls.map((call) => call.fn), ['ai_plan_worker_available', 'reserve_project_reading_async']);
 });
