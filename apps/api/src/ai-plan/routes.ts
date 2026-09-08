@@ -44,14 +44,24 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
-      // Platform owner testing remains synchronous even if durable mode is
-      // enabled later. The durable paid queue currently requires a paid quote;
-      // forcing an admin through it would either charge the owner or weaken the
-      // queue's payment invariant. The service below uses the real paid reader
-      // with a dedicated no-charge reservation instead.
-      if (await isPlatformAdmin(db, data.user.id)) {
-        if (deps.paidReaderAvailable === false) throw new ProjectApiError(503, 'The paid plan-reading provider is not configured. No job was started.');
-        return json(await service.create(parts[1], await request.json()), 201);
+      // The outer production handler always supplies paidReaderAvailable. Tests
+      // and internal callers that omit it preserve the legacy service contract.
+      // Platform-owner identity is verified exactly once here and then injected
+      // into the service; the service never trusts browser-provided metadata.
+      if (deps.paidReaderAvailable !== undefined) {
+        const platformAdmin = await isPlatformAdmin(db, data.user.id);
+        if (platformAdmin) {
+          if (!deps.paidReaderAvailable) throw new ProjectApiError(503, 'The paid plan-reading provider is not configured. No job was started.');
+          // Platform owner testing remains synchronous even if durable mode is
+          // enabled later. The durable paid queue currently requires a paid quote;
+          // forcing an admin through it would either charge the owner or weaken the
+          // queue's payment invariant.
+          const adminService = new AiPlanReadingService(
+            db, deps.findingsWriter, deps.storage, deps.reader,
+            data.user.id, workspaceId, undefined, deps.freeReader, true,
+          );
+          return json(await adminService.create(parts[1], await request.json()), 201);
+        }
       }
       if (durableEnabled) {
         if (!deps.durableQueue) throw new ProjectApiError(503, 'Durable AI plan queue is not configured. No job was queued.');
@@ -69,8 +79,10 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,
-      // the project to belong to it, and AI consent to already exist.
-      if (deps.paidReaderAvailable !== false && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
+      // the project to belong to it, and AI consent to already exist. Only the
+      // production wiring that explicitly confirms a paid reader triggers this
+      // lookup, so legacy/free-provider callers remain independent.
+      if (deps.paidReaderAvailable === true && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         return json({ freeReadingAvailable: true });
       }
 
