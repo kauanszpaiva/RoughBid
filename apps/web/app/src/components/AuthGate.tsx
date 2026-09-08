@@ -23,8 +23,9 @@ export const AuthGate: React.FC = () => {
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
+    const pilotInviteToken = new URLSearchParams(window.location.search).get("pilot_invite");
     try {
-      await requestMagicLink({ email: email.trim(), inviteToken, mode });
+      await requestMagicLink({ email: email.trim(), inviteToken, pilotInviteToken, mode });
       setState("sent");
     } catch (error) {
       setState("error");
@@ -44,6 +45,7 @@ export const AuthGate: React.FC = () => {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4 sm:p-5">
+          {new URLSearchParams(window.location.search).has('pilot_invite') && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">You have an access invitation. Sign in or create your account using the exact email that received it. Your private workspace and access period activate after your email is verified.</p>}
           <div className="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-5">
             <button
               type="button"

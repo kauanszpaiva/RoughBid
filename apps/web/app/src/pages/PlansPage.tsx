@@ -45,13 +45,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   // Per-workspace entitlement. Never derived from a global flag: a customer
   // workspace must not be shown a free-analysis action it cannot use.
   const [freeReadingAvailable, setFreeReadingAvailable] = useState(false);
+  const [pilotActive, setPilotActive] = useState(false);
   useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => {
     let active = true;
     const remoteId = project.remoteId;
+    setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) setFreeReadingAvailable(value.freeReadingAvailable); })
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setPilotActive(value.pilotActive === true); } })
       .catch(() => { if (active) setFreeReadingAvailable(false); });
     return () => { active = false; };
   }, [workspaceId, project.remoteId]);
@@ -577,13 +579,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>{isStartingAi ? 'Analyzing plan…' : 'Run AI analysis (owner workspace)'}</span>
+                  <span>{isStartingAi ? 'Analyzing plan…' : pilotActive ? 'Run included pilot analysis' : 'Run AI analysis (owner workspace)'}</span>
                 </div>
                 <span className="text-[10px] font-mono text-emerald-700">no charge</span>
               </button>
             )}
 
-            <button
+            {!freeReadingAvailable && !pilotActive && <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -595,7 +597,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <span className="text-[10px] font-mono text-[#2563eb]">
                 {isStartingAi ? "Processing..." : currentRevision?.aiPlanStatus || ""}
               </span>
-            </button>
+            </button>}
+
+            {pilotActive && <p className="text-xs text-slate-600">Your pilot includes one AI attempt per project, with one PDF up to 10 MB and 10 pages. Analysis is available in your invited workspace while budget remains.</p>}
 
             {(!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
 

@@ -119,7 +119,7 @@ export function getHealth() {
 }
 
 export function getCapabilities() {
-  return request<{ aiReadingAvailable: boolean; billing: boolean }>("/api/capabilities");
+  return request<{ aiReadingAvailable: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean }>("/api/capabilities");
 }
 
 export type AuthBootstrap = {
@@ -133,9 +133,30 @@ export function bootstrapAuth() {
   return request<AuthBootstrap>("/api/auth/bootstrap");
 }
 
-export function requestMagicLink(input: { email: string; inviteToken?: string | null; mode?: "sign-in" | "create-account" }) {
+export function requestMagicLink(input: { email: string; inviteToken?: string | null; pilotInviteToken?: string | null; mode?: "sign-in" | "create-account" }) {
   return request<{ sent: true }>("/api/auth/magic-link", { method: "POST", body: input });
 }
+
+export type PilotPreset = 'sample1' | 'month1' | 'pilot60';
+export type PilotAccess = {
+  enrolled: boolean; active: boolean; status?: string; preset?: PilotPreset;
+  workspace_id?: string; starts_at?: string; expires_at?: string;
+  projects_used_7d?: number; projects_used_total?: number; projects_remaining_this_week?: number;
+  reserved_cents?: number; budget_cents?: number; cohort_reserved_cents?: number; cohort_budget_cents?: number;
+  limits?: { projects_per_week: number; total_projects?: number | null; max_pdf_bytes: number; max_pages: number; max_files: number; ai_attempts_per_project: number };
+};
+export type PilotInvitation = {
+  id?: string; email: string; preset?: PilotPreset; expires_at?: string; accepted_at?: string | null; revoked_at?: string | null;
+  email_status?: string; delivery_status?: string; email_sent_at?: string | null; email_error?: string | null;
+  email_delivery_status?: string | null;
+  enrollment_expires_at?: string | null; reserved_cents?: number; budget_cents?: number;
+  invite_url?: string; skipped?: boolean; error?: string;
+};
+export function getPilotAccess() { return request<PilotAccess>('/api/pilot/access'); }
+export function redeemPilotInvitation(token: string) { return request<{ workspace_id: string; starts_at: string; expires_at: string }>('/api/pilot/redeem', { method: 'POST', body: { token } }); }
+export function listPilotInvitations() { return request<{ invitations: PilotInvitation[]; sendingConfigured: boolean; remindersConfigured: boolean; deliveryTrackingConfigured: boolean; capacity: number; cohortBudgetCents: number }>('/api/pilot/invitations'); }
+export function sendPilotInvitations(emails: string[], preset: PilotPreset) { return request<{ invitations: PilotInvitation[] }>('/api/pilot/invitations', { method: 'POST', body: { emails, preset } }); }
+export function revokePilotInvitation(invitationId: string) { return request<{ revoked: true }>('/api/pilot/invitations', { method: 'POST', body: { action: 'revoke', invitationId } }); }
 
 export type Workspace = { id: string; name: string; createdBy: string; createdAt: string; aiProcessingConsentedAt: string | null; role: WorkspaceRole | null };
 export type WorkspaceRole = "admin" | "estimator" | "viewer";
@@ -292,7 +313,7 @@ export type PlanReadingJob = {
  * receives false, and the POST route re-checks the allowlist server-side.
  */
 export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
-  return request<{ freeReadingAvailable: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
 export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
@@ -431,6 +452,10 @@ export function createBillingCheckout(priceKey: BillingPriceKey) {
       cancelUrl: `${window.location.origin}/app/`,
     },
   });
+}
+
+export function createBillingPortal() {
+  return request<{ url: string }>("/api/billing/portal", { method: "POST", body: { returnUrl: `${window.location.origin}/app/` } });
 }
 
 export type ReadingQuote = { id: string; project_id: string; file_id: string; amount_cents: number; currency: string;

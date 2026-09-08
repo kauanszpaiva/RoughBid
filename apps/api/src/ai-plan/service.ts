@@ -4,6 +4,7 @@ import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
+import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
 
@@ -75,6 +76,7 @@ export class AiPlanReadingService {
   private readonly userId: string;
   private readonly workspaceId: string;
   private readonly platformAdmin: boolean;
+  private readonly pilotReader: PlanReader | undefined;
 
   constructor(
     db: SupabaseLike,
@@ -86,6 +88,7 @@ export class AiPlanReadingService {
     fetcher: typeof fetch = fetch,
     freeReader?: PlanReader,
     platformAdmin = false,
+    pilotReader?: PlanReader,
   ) {
     if (!userId || !workspaceId) throw new ProjectApiError(401, 'Authentication and workspace are required');
     this.db = db;
@@ -97,6 +100,7 @@ export class AiPlanReadingService {
     this.fetcher = fetcher;
     this.freeReader = freeReader;
     this.platformAdmin = platformAdmin;
+    this.pilotReader = pilotReader;
   }
 
   async create(projectId: string, input: Record<string, unknown>) {
@@ -129,11 +133,10 @@ export class AiPlanReadingService {
     // RPC repeats role/tenancy checks before provider work.
     const platformAdmin = this.platformAdmin;
 
-    // This advisory pre-check only bounds NEW work. Platform administrators use
-    // the same paid-workspace daily guardrail as customers; complimentary means
-    // no checkout, not unlimited provider spend.
+    // Commercial quotas do not apply to the verified platform owner. Pilot work
+    // has its own atomic project and cost reservation in the database.
     const freeOwnerCandidate = !platformAdmin && isFreeOwnerWorkspace(this.workspaceId, process.env);
-    if (!freeOwnerCandidate) {
+    if (!platformAdmin && !freeOwnerCandidate && !this.pilotReader) {
       const dailyLimit = Number(process.env.AI_PLAN_DAILY_JOB_LIMIT) || DEFAULT_DAILY_JOB_LIMIT;
       const since = new Date(Date.now() - DAY_MS).toISOString();
       const recentJobs = dbResult<any[]>(
@@ -152,7 +155,7 @@ export class AiPlanReadingService {
     let requestedTrades: string[];
     let scope: string;
     let unquotedPlan: { bytes: Uint8Array; sha256: string; pages: number } | null = null;
-    let accessMode: 'platform_admin' | 'owner_free' | 'paid';
+    let accessMode: 'platform_admin' | 'owner_free' | 'paid' | 'pilot';
 
     if (platformAdmin) {
       // Platform owner/tester uses the real paid provider but never manufactures
@@ -188,6 +191,25 @@ export class AiPlanReadingService {
       if (reserved.data.reused) return this.get(reserved.data.job.id);
       job = reserved.data.job;
       accessMode = 'platform_admin';
+    } else if (this.pilotReader) {
+      this.pilotReader.assertReady?.();
+      const normalized = normalizeScope(input);
+      requestedTrades = normalized.trades;
+      scope = normalized.scope;
+      unquotedPlan = await this.loadPlanBytes(file, projectId, fileId);
+      if (unquotedPlan.bytes.length > PILOT_MAX_PDF_BYTES || unquotedPlan.pages > PILOT_MAX_PAGES) {
+        throw new ProjectApiError(413, 'Pilot projects include one PDF of at most 10 MB and 10 pages.');
+      }
+      const fingerprint = await requestFingerprint({ trades: requestedTrades, scope, model: PILOT_MODEL, mode: 'pilot', sha256: unquotedPlan.sha256 });
+      const reserved = await this.findingsWriter.rpc('reserve_pilot_reading', {
+        p_user_id: this.userId, p_workspace_id: this.workspaceId, p_project_id: projectId, p_file_id: fileId,
+        p_model: PILOT_MODEL, p_file_sha256: unquotedPlan.sha256, p_request_fingerprint: fingerprint,
+        p_requested_trades: requestedTrades, p_scope: scope, p_page_count: unquotedPlan.pages, p_byte_size: unquotedPlan.bytes.length,
+      });
+      if (reserved.error) throw new ProjectApiError(429, reserved.error.message ?? 'Pilot limit reached.');
+      if (reserved.data.reused) return this.get(reserved.data.job.id);
+      job = reserved.data.job;
+      accessMode = 'pilot';
     } else if (freeOwnerCandidate) {
       // Hard failure before any provider call when the isolated free project is
       // not configured and attested. Never falls back to the billed credential.
@@ -245,7 +267,7 @@ export class AiPlanReadingService {
         if (PDF_DIGEST(fileBytes) !== quote.file_sha256) throw new ProjectApiError(409, 'The plan changed after payment. Contact support before processing.');
       }
 
-      const activeReader = accessMode === 'owner_free' ? this.freeReader! : this.reader;
+      const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
       const result = await activeReader.read({
         fileBytes,
         mimeType: 'application/pdf',
@@ -274,7 +296,11 @@ export class AiPlanReadingService {
         };
       });
 
-      const finished = accessMode === 'platform_admin'
+      const finished = accessMode === 'pilot'
+        ? await this.findingsWriter.rpc('finish_pilot_reading', {
+            p_job_id: job.id, p_user_id: this.userId, p_error: null, p_findings: findingsRows, p_summary: result.summary,
+          })
+        : accessMode === 'platform_admin'
         ? await this.findingsWriter.rpc('finish_platform_admin_reading', {
             p_job_id: job.id, p_user_id: this.userId, p_error: null,
             p_findings: findingsRows, p_summary: result.summary,
@@ -292,7 +318,11 @@ export class AiPlanReadingService {
       return finished.data;
     } catch (error) {
       const failure = error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed';
-      if (accessMode === 'platform_admin') {
+      if (accessMode === 'pilot') {
+        await this.findingsWriter.rpc('finish_pilot_reading', {
+          p_job_id: job.id, p_user_id: this.userId, p_summary: {}, p_findings: [], p_error: failure,
+        });
+      } else if (accessMode === 'platform_admin') {
         await this.findingsWriter.rpc('finish_platform_admin_reading', {
           p_job_id: job.id, p_user_id: this.userId, p_summary: {}, p_findings: [], p_error: failure,
         });

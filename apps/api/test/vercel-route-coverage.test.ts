@@ -16,7 +16,7 @@ test('every /api/projects/:id route the handler serves has a deployable function
   for (const route of projectRoutes) {
     const file = new URL(`../../../api/projects/[id]/${route}.ts`, import.meta.url);
     assert.ok(existsSync(file), `api/projects/[id]/${route}.ts is missing — the route would 404 on Vercel`);
-    assert.equal(readFileSync(file, 'utf8'), bridge, `${route}.ts must re-export the shared bridge`);
+    assert.equal(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), bridge, `${route}.ts must re-export the shared bridge`);
   }
   // Guard the pairing: the handler must actually dispatch what we deploy.
   assert.match(handler, /ai-plan-entitlement/, 'outer handler must dispatch the entitlement route');

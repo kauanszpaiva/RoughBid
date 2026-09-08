@@ -1,5 +1,7 @@
 import { ProjectApiError, assertPlanStoragePath } from '../projects/service.ts';
 import type { PresignedObjectRequest, S3ObjectStorage } from '../storage/object-storage.ts';
+import { downloadPlan, inspectPdf } from '../billing/project-preflight.ts';
+import { PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from '../ai-plan/pilot-reader.ts';
 
 export const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 export const PDF_PROCESS_QUEUE = 'pdf-processing';
@@ -10,9 +12,9 @@ export interface JobQueue {
   on?(event: 'error', listener: () => void): unknown;
 }
 export interface BullMqQueueModule { Queue: new (name: string, options: unknown) => JobQueue; }
-export interface DocumentDb { from(table: string): any; }
+export interface DocumentDb { from(table: string): any; rpc?(name: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: unknown }>; }
 export interface DocumentObjectStorage {
-  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options?: { expiresIn?: number; contentType?: string; downloadName?: string }): PresignedObjectRequest | Promise<PresignedObjectRequest>;
+  presign(method: 'GET' | 'PUT' | 'HEAD', key: string, options?: { expiresIn?: number; contentType?: string; downloadName?: string; maximumSizeInBytes?: number }): PresignedObjectRequest | Promise<PresignedObjectRequest>;
 }
 
 export async function createDocumentQueue(redisUrl: string, loader: () => Promise<BullMqQueueModule> = () => import('bullmq') as Promise<unknown> as Promise<BullMqQueueModule>) {
@@ -54,7 +56,7 @@ export class DocumentService {
     const objectKey = `${this.workspaceId}/${projectId}/${id}/source.pdf`;
     const row = await this.db.from('project_files').insert({ id, workspace_id: this.workspaceId, project_id: projectId, uploaded_by: this.userId, storage_path: objectKey, original_name: safeName(input.name), mime_type: 'application/pdf', byte_size: input.byteSize, processing_status: 'uploading' }).select('*').single();
     if (row.error) throw new ProjectApiError(500, row.error.message ?? 'Could not create upload');
-    return { file: row.data, upload: await this.storage.presign('PUT', objectKey, { contentType: 'application/pdf', expiresIn: 300 }) };
+    return { file: row.data, upload: await this.storage.presign('PUT', objectKey, { contentType: 'application/pdf', expiresIn: 300, maximumSizeInBytes: input.byteSize }) };
   }
 
   async completeUpload(fileId: string) {
@@ -70,6 +72,19 @@ export class DocumentService {
     const storedType = object.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
     if (!object.ok) throw new ProjectApiError(409, 'Upload is not present in object storage');
     if (storedBytes !== result.data.byte_size || storedType !== 'application/pdf') throw new ProjectApiError(422, 'Uploaded object does not match the declared PDF');
+    let pilotPages: number | undefined;
+    if (this.completionWriter.rpc) {
+      const access = await this.completionWriter.rpc('get_pilot_access', { p_user_id: this.userId });
+      if (access.error) throw new ProjectApiError(503, 'Could not verify pilot document limits.');
+      if (access.data?.active) {
+        if (storedBytes > PILOT_MAX_PDF_BYTES) throw new ProjectApiError(413, 'Pilot PDFs must be 10 MB or smaller.');
+        const signed = await this.storage.presign('GET', result.data.storage_path, { expiresIn: 60 });
+        const bytes = await downloadPlan(signed.url, this.fetcher);
+        const inspected = await inspectPdf(bytes);
+        if (bytes.length > PILOT_MAX_PDF_BYTES || inspected.pages > PILOT_MAX_PAGES) throw new ProjectApiError(413, 'Pilot PDFs must have at most 10 pages and be 10 MB or smaller.');
+        pilotPages = inspected.pages;
+      }
+    }
     let file = result.data;
     if (result.data.processing_status === 'uploading') {
       // Browser roles cannot update file metadata directly. The server writes
@@ -77,6 +92,7 @@ export class DocumentService {
       const updated = await this.completionWriter.from('project_files').update({
         processing_status: this.queue ? 'queued' : 'ready',
         processing_error: null,
+        ...(pilotPages ? { page_count: pilotPages } : {}),
         ...(!this.queue ? { metadata: { ...result.data.metadata, page_processing: 'not_requested' } } : {}),
       }).eq('workspace_id', this.workspaceId).eq('id', fileId).eq('processing_status', 'uploading').select('*').maybeSingle();
       if (updated.error) {

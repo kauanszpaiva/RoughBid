@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { createBillingEndpointHandler } from '../src/billing/endpoints.ts';
-import { createBillingConfig, createBillingConfigFromEnv, createCheckoutRequest, createPortalRequest, isBillingPriceKey, verifyStripeWebhook } from '../src/billing/stripe.ts';
+import { createBillingConfig, createBillingConfigFromEnv, createCheckoutRequest, createPortalRequest, isBillingPriceKey, verifyStripeWebhook, verifiedSubscriptionUpdate } from '../src/billing/stripe.ts';
 
 test('billing config is live-mode aware but refuses checkout without an approved price', () => {
   const config = createBillingConfig({
@@ -39,11 +39,12 @@ test('signed subscription webhooks are idempotently persisted with authoritative
   const calls: Array<{ event: unknown; update: any }> = [];
   const seen = new Set<string>();
   const handler = createBillingEndpointHandler({
-    config: createBillingConfig({ stripeMode: 'test', productId: 'prod_1', priceId: 'price_1' }),
+    config: createBillingConfig({ stripeMode: 'test', productId: 'prod_1', priceId: 'price_1', priceIds: { plan_pro: 'price_1' } }),
     webhookSecret: 'whsec_test',
-    stripe: { async createCheckoutSession() { return { url: 'https://checkout.stripe.com/x' }; }, async createPortalSession() { return { url: 'https://billing.stripe.com/x' }; } },
+    stripe: { async createCheckoutSession() { return { url: 'https://checkout.stripe.com/x' }; }, async createPortalSession() { return { url: 'https://billing.stripe.com/x' }; }, async retrieveSubscription() { return event.data.object; } },
     repository: {
       async customerIdForUser() { return null; },
+      async beginSubscriptionSync() { return 1; },
       async processStripeEvent(event, update) {
         if (seen.has(event.id)) return false;
         seen.add(event.id); calls.push({ event, update }); return true;
@@ -54,6 +55,7 @@ test('signed subscription webhooks are idempotently persisted with authoritative
   const event = { id: 'evt_1', type: 'customer.subscription.updated', livemode: false, data: { object: {
     id: 'sub_1', customer: 'cus_1', status: 'active', current_period_end: 2_000_000_000,
     metadata: { user_id: '8a188bea-08f4-4b25-97d2-f1b6f9fc20dc' }, items: { data: [{ price: { id: 'price_1' } }] },
+    latest_invoice: { status: 'paid', amount_paid: 2900, amount_due: 2900 },
   } } };
   const raw = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000);
@@ -65,6 +67,7 @@ test('signed subscription webhooks are idempotently persisted with authoritative
   assert.deepEqual(calls[0]?.update, {
     userId: '8a188bea-08f4-4b25-97d2-f1b6f9fc20dc', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1',
     stripePriceId: 'price_1', subscriptionStatus: 'active', currentPeriodEnd: new Date(2_000_000_000 * 1000).toISOString(),
+    invoicePaid: true, syncRevision: 1,
   });
 });
 

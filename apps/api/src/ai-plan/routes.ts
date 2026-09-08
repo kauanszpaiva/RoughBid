@@ -27,6 +27,9 @@ export interface AiPlanRequestDependencies {
   freeReader?: PlanReader | undefined;
   /** Whether the paid provider is actually configured on this server. */
   paidReaderAvailable?: boolean | undefined;
+  /** Production always resolves cohort membership before selecting any reader. */
+  pilotEnforcement?: boolean;
+  pilotReader?: PlanReader;
   /** Durable BullMQ queue. Required only when AI_PLAN_DURABLE_ENABLED=true. */
   durableQueue?: DurableAiPlanQueue | undefined;
 }
@@ -63,6 +66,17 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
           return json(await adminService.create(parts[1], await request.json()), 201);
         }
       }
+      if (deps.pilotEnforcement) {
+        if (!deps.findingsWriter.rpc) throw new ProjectApiError(503, 'Pilot access verification is unavailable.');
+        const access = await deps.findingsWriter.rpc('get_pilot_access', { p_user_id: data.user.id });
+        if (access.error) throw new ProjectApiError(503, 'Pilot access verification is unavailable.');
+        if (access.data?.active) {
+          if (!deps.pilotReader) throw new ProjectApiError(503, 'Pilot AI is not configured. Your invitation remains active.');
+          const pilotService = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader,
+            data.user.id, workspaceId, undefined, undefined, false, deps.pilotReader);
+          return json(await pilotService.create(parts[1], await request.json()), 201);
+        }
+      }
       if (durableEnabled) {
         if (!deps.durableQueue) throw new ProjectApiError(503, 'Durable AI plan queue is not configured. No job was queued.');
         const freeOwner = isFreeOwnerWorkspace(workspaceId, process.env);
@@ -84,6 +98,17 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       // lookup, so legacy/free-provider callers remain independent.
       if (deps.paidReaderAvailable === true && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         return json({ freeReadingAvailable: true });
+      }
+
+      if (deps.pilotEnforcement && deps.findingsWriter.rpc) {
+        const access = await deps.findingsWriter.rpc('get_pilot_access', { p_user_id: data.user.id });
+        if (access.error) throw new ProjectApiError(503, 'Pilot access verification is unavailable.');
+        if (access.data?.active) {
+          const project = await db.from('projects').select('id, created_by').eq('workspace_id', workspaceId).eq('id', parts[1]).maybeSingle();
+          if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
+          const eligible = access.data.workspace_id === workspaceId && project.data.created_by === data.user.id;
+          return json({ freeReadingAvailable: Boolean(deps.pilotReader) && eligible, pilotActive: true, pilot: access.data });
+        }
       }
 
       // Per-caller, database-backed answer for the isolated owner-free provider.

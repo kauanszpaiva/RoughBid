@@ -26,11 +26,13 @@ import { NewProjectModal } from "./components/NewProjectModal";
 import { AIPlanModal } from "./components/AIPlanModal";
 import { AuthModal } from "./components/AuthModal";
 import { AuthGate } from "./components/AuthGate";
+import { PilotAccessPanel } from "./components/PilotAccessPanel";
 import { exportClientProposalPDF } from "./utils/pdfExport";
 import { useSession } from "./services/useSession";
 import { isAuthConfigured } from "./services/supabaseClient";
 import {
   acceptWorkspaceInvite,
+  redeemPilotInvitation,
   bootstrapAuth,
   createProject as createRemoteProject,
   createWorkspace,
@@ -67,6 +69,7 @@ export default function App() {
   const { session, loading: sessionLoading } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const [isPlatformOwner, setIsPlatformOwner] = useState(false);
   const [workspaceState, setWorkspaceState] = useState<"loading" | "ready" | "error">("loading");
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspaceRetry, setWorkspaceRetry] = useState(0);
@@ -176,6 +179,7 @@ export default function App() {
     setOperationCount(0);
     setLocalCacheWarning(false);
     setInviteNotice(null);
+    setIsPlatformOwner(false);
     setShowNewProjectModal(false);
     setShowAIModal(false);
     deletingIds.current.clear();
@@ -191,6 +195,7 @@ export default function App() {
       try {
         const auth = await bootstrapAuth();
         if (!active) return;
+        setIsPlatformOwner(auth.profile.isPlatformAdmin);
         const savedProfile = StorageService.getUserProfile(userId);
         const profile: UserProfile = {
           ...savedProfile,
@@ -200,7 +205,17 @@ export default function App() {
         };
         setUser(profile);
         const pendingInvite = new URLSearchParams(window.location.search).get("invite");
+        const pendingPilotInvite = new URLSearchParams(window.location.search).get("pilot_invite");
         let invitedWorkspaceId: string | null = null;
+        if (pendingPilotInvite) {
+          const accepted = await redeemPilotInvitation(pendingPilotInvite);
+          if (!active) return;
+          invitedWorkspaceId = accepted.workspace_id;
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete('pilot_invite');
+          window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}`);
+          setInviteNotice(`Your private limited access is active until ${new Date(accepted.expires_at).toLocaleDateString()}.`);
+        }
         if (pendingInvite) {
           try {
             const accepted = await acceptWorkspaceInvite(pendingInvite);
@@ -534,6 +549,7 @@ export default function App() {
         user={user}
         onOpenAuth={() => setShowAuthModal(true)}
         isSignedIn={session !== null}
+        isPlatformOwner={isPlatformOwner}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
         isCollapsed={isSidebarCollapsed}
@@ -545,7 +561,7 @@ export default function App() {
         {/* Top Header */}
         <Header
           canWrite={canWrite}
-          pageTitle={{ dashboard: "Dashboard", projects: "Projects", materials: "Materials", assemblies: "Assemblies", pricelists: "Price Lists", billing: "Billing", templates: "Templates", settings: "Settings", help: "Help" }[activeTab]}
+          pageTitle={{ dashboard: "Dashboard", projects: "Projects", materials: "Materials", assemblies: "Assemblies", pricelists: "Price Lists", billing: "Billing", access: "Access invitations", templates: "Templates", settings: "Settings", help: "Help" }[activeTab]}
           project={activeTab === "projects" ? activeProject : null}
           activeStep={activeStep}
           onSelectStep={(step) => setActiveStep(step)}
@@ -573,6 +589,8 @@ export default function App() {
 
         {/* Dynamic Page Views */}
         <main ref={mainRef} className="flex-1 overflow-y-auto min-w-0">
+          {inviteNotice && <div role="status" className="px-4 py-3 bg-blue-50 text-blue-900 text-xs">{inviteNotice}</div>}
+          {(!isPlatformOwner || activeTab === 'access') && <PilotAccessPanel owner={isPlatformOwner} userId={session.user.id} refreshKey={projects.length} onBilling={() => setActiveTab('billing')} />}
           {activeTab === "dashboard" && (
             <DashboardPage
               canWrite={canWrite}

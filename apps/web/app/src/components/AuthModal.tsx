@@ -37,8 +37,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
+    const pilotInviteToken = new URLSearchParams(window.location.search).get("pilot_invite");
     try {
-      await requestMagicLink({ email: email.trim(), inviteToken });
+      await requestMagicLink({ email: email.trim(), inviteToken, pilotInviteToken });
     } catch (error) {
       setState("error");
       setError(error instanceof Error ? error.message : "We could not send your sign-in link.");

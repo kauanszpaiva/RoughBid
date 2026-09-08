@@ -28,7 +28,8 @@ export async function handleMagicLinkRequest(
       ? (body as Record<string, unknown>).inviteToken as string
       : null;
     const mode = (body as Record<string, unknown>).mode === 'create-account' ? 'create-account' : 'sign-in';
-    return json(await sendBrandedMagicLink(admin, { email, appUrl: options.appUrl, inviteToken, mode }, options.env));
+    const pilotInviteToken = typeof (body as Record<string, unknown>).pilotInviteToken === 'string' ? (body as Record<string, unknown>).pilotInviteToken as string : null;
+    return json(await sendBrandedMagicLink(admin, { email, appUrl: options.appUrl, inviteToken, pilotInviteToken, mode }, options.env));
   } catch (error) {
     if (error instanceof ApiActionError) return json({ error: error.message }, error.status);
     if (error instanceof RangeError || error instanceof TypeError) return json({ error: error.message }, 400);

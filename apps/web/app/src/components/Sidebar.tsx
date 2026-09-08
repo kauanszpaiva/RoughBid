@@ -24,6 +24,7 @@ export type NavTab =
   | "assemblies"
   | "pricelists"
   | "billing"
+  | "access"
   | "settings"
   | "help";
 
@@ -37,6 +38,7 @@ interface SidebarProps {
   isCollapsed?: boolean;
   onToggleCollapsed?: () => void;
   isSignedIn?: boolean;
+  isPlatformOwner?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -49,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed = false,
   onToggleCollapsed,
   isSignedIn = false,
+  isPlatformOwner = false,
 }) => {
   const mainNavItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     {
@@ -87,6 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <CreditCard className="w-4 h-4" />,
     },
   ];
+  if (isPlatformOwner) mainNavItems.push({ id: 'access', label: 'Access invitations', icon: <LayoutDashboard className="w-4 h-4" /> });
 
   const handleItemClick = (tab: NavTab) => {
     onSelectTab(tab);

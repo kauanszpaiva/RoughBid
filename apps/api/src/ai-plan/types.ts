@@ -36,6 +36,7 @@ export interface PlanReadingSummary {
   limitations: string[];
   /** True when this result is the deterministic placeholder takeoff, not a real model reading — lets a multi-provider orchestrator know to try the next provider instead of trusting it. */
   synthetic?: boolean;
+  pilot_usage?: { model: string; counted_input_tokens: number; reserved_cents: number; provider_usage?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number } };
 }
 
 export interface PlanReadingResult {

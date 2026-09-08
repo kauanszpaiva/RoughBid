@@ -24,5 +24,5 @@ test('platform owner billing UI shows complimentary access instead of inviting a
   assert.match(billing, /isPlatformAdmin/);
   assert.match(billing, /Complimentary full access/);
   assert.match(billing, /platformAdmin \? 'Included' :/);
-  assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !billingAvailable\}/);
+  assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !memberships\[tier\]\}/);
 });

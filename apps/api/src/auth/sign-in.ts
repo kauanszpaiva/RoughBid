@@ -43,12 +43,16 @@ export async function sendMagicLink(auth: SignInAuthClient, input: { email: stri
 
 export async function sendBrandedMagicLink(
   admin: MagicLinkAdminClient,
-  input: { email: string; appUrl: string; inviteToken?: string | null; mode?: 'sign-in' | 'create-account' },
+  input: { email: string; appUrl: string; inviteToken?: string | null; pilotInviteToken?: string | null; mode?: 'sign-in' | 'create-account' },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ sent: true }> {
   const email = validateEmail(input.email);
   const redirectUrl = new URL('/app/', input.appUrl);
   if (input.inviteToken) redirectUrl.searchParams.set('invite', input.inviteToken);
+  if (input.pilotInviteToken) {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(input.pilotInviteToken)) throw new TypeError('Invalid access invitation.');
+    redirectUrl.searchParams.set('pilot_invite', input.pilotInviteToken);
+  }
   if (redirectUrl.protocol !== 'https:' && redirectUrl.hostname !== 'localhost') {
     throw new TypeError('APP_URL must use HTTPS (or localhost HTTP).');
   }
