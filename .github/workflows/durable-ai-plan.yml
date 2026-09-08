@@ -6,10 +6,17 @@ on:
       - codex/durable-ai-plan-worker
   pull_request:
     paths:
+      - '.github/workflows/durable-ai-plan.yml'
       - 'apps/api/src/ai-plan/**'
+      - 'apps/api/src/access/**'
+      - 'apps/api/src/billing/project-payments.ts'
       - 'apps/api/src/http/handler.ts'
       - 'apps/api/test/ai-plan-durable.test.ts'
+      - 'apps/api/test/founder-consent-regression.test.ts'
+      - 'api/workspaces/**'
+      - 'api/ai-plan-readings/**'
       - 'apps/web/app/src/pages/PlansPage.tsx'
+      - 'apps/web/app/src/pages/SettingsPage.tsx'
       - 'apps/web/app/src/utils/aiPlanStatus.ts'
       - 'apps/web/test/ai-plan-status.test.ts'
       - 'scripts/worker.ts'
@@ -28,6 +35,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Founder consent and billing regression
+        run: node --experimental-strip-types --test apps/api/test/founder-consent-regression.test.ts
       - name: Durable API contract
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
       - name: Durable database state machine and lease recovery
