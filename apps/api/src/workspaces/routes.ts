@@ -1,4 +1,4 @@
-import { acceptWorkspaceInvite, createWorkspace, createWorkspaceInviteWithEmail, grantAiProcessingConsent, listWorkspaces } from './actions.ts';
+import { acceptWorkspaceInvite, createWorkspace, createWorkspaceInviteWithEmail, grantAiProcessingConsent, listWorkspaces, type WorkspaceConsentWriter } from './actions.ts';
 import { ApiActionError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -14,6 +14,7 @@ export async function handleWorkspacesRequest(
   options: {
     appUrl?: string;
     sendInviteEmail?: (input: { to: string; workspaceName: string; inviteUrl: string; role: 'estimator' | 'viewer'; inviteId: string }) => Promise<unknown>;
+    consentWriter?: WorkspaceConsentWriter;
   } = {},
 ): Promise<Response> {
   try {
@@ -27,7 +28,7 @@ export async function handleWorkspacesRequest(
     }
     const aiConsentMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/ai-consent$/);
     if (aiConsentMatch && request.method === 'POST') {
-      return json(await grantAiProcessingConsent(client, aiConsentMatch[1] ?? ''));
+      return json(await grantAiProcessingConsent(client, aiConsentMatch[1] ?? '', options.consentWriter));
     }
     const inviteMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/invites$/);
     if (inviteMatch && request.method === 'POST') {
