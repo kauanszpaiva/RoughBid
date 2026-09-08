@@ -51,7 +51,10 @@ export async function createDurableAiPlanQueue(
     add(jobId, entitlement) {
       return queues[entitlement].add('read-plan', { jobId }, {
         jobId,
-        attempts: entitlement === 'owner_free' ? 1 : 2,
+        // Queue retries include crashes/lease races. Database RPCs separately
+        // cap real provider calls (1 owner-free, 2 paid), so these retries
+        // cannot silently spend an extra Gemini request.
+        attempts: entitlement === 'owner_free' ? 2 : 3,
         backoff: { type: 'exponential', delay: 5_000 },
         removeOnComplete: 1000,
         removeOnFail: 1000,
@@ -253,7 +256,7 @@ export class DurableAiPlanJobProcessor {
       if (result.error || result.data !== true) canceled = true;
       return !canceled;
     };
-    const timer = setInterval(() => { void heartbeat(); }, 10_000);
+    const timer = setInterval(() => { void heartbeat(); }, 5_000);
 
     try {
       const checkpoint = context.checkpoint?.provider_result as PlanReadingResult | undefined;
