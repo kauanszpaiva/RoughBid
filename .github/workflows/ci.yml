@@ -1,9 +1,9 @@
 name: CI
 
-# The durable-ai-plan workflow only covers one branch and a path allowlist, so
-# changes outside those paths could reach main with nothing run. This gate is
-# unconditional: every push to main and every pull request runs the same checks
-# a contributor runs locally.
+# The durable-ai-plan workflow is path-filtered on pull requests and does not
+# run on pushes to main at all, so a change outside its paths, or any merge into
+# main, could land with nothing run. This gate is unconditional: every push to
+# main and every pull request runs the checks a contributor runs locally.
 on:
   push:
     branches:
