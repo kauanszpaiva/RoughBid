@@ -177,7 +177,16 @@ export class DurableAiPlanReadingService {
 
     const payload = reserved.data as { reused?: boolean; job?: any };
     if (!payload?.job?.id) throw new ProjectApiError(500, 'Durable AI plan reservation did not return a job.');
-    if (payload.reused) return normalizedJob(await this.get(payload.job.id));
+
+    let durableJob = normalizedJob(payload.job);
+    if (payload.reused) {
+      durableJob = normalizedJob(await this.get(payload.job.id));
+      // A queued reused reservation may be the remnant of a request that died
+      // after committing the DB reservation but before enqueueing. Re-add the
+      // same deterministic BullMQ job id so retrying the HTTP request heals the
+      // gap without creating another provider authorization or another DB job.
+      if (durableJob.status !== 'queued') return durableJob;
+    }
 
     try {
       await this.queue.add(payload.job.id, entitlement);
@@ -197,15 +206,15 @@ export class DurableAiPlanReadingService {
 
       try {
         // Redis may have accepted the deterministic job id even when the client
-        // lost the acknowledgement. If rollback is refused because the worker
-        // already advanced the job, the database is authoritative: return that
-        // durable state instead of lying that no provider call occurred.
-        return normalizedJob(await this.get(payload.job.id));
-      } catch {
-        throw new ProjectApiError(503, 'AI plan queue acknowledgement failed. The job may have started. Check its status before retrying.');
-      }
+        // lost the acknowledgement. Only an advanced DB state proves a worker
+        // claimed it. If it is still queued, acknowledgement is genuinely
+        // ambiguous and a later retry will attempt the deterministic enqueue again.
+        const current = normalizedJob(await this.get(payload.job.id));
+        if (current.status !== 'queued') return current;
+      } catch { /* Fall through to the honest ambiguous-acknowledgement error. */ }
+      throw new ProjectApiError(503, 'AI plan queue acknowledgement failed. The job may not be enqueued yet. Retry safely; the same job id will be reused.');
     }
-    return normalizedJob(payload.job);
+    return durableJob;
   }
 
   async get(jobId: string) {
