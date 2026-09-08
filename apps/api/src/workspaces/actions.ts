@@ -13,7 +13,7 @@ import {
   type WorkspaceRole,
 } from '../../../../packages/domain/src/index.ts';
 import { createHash, randomBytes } from 'node:crypto';
-import { requireUser, throwIfError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
+import { ApiActionError, requireUser, throwIfError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
 
 const workspace = (row: Record<string, unknown>): Workspace => ({
   id: String(row.id), name: String(row.name), createdBy: String(row.created_by), createdAt: String(row.created_at),
@@ -41,6 +41,7 @@ function appInviteUrl(appUrl: string, token: string): string {
 }
 
 export type WorkspaceWithRole = Workspace & { role: WorkspaceRole | null };
+export type WorkspaceConsentWriter = Pick<AuthenticatedSupabaseClient, 'from'>;
 
 const knownRole = (value: unknown): WorkspaceRole | null =>
   value === 'admin' || value === 'estimator' || value === 'viewer' ? value : null;
@@ -95,15 +96,41 @@ export async function updateWorkspace(client: AuthenticatedSupabaseClient, id: s
 }
 
 /**
- * Records that the workspace owner has explicitly accepted sending plan
- * files to AI for reading (see docs/architecture/ai-plan-reading-pipeline.md
- * "Security Rules"). Relies on the existing workspaces_update_owner RLS
- * policy — only the workspace's creator can call this successfully.
+ * Records explicit consent to send this workspace's plans to AI. The creator
+ * keeps the existing authenticated/RLS write path. A platform administrator
+ * may use the server writer only when that same authenticated user is also an
+ * explicit `admin` member of this exact workspace. This is intentionally not a
+ * cross-tenant platform-admin override and never records consent automatically.
  */
-export async function grantAiProcessingConsent(client: AuthenticatedSupabaseClient, id: string): Promise<Workspace | null> {
-  await requireUser(client);
-  const { data, error } = await client.from('workspaces')
-    .update({ ai_processing_consented_at: new Date().toISOString() }).eq('id', id).select('*').single();
+export async function grantAiProcessingConsent(
+  client: AuthenticatedSupabaseClient,
+  id: string,
+  consentWriter?: WorkspaceConsentWriter,
+): Promise<Workspace | null> {
+  const user = await requireUser(client);
+  const current = await client.from('workspaces').select('*').eq('id', id).single();
+  throwIfError(current.error);
+  if (!current.data) throw new ApiActionError('Workspace not found.', 404);
+
+  const acceptedAt = new Date().toISOString();
+  if (String(current.data.created_by) === user.id) {
+    const { data, error } = await client.from('workspaces')
+      .update({ ai_processing_consented_at: acceptedAt }).eq('id', id).select('*').single();
+    throwIfError(error);
+    return data ? workspace(data) : null;
+  }
+
+  const [profile, ownMembership] = await Promise.all([
+    client.from('profiles').select('is_platform_admin').eq('id', user.id).single(),
+    client.from('workspace_members').select('role').eq('workspace_id', id).eq('user_id', user.id).single(),
+  ]);
+  if (profile.error || ownMembership.error || profile.data?.is_platform_admin !== true || ownMembership.data?.role !== 'admin') {
+    throw new ApiActionError('Only the workspace owner or an assigned platform administrator can approve AI processing.', 403);
+  }
+  if (!consentWriter) throw new ApiActionError('AI consent approval is not configured.', 503);
+
+  const { data, error } = await consentWriter.from('workspaces')
+    .update({ ai_processing_consented_at: acceptedAt }).eq('id', id).select('*').single();
   throwIfError(error);
   return data ? workspace(data) : null;
 }
