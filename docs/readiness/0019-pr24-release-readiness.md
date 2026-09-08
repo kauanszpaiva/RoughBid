@@ -1,7 +1,7 @@
 # PR24 Incremental Release Readiness Report
 
 Date: 2026-09-07 / 2026-09-08
-Status: **NO-GO for live production deployment; local gate PASS except build, which is environment-blocked**
+Status: **NO-GO for live production deployment; full local gate PASS; CI release gate green**
 
 This report documents the incremental release-readiness verification for PR24 (`claude/paid-reading-activation-guardrails`) and the isolated readiness branch `overnight/roughbid-pr24-readiness-20260907`.
 
@@ -58,26 +58,34 @@ Local execution of release gate pipeline:
 npm ci                         # PASS - 253 packages, 0 vulnerabilities
 npm run typecheck              # PASS - 0 errors (root + apps/web/app projects)
 npm test                       # PASS - 289/289 tests passed
-npm run build                  # BLOCKED - see below; not a code regression
+npm run build                  # PASS - with the CI compile-only config fixture (see below)
 npm audit --audit-level=high   # PASS - 0 high/critical vulnerabilities
 ```
 
-`npm run build` cannot complete in an isolated sandbox. `scripts/build-public-config.mjs` deliberately
-refuses masked or absent values, failing with `VITE_SUPABASE_URL must be a real project URL`. This
-guardrail is working as designed and is **pre-existing**: the unmodified PR24 head fails identically on
-the same command. Supplying real project credentials was out of scope for this verification, so the build
-stage must be re-run by an operator in an environment holding genuine publishable configuration.
+`npm run build` requires public frontend configuration to be present. `scripts/build-public-config.mjs`
+deliberately refuses masked or absent values, failing with `VITE_SUPABASE_URL must be a real project URL`;
+with no configuration set the command fails, and the unmodified PR24 head fails identically, so this is a
+guardrail working as designed rather than a regression. The build was verified using the same non-secret,
+compile-only fixture the release gate itself uses (`VITE_SUPABASE_URL=http://127.0.0.1:54321`,
+`VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ci_compile_only_no_access`), which grants no access and is
+never deployed. No real or secret credentials were read or used. Deploy-time preview validation must still
+build against its own isolated project configuration.
 
 Targeted regression evidence for the currency fix: reverting `.toLowerCase()` makes
 `apps/api/test/project-payments.test.ts` fail with `expected 'usd', actual 'USD'`, and restoring it returns
 the file to 13/13 passing. The test therefore constrains the intended behaviour rather than merely
 exercising it.
 
+## CI Release Gate
+
+The `RoughBid Release Gate` workflow (`verify`) ran on the published head of this branch and concluded
+**success**, including its exact-commit SHA assertion.
+
 ## Named Activation Blockers (NO-GO for Live Production)
 
 1. **Provider E2E Unavailable**: Real Stripe TEST webhook delivery and paid Gemini model calls are unavailable in automated/local sandbox environments. Synthetic transport/SQL mocks cannot certify live provider behavior.
 2. **Explicit Operator Enablement Pending**: `private.plan_reading_pilot_config.enabled` remains `false` with budget zero. Enabling requires operator configuration of dedicated provider project credentials, model name, and budget limits.
 3. **Hosted Migration & Advisor Checks Pending**: Migration 0019 application, Supabase security/performance advisor inspection, and PITR backup/restore drills remain pending on the hosted environment.
-4. **Production Build Unverified**: The Vite production build stage has not been executed against real
-   publishable Supabase configuration (see CI Stage Results). It must pass in an operator environment
-   before any deployment decision.
+4. **Deploy-Time Build Config Unverified**: The production build has only been proven to compile against
+   the non-secret CI fixture. A build against real isolated project configuration, as the workflow comment
+   requires for preview validation, remains an operator step before any deployment decision.
