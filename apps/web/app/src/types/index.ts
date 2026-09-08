@@ -35,6 +35,10 @@ export interface QuantityItem {
   category?: string;
   quantity: number;
   unit: UnitType;
+  findingId?: string;
+  pageNumber?: number;
+  area?: string;
+  sourceExcerpt?: string;
 }
 
 export interface EstimateItem {
@@ -48,6 +52,12 @@ export interface EstimateItem {
   laborCost: number;    // total labor for line item
   equipmentCost: number;// total equipment/other
   directCost: number;   // material + labor + equipment (computed)
+  findingId?: string;
+  pageNumber?: number;
+  area?: string;
+  sourceExcerpt?: string;
+  pricingStatus?: "configured" | "missing_price";
+  pricingSource?: string;
 }
 
 export interface FinancialCalculation {
