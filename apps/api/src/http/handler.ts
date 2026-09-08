@@ -167,7 +167,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       await queue?.close?.().catch(() => {});
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
     const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!supabaseServiceRoleKey || !supabaseUrl) {

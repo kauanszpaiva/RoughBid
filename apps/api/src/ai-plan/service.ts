@@ -120,19 +120,27 @@ export class AiPlanReadingService {
       throw new ProjectApiError(409, 'Plan file must finish uploading before AI reading can start');
     }
 
-    const dailyLimit = Number(process.env.AI_PLAN_DAILY_JOB_LIMIT) || DEFAULT_DAILY_JOB_LIMIT;
-    const since = new Date(Date.now() - DAY_MS).toISOString();
-    const recentJobs = dbResult<any[]>(
-      await this.db.from('plan_reading_jobs').select('id').eq('workspace_id', this.workspaceId).gte('created_at', since),
-    );
-    if (recentJobs.length >= dailyLimit) {
-      throw new ProjectApiError(429, `This workspace has started ${recentJobs.length} AI plan readings in the last 24 hours, at its limit of ${dailyLimit}.`);
+    // This advisory pre-check only bounds NEW work. It deliberately does not run
+    // on the free path, where the reservation RPC decides atomically under the
+    // workspace lock: re-using an existing job consumes no provider request, so
+    // being at the cap must not stop the owner reading back a job already
+    // running. A genuinely new free attempt is still capped inside the RPC.
+    const freeOwnerCandidate = isFreeOwnerWorkspace(this.workspaceId, process.env);
+    if (!freeOwnerCandidate) {
+      const dailyLimit = Number(process.env.AI_PLAN_DAILY_JOB_LIMIT) || DEFAULT_DAILY_JOB_LIMIT;
+      const since = new Date(Date.now() - DAY_MS).toISOString();
+      const recentJobs = dbResult<any[]>(
+        await this.db.from('plan_reading_jobs').select('id').eq('workspace_id', this.workspaceId).gte('created_at', since),
+      );
+      if (recentJobs.length >= dailyLimit) {
+        throw new ProjectApiError(429, `This workspace has started ${recentJobs.length} AI plan readings in the last 24 hours, at its limit of ${dailyLimit}.`);
+      }
     }
 
     // The owner's own workspace may run a reading without payment, but only when
     // the entitlement AND a verified non-billed provider are both configured.
     // Every other workspace keeps the confirmed-payment requirement below.
-    const freeOwner = isFreeOwnerWorkspace(this.workspaceId, process.env);
+    const freeOwner = freeOwnerCandidate;
     const quoteId = typeof input.quote_id === 'string' ? input.quote_id : '';
     if (!this.findingsWriter.rpc) throw new ProjectApiError(503, 'Project payment authorization is unavailable.');
 

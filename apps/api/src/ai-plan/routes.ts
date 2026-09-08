@@ -41,14 +41,21 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       return json(await service.create(parts[1], await request.json()), 201);
     }
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
-      // Per-workspace, authenticated answer. A customer workspace always gets
-      // false here, so the UI never offers free analysis to one; the POST route
-      // re-checks the owner allowlist server-side regardless of this response.
-      return json({
-        freeReadingAvailable: isFreeOwnerWorkspace(workspaceId, process.env)
-          && isFreeProviderConfigured(process.env)
-          && Boolean(deps.freeReader),
-      });
+      // Per-caller, database-backed answer. The workspace header alone proves
+      // nothing, so the allowlist, workspace ownership, project tenancy, role and
+      // consent are all re-checked in SQL against the AUTHENTICATED user id. A
+      // caller who supplies someone else's allowlisted workspace gets false.
+      const configured = isFreeOwnerWorkspace(workspaceId, process.env)
+        && isFreeProviderConfigured(process.env)
+        && Boolean(deps.freeReader);
+      let entitled = false;
+      if (configured && deps.findingsWriter.rpc) {
+        const answer = await deps.findingsWriter.rpc('owner_free_reading_available', {
+          p_user_id: data.user.id, p_workspace_id: workspaceId, p_project_id: parts[1],
+        });
+        entitled = answer.error ? false : answer.data === true;
+      }
+      return json({ freeReadingAvailable: entitled });
     }
     if (request.method === 'GET' && parts[0] === 'ai-plan-readings' && parts[1]) {
       return json(await service.get(parts[1]));

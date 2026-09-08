@@ -9,6 +9,20 @@
 -- zero-amount quote is impossible by construction. The free path therefore
 -- never writes a quote row at all.
 
+-- The readers can legitimately return a 'labor' finding, but the live CHECK on
+-- plan_reading_findings does not list it, so a real labor finding would abort
+-- the whole insert and roll the reading back. Reconcile additively: every
+-- existing type is preserved and 'labor' is added. Findings are never silently
+-- dropped to fit the constraint.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'plan_reading_findings_finding_type_check') then
+    alter table public.plan_reading_findings drop constraint plan_reading_findings_finding_type_check;
+  end if;
+  alter table public.plan_reading_findings add constraint plan_reading_findings_finding_type_check
+    check (finding_type in ('measurement','symbol','room','scope_note','risk','question','material','labor'));
+end $$;
+
 create table if not exists private.free_owner_workspaces (
   workspace_id uuid primary key references public.workspaces(id) on delete cascade,
   note text,
@@ -121,6 +135,31 @@ declare j public.plan_reading_jobs; begin
   returning * into j;
   return jsonb_build_object('reused', false, 'job', to_jsonb(j));
 end $$;
+
+-- Read-only entitlement answer for the UI. Applies the SAME database checks the
+-- reservation applies -- allowlist, workspace ownership, project tenancy and
+-- consent -- so a caller who merely supplies an allowlisted workspace header
+-- cannot be told "true". It grants nothing on its own; the reservation re-checks
+-- everything server-side regardless of this answer.
+create function public.owner_free_reading_available(
+  p_user_id uuid, p_workspace_id uuid, p_project_id uuid)
+returns boolean language sql stable security definer set search_path = public, private, pg_temp as $$
+  select exists (
+    select 1
+    from private.free_owner_workspaces f
+    join public.workspaces w on w.id = f.workspace_id
+    join public.projects p on p.workspace_id = w.id
+    join public.workspace_members m on m.workspace_id = w.id and m.user_id = p_user_id
+    where f.workspace_id = p_workspace_id
+      and w.created_by = p_user_id
+      and w.ai_processing_consented_at is not null
+      and p.id = p_project_id
+      and m.role in ('admin','estimator')
+  );
+$$;
+
+revoke all on function public.owner_free_reading_available(uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.owner_free_reading_available(uuid, uuid, uuid) to service_role;
 
 -- CREATE OR REPLACE re-applies PostgreSQL's default EXECUTE grant to PUBLIC, so
 -- the revoke must follow the final definition, not only the first one.

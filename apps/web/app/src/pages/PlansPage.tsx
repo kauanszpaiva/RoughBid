@@ -253,11 +253,21 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       });
       if (contextRef.current !== contextKey) return;
       setFindings(job.plan_reading_findings);
-      onPatchRevision(currentRevision.id, { aiPlanJobId: job.id, aiPlanStatus: job.status, notes: "AI plan reading complete. Review findings before adding them." });
+      // A re-used reservation can hand back a job that is still queued or
+      // processing. Only needs_review/ready are actually finished, so anything
+      // else must read as pending rather than claiming completed findings.
+      const finished = job.status === "needs_review" || job.status === "ready";
+      onPatchRevision(currentRevision.id, {
+        aiPlanJobId: job.id,
+        aiPlanStatus: job.status,
+        ...(finished ? { notes: "AI plan reading complete. Review findings before adding them." } : {}),
+      });
       setPlanNotice(
         job.status === "failed"
           ? "AI plan reading failed. Open the AI Plan Assistant for details."
-          : "AI plan reading complete — findings are ready to review."
+          : finished
+            ? "AI plan reading complete — findings are ready to review."
+            : "AI plan reading is still processing. Check again shortly."
       );
     } catch (error) {
       if (contextRef.current !== contextKey) return;

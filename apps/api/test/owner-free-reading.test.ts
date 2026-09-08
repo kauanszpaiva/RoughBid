@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AiPlanReadingService, type PlanReader } from '../src/ai-plan/service.ts';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
+import { handleApiRequest } from '../src/http/handler.ts';
 import { PDF_DIGEST } from '../src/billing/project-preflight.ts';
 
 const OWNER_WS = '60d9e2bc-06f6-4f2b-a648-aee6bdf4fb72';
@@ -183,35 +184,68 @@ test('a different scope produces a different request fingerprint', async () => {
   assert.notEqual(seen[0], seen[1], 'scope change must not re-use the previous analysis');
 });
 
-test('entitlement endpoint answers per workspace, not per deployment', async () => {
-  const h = harness();
-  const call = (ws: string, freeReader?: PlanReader) => handleAiPlanRequest(
-    new Request(`https://app.test/api/projects/project-1/ai-plan-entitlement`, {
+test('entitlement is answered by the database for the authenticated caller', async () => {
+  // The SQL answer is authoritative; the header alone must never decide it.
+  const mk = (dbAnswer: boolean, freeReader?: PlanReader) => {
+    const seen: any[] = [];
+    const writer = {
+      rpc: async (fn: string, args: any) => {
+        seen.push({ fn, args });
+        if (fn === 'owner_free_reading_available') return { data: dbAnswer, error: null };
+        return { data: null, error: null };
+      },
+    };
+    const h = harness();
+    return { seen, writer, h, freeReader: freeReader ?? h.freeReader };
+  };
+  const call = (ws: string, ctx: ReturnType<typeof mk>) => handleAiPlanRequest(
+    new Request('https://app.test/api/projects/project-1/ai-plan-entitlement', {
       method: 'GET', headers: { 'x-workspace-id': ws, authorization: 'Bearer t' },
     }),
     fakeDb(ws) as never,
-    { findingsWriter: h.findingsWriter as never, storage: h.storage as never, reader: h.paidReader, freeReader },
+    { findingsWriter: ctx.writer as never, storage: ctx.h.storage as never, reader: ctx.h.paidReader, freeReader: ctx.freeReader },
   );
 
   await withEnv(freeEnv, async () => {
-    const owner = await call(OWNER_WS, h.freeReader);
-    assert.deepEqual(await owner.json(), { freeReadingAvailable: true }, 'owner workspace is entitled');
+    const ok = mk(true);
+    assert.deepEqual(await (await call(OWNER_WS, ok)).json(), { freeReadingAvailable: true });
+    assert.equal(ok.seen[0].fn, 'owner_free_reading_available');
+    assert.equal(ok.seen[0].args.p_project_id, 'project-1', 'project is checked, not just the workspace');
 
-    // The same deployment, same env — a customer workspace must still see false,
-    // so the UI never offers free analysis to someone who cannot use it.
-    const customer = await call(CUSTOMER_WS, h.freeReader);
-    assert.deepEqual(await customer.json(), { freeReadingAvailable: false }, 'customer workspace is not entitled');
+    // Authenticated caller supplying an allowlisted workspace they do not own:
+    // the database says no, so the endpoint says no.
+    const spoof = mk(false);
+    assert.deepEqual(await (await call(OWNER_WS, spoof)).json(), { freeReadingAvailable: false });
 
-    // Configured entitlement but no usable free reader is still not available.
-    const noReader = await call(OWNER_WS, undefined);
-    assert.deepEqual(await noReader.json(), { freeReadingAvailable: false });
+    // A customer workspace never even reaches the database check.
+    const customer = mk(true);
+    assert.deepEqual(await (await call(CUSTOMER_WS, customer)).json(), { freeReadingAvailable: false });
+    assert.equal(customer.seen.length, 0, 'no entitlement lookup for a non-owner workspace');
+
+    // Configured, DB says yes, but no usable free reader: still unavailable.
+    const noReader = mk(true, undefined as never);
+    noReader.freeReader = undefined as never;
+    assert.deepEqual(await (await call(OWNER_WS, noReader)).json(), { freeReadingAvailable: false });
   });
 
-  // Entitlement disappears when the free provider is not verified.
   await withEnv({ ...freeEnv, GEMINI_FREE_TIER_VERIFIED: '' }, async () => {
-    const owner = await call(OWNER_WS, h.freeReader);
-    assert.deepEqual(await owner.json(), { freeReadingAvailable: false });
+    const unverified = mk(true);
+    assert.deepEqual(await (await call(OWNER_WS, unverified)).json(), { freeReadingAvailable: false });
+    assert.equal(unverified.seen.length, 0, 'unverified provider short-circuits before the lookup');
   });
+});
+
+test('the entitlement path is reachable through the real outer HTTP entry point', async () => {
+  // Guards the outer dispatcher matcher: a route the router understands is
+  // useless if handleApiRequest never routes to it. A 404 here means the UI
+  // endpoint is unreachable and the free action could never appear.
+  const res = await handleApiRequest(new Request('https://app.test/api/projects/project-1/ai-plan-entitlement', {
+    method: 'GET', headers: { 'x-workspace-id': OWNER_WS, authorization: 'Bearer t' },
+  }));
+  assert.notEqual(res.status, 404, 'outer handler must dispatch the entitlement route');
+  const body = await res.json().catch(() => ({}));
+  assert.ok(!('error' in body) || !/not found/i.test(String((body as any).error)),
+    `entitlement route must not fall through to Not found (got ${res.status})`);
 });
 
 test('a quota or authorization refusal surfaces honestly and calls no provider', async () => {
