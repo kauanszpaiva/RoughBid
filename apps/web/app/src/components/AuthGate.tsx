@@ -78,7 +78,7 @@ export const AuthGate: React.FC = () => {
                 Check your email
               </div>
               <p className="text-blue-800 text-xs leading-relaxed mt-2">
-                We sent a secure RoughBid link to <strong>{email}</strong>. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
+                Check the inbox and spam folder for <strong>{email}</strong>. If your request can be completed, a secure RoughBid link will arrive. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
               </p>
               <button
                 type="button"

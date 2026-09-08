@@ -46,17 +46,24 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   // workspace must not be shown a free-analysis action it cannot use.
   const [freeReadingAvailable, setFreeReadingAvailable] = useState(false);
   const [pilotActive, setPilotActive] = useState(false);
+  const [entitlementContext, setEntitlementContext] = useState<string | null>(null);
+  const [entitlementError, setEntitlementError] = useState(false);
+  const [entitlementRetry, setEntitlementRetry] = useState(0);
+  const entitlementReady = entitlementContext === `${workspaceId}:${project.remoteId}`;
   useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => {
     let active = true;
     const remoteId = project.remoteId;
+    setEntitlementContext(null);
+    setEntitlementError(false);
+    setFreeReadingAvailable(false);
     setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setPilotActive(value.pilotActive === true); } })
-      .catch(() => { if (active) setFreeReadingAvailable(false); });
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
+      .catch(() => { if (active) setEntitlementError(true); });
     return () => { active = false; };
-  }, [workspaceId, project.remoteId]);
+  }, [workspaceId, project.remoteId, entitlementRetry]);
   const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -571,7 +578,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               />
             </label>
 
-            {freeReadingAvailable && (
+            {!entitlementReady && workspaceId && project.remoteId && <p role="status" className="text-xs text-slate-600">{entitlementError ? <button onClick={() => setEntitlementRetry(value => value + 1)}>Access could not be verified. Check again.</button> : 'Checking analysis access…'}</p>}
+            {entitlementReady && freeReadingAvailable && (
               <button
                 onClick={handleStartFreeReading}
                 disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
@@ -585,7 +593,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               </button>
             )}
 
-            {!freeReadingAvailable && !pilotActive && <button
+            {entitlementReady && !freeReadingAvailable && !pilotActive && <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -601,7 +609,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             {pilotActive && <p className="text-xs text-slate-600">Your pilot includes one AI attempt per project, with one PDF up to 10 MB and 10 pages. Analysis is available in your invited workspace while budget remains.</p>}
 
-            {(!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
+            {entitlementReady && (!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
 
             {needsAiConsent && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">

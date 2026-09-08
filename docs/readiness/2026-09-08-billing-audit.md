@@ -20,7 +20,7 @@ O modelo executável é cobrança por leitura de projeto, com preço calculado a
 
 ## Limites e pendências
 
-1. Aplicar a migração `0030_billing_checkout_integrity.sql` após `0027_limited_pilot.sql` e antes do código. Ela não cria assinaturas nem altera preços.
+1. Migração `0030_billing_checkout_integrity.sql` aplicada em produção após `0027_limited_pilot.sql` e antes do código. Ela não cria assinaturas nem altera preços.
 2. Para habilitar mensalidades, definir preço e termos aprovados, configurar os IDs corretos, verificar a conta/modo, portal e eventos assinados, e exercitar compra em ambiente de teste, renovação, falha, cancelamento e desconto refletido no projeto. `billing:true` não é certificação desse ciclo.
 3. O piloto implementado é uma concessão da aplicação, sem cartão. Sua expiração encerra o patrocínio e permite o Checkout normal; não cria automaticamente uma cobrança. Para débito automático ao final de 60 dias, é necessário implementar adesão do participante a uma assinatura com preço futuro claro, forma de pagamento e regras de cancelamento/aviso. Não foi presumida essa autorização do participante.
 4. Reembolsos/disputas de leitura já revogam a autorização de processamento. A política operacional de reembolso de mensalidade e seus efeitos sobre descontos ainda precisa ser definida; não foi inventada neste trabalho.

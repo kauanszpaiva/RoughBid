@@ -44,14 +44,18 @@ Um cron horário processa lembretes de 7 dias, 1 dia e vencimento, com fila pers
 
 ## Evidência e limites da auditoria
 
+- Publicação do painel confirmada READY em `roughbid.vercel.app`, commit `2f16e0b`, deployment `dpl_GjX4fQhjovrWh4Lt82NQYEo5h2hy`. Navegador autenticado confirmou 0/25 vagas, US$125 disponíveis, três ofertas, envio/entrega/lembretes configurados e isenção da conta proprietária. Layout e menu verificados em desktop e viewport móvel, sem transbordamento horizontal da página.
+- Verificação HTTP em produção: health 200; convites sem sessão 401; cron sem credencial 401; webhook sem assinatura 400; evento de QA assinado e ignorado 200. Cron autenticado respondeu `claimed:0,sent:0,failed:0`, sem emails. Nenhum log de erro encontrado para esse deployment na janela consultada.
+- Projeto existente JKA Construction: PDF de 7,9 MB e 23 páginas renderizado visualmente no navegador; ação do proprietário exibida como `Run AI analysis (owner workspace) / no charge`. Nenhuma nova geração foi iniciada nessa verificação.
 - Antes da mudança: produção READY no commit `45afaff`; API health 200; 7 contas, 11 projetos, 6 leituras `needs_review` e 11 `failed` no histórico. Esses registros incluem QA e não são uma taxa de falhas de clientes reais.
 - Conta proprietária com `is_platform_admin=true`; nenhum cliente de assinatura registrado em `billing_customers` no momento da consulta.
-- Testes completos: 350 passaram. Verificação posterior dos arquivos alterados: 41 testes passaram; TypeScript raiz e web passaram. Testes PostgreSQL executaram limites, falsificação, exclusão, expiração, orçamento, concorrência de checkout, filas e assinaturas de webhook.
-- Cinco migrações aditivas/corretivas aplicadas em produção: 0027, 0029, 0030, 0031 e 0032. Nenhum cliente recebeu convite durante a implementação; orçamento reservado inicial US$0.
+- Testes completos finais: 357 passaram, sem falhas. TypeScript raiz e web passaram. Testes PostgreSQL executaram limites, falsificação, exclusão, expiração, orçamento, concorrência de checkout, filas, assinaturas de webhook e bloqueio de abuso de login.
+- Seis migrações aditivas/corretivas aplicadas em produção: 0027, 0029, 0030, 0031, 0032 e 0033. Nenhum cliente recebeu convite durante a implementação; orçamento reservado inicial US$0.
 - Nenhuma cobrança real, assinatura ou novo preço Stripe foi criado. O ciclo de compra/renovação/cancelamento com a conta Stripe de produção ainda não está certificado. Flags de configuração e testes locais não substituem essa evidência.
 - O ciclo completo de um participante real (email recebido, ativação, PDF, geração e vencimento) ainda depende do primeiro convite selecionado pelo proprietário. Os testes automatizados cobrem os estados; não são apresentados como uso real.
 - Supabase ainda informa proteção contra senhas vazadas desativada. O produto usa magic link; a proteção deve ser ativada antes de oferecer senha como alternativa. Funções públicas de proposta são deliberadamente acessíveis por token e precisam permanecer protegidas pelo escopo do token; avisos de linter não foram classificados automaticamente como exploração.
-- O endpoint público de solicitação de login ainda precisa de limitação distribuída por origem/email contra abuso. Não há dado de produção suficiente para afirmar taxa de entrega ou sucesso de checkout.
+- Solicitação de login agora usa limitação distribuída no PostgreSQL antes de gerar/enviar: intervalo de um minuto, cinco pedidos/hora e dez/dia por email; teto por origem e global. São armazenados HMACs, sem email/IP em texto. Indisponibilidade do controle bloqueia envio; respostas públicas não revelam existência da conta. RPC verificado em produção dentro de transação revertida: primeiro pedido autorizado, repetição bloqueada por 60 segundos, sem email. Não há dado de produção suficiente para afirmar taxa de entrega ou sucesso de checkout.
+- Billing e ações de análise aguardam a verificação de acesso antes de oferecer preço. Piloto ativo recebe indicação de acesso incluído; falhas de verificação mostram opção de tentar novamente.
 
 ## Próximas decisões comerciais
 

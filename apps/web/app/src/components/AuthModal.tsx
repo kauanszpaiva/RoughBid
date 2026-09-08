@@ -234,7 +234,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, session, 
             <div className="p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
               <div className="font-semibold mb-1">Check your email</div>
               <p className="text-[#3b82f6]">
-                We sent a sign-in link to <strong>{email}</strong>. Open it on this device to finish signing in.
+                Check the inbox and spam folder for <strong>{email}</strong>. If your request can be completed, a sign-in link will arrive. Open it on this device to finish signing in.
               </p>
             </div>
           )}
