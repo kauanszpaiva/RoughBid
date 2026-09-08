@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 // Isolated synthetic fixture only. No login, customer PDF, Stripe, or AI call.
@@ -23,12 +22,15 @@ try {
     sheet.drawRectangle({ x: 100, y: 200, width: 200 + i * 10, height: 300, borderWidth: 4 });
   }
   await writeFile(path.join(root, 'public', 'sample.pdf'), await pdf.save());
-  await writeFile(path.join(root, 'index.html'), '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>');
+  const appHtml = await readFile(path.join(repo, 'dist', 'app', 'index.html'), 'utf8');
+  const cssAsset = [...appHtml.matchAll(/href="([^"]+\.css)"/g)].map(match => match[1]).find(asset => /^\/assets\/[a-z0-9._-]+\.css$/i.test(asset));
+  assert.ok(cssAsset, 'Use the real production CSS from the preceding app build.');
+  await writeFile(path.join(root, 'public', 'production.css'), await readFile(path.join(repo, 'dist', cssAsset.slice(1))));
+  await writeFile(path.join(root, 'index.html'), '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/production.css"></head><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>');
   await writeFile(path.join(root, 'main.tsx'), `
 import React, { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BlueprintViewer } from '../apps/web/app/src/components/BlueprintViewer';
-import '../apps/web/app/src/index.css';
 function Fixture() {
   const [url, setUrl] = useState(null);
   useEffect(() => {
@@ -48,7 +50,7 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
   const csp = vercel.headers?.flatMap(rule => rule.headers ?? []).find(header => header.key.toLowerCase() === 'content-security-policy')?.value;
   assert.ok(csp, 'Exercise the same CSP that protects production.');
   const config = {
-    configFile: false, root, base: '/', plugins: [react(), tailwindcss(), {
+    configFile: false, root, base: '/', plugins: [react(), {
       name: 'synthetic-missing-file', configurePreviewServer(instance) {
         instance.middlewares.use((req, res, next) => {
           if (req.url === '/missing.pdf') { res.statusCode = 404; res.end('not found'); } else next();
@@ -78,6 +80,8 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
       await page.goto('http://127.0.0.1:4179/');
       const canvas = page.locator('canvas');
       await canvas.waitFor({ state: 'visible', timeout: 30_000 });
+      const styled = await page.getByRole('region', { name: 'Synthetic viewer verification PDF preview' }).evaluate(element => parseFloat(getComputedStyle(element).borderTopWidth) > 0);
+      assert.equal(styled, true, 'The production stylesheet must be loaded, not an unstyled harness.');
       assert.equal(await page.locator('[aria-label="PDF page"] option').count(), 23);
       assert.equal(await canvas.evaluate(c => c.width > 0 && c.height > 0), true);
       const firstPage = await canvas.evaluate(c => c.toDataURL());
