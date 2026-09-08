@@ -10,6 +10,7 @@ export interface StripeGateway {
 }
 export interface BillingRepository {
   customerIdForUser(userId: string): Promise<string | null>;
+  isPlatformAdminForUser?(userId: string): Promise<boolean>;
   /** Must insert stripe_events and apply update in one transaction; false means event_id already exists. */
   processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: BillingCustomerUpdate | null): Promise<boolean>;
 }
@@ -47,15 +48,17 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
     try {
       user = await deps.authenticate(request);
     } catch {
-      // Billing fails closed when we cannot determine whether the caller has
-      // complimentary platform-owner access. A verification outage must never
-      // turn into an accidental charge.
       return json(503, { error: 'Unable to verify account billing access. Please try again.' });
     }
     if (!user) return json(401, { error: 'Unauthorized' });
     try {
       const body = await input(request);
-      if (path === '/api/billing/checkout' && user.isPlatformAdmin) {
+      // Check with the server-side repository even when the auth adapter does
+      // not carry profile metadata. Billing fails closed: inability to verify
+      // the complimentary flag never falls through into an accidental charge.
+      const isPlatformAdmin = user.isPlatformAdmin === true
+        || (deps.repository.isPlatformAdminForUser ? await deps.repository.isPlatformAdminForUser(user.id) : false);
+      if (path === '/api/billing/checkout' && isPlatformAdmin) {
         return json(409, { error: 'Platform owner access is complimentary. No checkout is required for this account.' });
       }
       const customerId = await deps.repository.customerIdForUser(user.id);
