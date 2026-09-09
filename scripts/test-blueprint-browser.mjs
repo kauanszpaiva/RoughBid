@@ -94,7 +94,11 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
       const width = await canvas.evaluate(c => c.width);
       await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
       await page.waitForFunction(oldWidth => document.querySelector('canvas')?.width > oldWidth, width);
-      assert.equal(await page.getByRole('button', { name: 'Add note', exact: true }).isEnabled(), true);
+      const addNote = page.getByRole('button', { name: 'Add note', exact: true });
+      // The canvas dimensions update before React commits renderStatus='ready' on some
+      // engines (notably WebKit). Trial click waits for actionability without mutating UI.
+      await addNote.click({ trial: true });
+      assert.equal(await addNote.isEnabled(), true);
       await page.screenshot({ path: path.join(repo, 'test-results', `blueprint-${browserName}.png`), fullPage: true });
       await page.goto('http://127.0.0.1:4179/?broken=1');
       await page.getByRole('status').filter({ hasText: 'Unable to open this PDF (404)' }).waitFor({ state: 'visible' });
