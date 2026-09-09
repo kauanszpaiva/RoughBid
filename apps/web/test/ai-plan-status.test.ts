@@ -30,6 +30,14 @@ test('only persisted review-ready states are presented as complete', () => {
   assert.equal(failed.revisionNote, undefined);
 });
 
+test('Plans page polls an in-flight AI reading and syncs terminal status instead of leaving stale processing UI', () => {
+  const plans = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+  assert.match(plans, /const pollAiPlanReading = async \(\) =>/);
+  assert.match(plans, /setTimeout\(pollAiPlanReading,\s*4000\)/);
+  assert.match(plans, /aiPlanStatus:\s*polledJob\.status/);
+  assert.match(plans, /polledJob\.processing_error/);
+});
+
 test('platform-owner AI testing keeps workspace consent explicit and billing complimentary', () => {
   const settings = readFileSync(new URL('../app/src/pages/SettingsPage.tsx', import.meta.url), 'utf8');
   const billing = readFileSync(new URL('../app/src/pages/BillingPage.tsx', import.meta.url), 'utf8');
