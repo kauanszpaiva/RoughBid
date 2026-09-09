@@ -199,3 +199,9 @@ revoke all on function public.reserve_pilot_reading(uuid,uuid,uuid,uuid,text,tex
   from public,anon,authenticated;
 grant execute on function public.reserve_pilot_reading(uuid,uuid,uuid,uuid,text,text,text,text[],text,integer,bigint)
   to service_role;
+
+-- add_workspace_owner_membership is a trigger function, not an API surface.
+-- Trigger execution does not require direct RPC EXECUTE privileges, so remove
+-- inherited public grants and leave it unavailable to anon/authenticated roles.
+revoke execute on function public.add_workspace_owner_membership()
+  from public,anon,authenticated;
