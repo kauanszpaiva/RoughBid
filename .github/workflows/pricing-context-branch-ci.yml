@@ -22,6 +22,12 @@ jobs:
       - run: npm ci
       - name: Task 4 trusted pricing context persistence
         run: node --experimental-strip-types --test apps/api/test/pricing-context-persistence.test.ts apps/api/test/pricing-context.test.ts apps/api/test/ai-plan-service.test.ts
+      - name: Owner free reading regression
+        run: node --experimental-strip-types --test apps/api/test/owner-free-reading.test.ts
+      - name: Founder full access regression
+        run: node --experimental-strip-types --test apps/api/test/founder-full-access.test.ts
+      - name: Pilot enforcement regression
+        run: node --experimental-strip-types --test apps/api/test/pilot-enforcement.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
