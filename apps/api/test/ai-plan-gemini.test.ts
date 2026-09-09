@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GeminiPlanReader, MAX_INLINE_PLAN_BYTES } from '../src/ai-plan/gemini.ts';
+import { GeminiPlanReader, MAX_INLINE_PLAN_BYTES, systemPrompt } from '../src/ai-plan/gemini.ts';
 import { sanitizePlanReadingResult } from '../src/ai-plan/types.ts';
 
 const baseInput = {
@@ -11,39 +11,50 @@ const baseInput = {
   scope: 'Residential addition',
 };
 
-test('large plans use the Files API and remove the temporary provider file after reading', async () => {
-  let uploaded = false;
-  let deleted = false;
+test('a 23.2 MB production plan stays inline under the provider-supported 50 MB PDF limit', async () => {
+  assert.equal(MAX_INLINE_PLAN_BYTES, 50 * 1024 * 1024);
+  const planBytes = new Uint8Array(24_294_811);
+  let generated = false;
   const client = {
-    files: {
-      upload: async ({file}: {file: Blob}) => { uploaded = true; assert.equal(file.size,MAX_INLINE_PLAN_BYTES+1); return {name:'files/test',uri:'https://provider.test/test',state:'ACTIVE'}; },
-      get: async () => { throw new Error('Active files do not need polling'); },
-      delete: async ({name}: {name:string}) => { assert.equal(name,'files/test'); deleted = true; },
-    },
-    generateContent: async ({contents}: {contents: unknown[]}) => {
-      assert.equal(uploaded,true);
-      assert.ok(contents.some((c:any) => c.fileData?.fileUri === 'https://provider.test/test'));
-      assert.ok(!contents.some((c:any) => c.inlineData));
-      return {text:JSON.stringify({summary:{sheet_count:1},findings:[{finding_type:'room',page_number:1,label:'Kitchen',source_excerpt:'KITCHEN',geometry:{bbox:[0.1,0.1,0.2,0.2]}}]})};
+    generateContent: async ({ contents }: { contents: unknown[] }) => {
+      generated = true;
+      const inline = contents.find((part: any) => part?.inlineData?.mimeType === 'application/pdf') as any;
+      assert.ok(inline, 'expected the PDF to be sent inline instead of through the Files API');
+      assert.equal(Buffer.from(inline.inlineData.data, 'base64').byteLength, planBytes.byteLength);
+      return { text: JSON.stringify({ summary: { sheet_count: 37 }, findings: [{ finding_type: 'room', page_number: 1, label: 'Tenant Area', source_excerpt: 'TENANT AREA' }] }) };
     },
   };
-  const result = await new GeminiPlanReader(client,['test-model']).read({...baseInput,fileBytes:new Uint8Array(MAX_INLINE_PLAN_BYTES+1)});
-  assert.equal(result.findings[0]?.finding_type,'room');
-  assert.equal(deleted,true);
+
+  const result = await new GeminiPlanReader(client, ['test-model']).read({ ...baseInput, fileBytes: planBytes });
+  assert.equal(generated, true);
+  assert.equal(result.findings[0]?.label, 'Tenant Area');
 });
 
-test('a failed large-file preparation is cleaned up without inference', async () => {
-  let deleted = false;
-  const client = {
-    files: {
-      upload: async () => ({name:'files/test',state:'FAILED'}),
-      get: async () => ({name:'files/test',state:'FAILED'}),
-      delete: async () => {deleted=true;},
-    },
-    generateContent: async () => {throw new Error('Unexpected inference');},
-  };
-  await assert.rejects(new GeminiPlanReader(client,['test-model']).read({...baseInput,fileBytes:new Uint8Array(MAX_INLINE_PLAN_BYTES+1)}),/could not be prepared/);
-  assert.equal(deleted,true);
+test('the plan-reading prompt auto-detects major construction drawing disciplines', () => {
+  const prompt = systemPrompt('Mixed permit set', []);
+  for (const discipline of [
+    'architectural',
+    'structural',
+    'civil',
+    'site',
+    'electrical',
+    'plumbing',
+    'mechanical',
+    'HVAC',
+    'fire protection',
+    'reflected ceiling',
+    'finishes',
+    'demolition',
+    'landscape',
+    'schedule',
+    'detail',
+    'section',
+    'elevation',
+  ]) {
+    assert.match(prompt, new RegExp(discipline, 'i'), `prompt should recognize ${discipline} drawings`);
+  }
+  assert.match(prompt, /detect/i);
+  assert.match(prompt, /do not guess|never guess/i);
 });
 
 test('reads a plan via the injected Gemini client and returns its findings', async () => {
