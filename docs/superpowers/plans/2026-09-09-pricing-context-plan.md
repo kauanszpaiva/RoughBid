@@ -6,9 +6,11 @@
 
 ## Architecture
 
-The existing plan reader remains an evidence extractor. Extend its structured summary with an optional `project_address` evidence object; do not let the model output pricing. A new `pricing/context.ts` module normalizes this evidence, compares it with `projects.address_text`, and persists one workspace-scoped `project_pricing_contexts` row. The row owns the pricing-address decision. All future pricing endpoints must call `assertPricingAddressResolved()` before external/local market research.
+The existing plan reader remains an evidence extractor. Extend its structured summary with an optional `project_address` evidence object; do not let the model output pricing. A new `pricing/context.ts` module normalizes this evidence, compares it with `projects.address_text`, and persists one workspace-scoped `project_pricing_contexts` row.
 
-Use current RBAC helpers from `private.has_workspace_role(...)`. Admin/estimator may resolve an address conflict; viewers may read only.
+**Trust boundary:** authenticated users may read pricing context, but they must not directly mutate plan evidence, plan/job lineage, or conflict state. Plan evidence is written by the trusted server writer. Human conflict resolution goes through a narrow `SECURITY DEFINER` RPC that validates admin/estimator membership and changes only the resolution fields. Viewers are read-only.
+
+Every later pricing/research service calls `assertPricingAddressResolved()` before any market lookup.
 
 ## Task 1 — RED: define and sanitize plan-address evidence
 
@@ -20,7 +22,7 @@ Use current RBAC helpers from `private.has_workspace_role(...)`. Admin/estimator
 
 ### Step 1: write failing sanitizer tests
 
-Add tests that prove:
+Add:
 
 ```ts
 const result = sanitizePlanReadingResult({
@@ -47,19 +49,17 @@ assert.equal(result.summary.project_address?.postal_code, '02492');
 assert.equal(result.summary.project_address?.page_number, 1);
 ```
 
-Also assert that address evidence is **dropped** when `page_number` or `source_excerpt` is missing, and that a limitation is recorded instead of inventing fields.
+Also assert address evidence is dropped when its page is invalid or `source_excerpt` is missing, with a limitation recorded rather than an invented value.
 
-### Step 2: run RED
+### Step 2: RED
 
 ```bash
 node --experimental-strip-types --test apps/api/test/ai-plan-address.test.ts
 ```
 
-Expected: FAIL because `project_address` is not in `PlanReadingSummary` / sanitizer output.
+Expected: FAIL because `project_address` is not part of `PlanReadingSummary`.
 
-### Step 3: add the type
-
-In `apps/api/src/ai-plan/types.ts` add:
+### Step 3: implement the type/sanitizer
 
 ```ts
 export interface PlanProjectAddressEvidence {
@@ -75,33 +75,32 @@ export interface PlanProjectAddressEvidence {
 }
 ```
 
-Add `project_address?: PlanProjectAddressEvidence` to `PlanReadingSummary`.
+Add `project_address?: PlanProjectAddressEvidence` to `PlanReadingSummary`. Sanitization must:
+- require physical page `1..sheet_count`
+- require non-empty verbatim `source_excerpt`
+- clamp confidence to `0.1..1`
+- cap strings to safe lengths
+- permit missing components such as ZIP/unit
+- return `undefined` when evidence identity is invalid
 
-Implement a focused sanitizer that:
-- requires a valid physical page within `sheet_count`
-- requires a non-empty verbatim `source_excerpt`
-- clips strings to safe lengths
-- clamps confidence to `0.1..1`
-- returns `undefined` rather than a partially fabricated address when evidence identity is invalid
-- permits missing individual address components because some drawings omit ZIP/building/unit
+### Step 4: extend Gemini output schema
 
-### Step 4: extend the model schema, not its pricing responsibility
-
-In `apps/api/src/ai-plan/gemini.ts`, extend the JSON shape in `systemPrompt` with `summary.project_address`. Add explicit instruction:
+Add prompt text:
 
 ```text
-Extract the project/site address from a cover sheet, title block, permit information, or project information when visibly supported. Include the physical page number and a verbatim source excerpt. Never infer or fabricate an address. This is evidence only; do not output prices, rates, or labor assumptions.
+Extract the project/site address from a cover sheet, title block, permit information,
+or project information when visibly supported. Include physical page number and a
+verbatim source excerpt. Never infer or fabricate an address. This is evidence only;
+do not output prices, rates, construction costs, margins, or invented labor.
 ```
 
-Preserve the existing hard invariant that the plan reader never outputs money/pricing.
+Preserve the existing no-money invariant.
 
 ### Step 5: GREEN
 
 ```bash
 node --experimental-strip-types --test apps/api/test/ai-plan-address.test.ts apps/api/test/ai-plan-gemini.test.ts
 ```
-
-Expected: PASS.
 
 ### Step 6: commit
 
@@ -110,28 +109,15 @@ git add apps/api/src/ai-plan/types.ts apps/api/src/ai-plan/gemini.ts apps/api/te
 git commit -m "feat: extract evidenced project address from plans"
 ```
 
-## Task 2 — RED: durable pricing-context schema and RLS
+## Task 2 — RED: durable pricing-context schema + protected resolution RPC
 
 **Files**
 - Add: `supabase/migrations/0035_pricing_context.sql`
 - Add: `supabase/test/pricing-context.test.mjs`
 
-### Step 1: write schema/RLS tests first
+### Step 1: write failing schema/security tests
 
-The test should inspect the SQL and/or run against the project test database according to existing `supabase/test` conventions. Assert the migration defines:
-
-- one pricing-context row per project
-- workspace foreign key
-- plan-address evidence JSON
-- current project address snapshot
-- resolved pricing address
-- conflict status
-- source decision
-- plan file/job lineage
-- resolver identity/time
-- RLS for workspace reads and admin/estimator writes
-
-Expected data contract:
+Require:
 
 ```sql
 create table public.project_pricing_contexts (
@@ -152,7 +138,18 @@ create table public.project_pricing_contexts (
 );
 ```
 
-Add a constraint that `resolved_by/resolved_at` are populated together and that `needs_resolution` cannot carry a trusted `pricing_address`.
+Constraints:
+- `resolved_by` and `resolved_at` are both null or both non-null
+- `needs_resolution` must have `pricing_address is null`
+- `resolved` requires `pricing_address`, `resolved_by`, and `resolved_at`
+
+Security tests must prove:
+- member SELECT allowed through RLS
+- authenticated direct INSERT/UPDATE/DELETE is not granted
+- plan evidence can only be written via service-role/trusted server path
+- resolution RPC checks admin/estimator and project/workspace membership
+- viewer cannot resolve
+- RPC can update only `pricing_address`, `address_source`, `address_status`, `resolved_by`, `resolved_at`, `updated_at`; it cannot rewrite `plan_address`, `plan_file_id`, or `plan_job_id`
 
 ### Step 2: RED
 
@@ -160,56 +157,65 @@ Add a constraint that `resolved_by/resolved_at` are populated together and that 
 node --test supabase/test/pricing-context.test.mjs
 ```
 
-Expected: FAIL because migration does not exist.
+Expected: FAIL because `0035` does not exist.
 
-### Step 3: implement migration
-
-Follow existing RBAC conventions:
+### Step 3: implement RLS + narrow RPC
 
 ```sql
 alter table public.project_pricing_contexts enable row level security;
 
 create policy project_pricing_contexts_select_member
 on public.project_pricing_contexts for select to authenticated
-using (private.has_workspace_role(workspace_id, array['admin','estimator','viewer']) and private.has_product_access());
+using (
+  private.has_workspace_role(workspace_id, array['admin','estimator','viewer'])
+  and private.has_product_access()
+);
 
-create policy project_pricing_contexts_write_estimator
-on public.project_pricing_contexts for all to authenticated
-using (private.has_workspace_role(workspace_id, array['admin','estimator']) and private.has_product_access())
-with check (private.has_workspace_role(workspace_id, array['admin','estimator']) and private.has_product_access());
+revoke insert, update, delete on public.project_pricing_contexts from authenticated, anon;
 ```
 
-Prefer separate insert/update/delete policies if the repository validation style rejects `for all`.
+Create:
 
-Grant only the columns/actions actually needed by authenticated users. Do not expose service-role-only plan lineage writes unnecessarily.
+```sql
+public.resolve_project_pricing_address(p_project_id uuid, p_choice text)
+```
 
-### Step 4: validate migration statically
+The `SECURITY DEFINER` RPC must:
+1. require `auth.uid()`
+2. lock the context row `FOR UPDATE`
+3. derive its workspace from the row, never from a client-provided workspace
+4. require `private.has_workspace_role(workspace_id, array['admin','estimator'])`
+5. accept only `plan` or `project`
+6. reject `plan` when no valid plan evidence exists
+7. reject `project` when `project_address_text` is empty
+8. update resolution fields only
+9. stamp `auth.uid()` and `now()`
+
+Revoke function execution from `public, anon`; grant to `authenticated`.
+
+### Step 4: GREEN
 
 ```bash
 npm run db:validate
 node --test supabase/test/pricing-context.test.mjs
 ```
 
-Expected: PASS.
-
-**Production safety:** do not run a command that applies all pending migrations. `0023`-`0025` are unrelated/deferred. This task creates/tests `0035` only.
+**Production safety:** this task creates/tests `0035` only. Do not run a blanket migration command; repo migrations `0023`-`0025` are unrelated/deferred.
 
 ### Step 5: commit
 
 ```bash
 git add supabase/migrations/0035_pricing_context.sql supabase/test/pricing-context.test.mjs
-git commit -m "feat: add durable project pricing context"
+git commit -m "feat: add protected project pricing context"
 ```
 
-## Task 3 — RED: address normalization, conflict detection, and fail-closed gate
+## Task 3 — RED: deterministic address comparison + fail-closed gate
 
 **Files**
 - Add: `apps/api/src/pricing/context.ts`
 - Add: `apps/api/test/pricing-context.test.ts`
 
-### Step 1: write domain-style tests
-
-Required cases:
+### Step 1: RED tests
 
 ```ts
 assert.equal(comparePricingAddresses(plan, null).status, 'clear');
@@ -220,14 +226,12 @@ assert.equal(comparePricingAddresses(planNeedham, '12 Main St, Needham, MA 02108
 assert.throws(() => assertPricingAddressResolved({ address_status: 'needs_resolution' } as any), /resolve/i);
 ```
 
-Define fail-closed behavior precisely:
-- plan address only -> use plan
-- project address only -> use project
+Fail-closed decisions:
+- plan only -> plan is pricing address
+- project only -> project is pricing address
 - neither -> `missing`
-- both confidently normalize to same address -> `clear`
-- both present but not provably the same -> `needs_resolution`
-
-Do not use fuzzy AI matching as an authorization boundary.
+- both provably same after deterministic normalization -> `clear`
+- both present but not provably same -> `needs_resolution`
 
 ### Step 2: RED
 
@@ -235,11 +239,7 @@ Do not use fuzzy AI matching as an authorization boundary.
 node --experimental-strip-types --test apps/api/test/pricing-context.test.ts
 ```
 
-Expected: FAIL because module does not exist.
-
 ### Step 3: implement pure functions
-
-Public interfaces:
 
 ```ts
 export type PricingAddressStatus = 'missing' | 'clear' | 'needs_resolution' | 'resolved';
@@ -250,40 +250,33 @@ export function comparePricingAddresses(plan: PlanProjectAddressEvidence | null,
 export function assertPricingAddressResolved(context: { address_status: PricingAddressStatus; pricing_address?: unknown }): void;
 ```
 
-Normalization may fold case, punctuation, repeated whitespace, and common `ST/STREET`, `RD/ROAD`, `AVE/AVENUE` tokens. Do not geocode in this function; external network lookup belongs in later research work.
+Normalize case, punctuation, whitespace, and common street suffix tokens only. Do not call AI/geocoding to decide the authorization boundary.
 
-### Step 4: GREEN
+### Step 4: GREEN + commit
 
 ```bash
 node --experimental-strip-types --test apps/api/test/pricing-context.test.ts
-```
-
-Expected: PASS.
-
-### Step 5: commit
-
-```bash
 git add apps/api/src/pricing/context.ts apps/api/test/pricing-context.test.ts
 git commit -m "feat: add fail-closed pricing address resolution"
 ```
 
-## Task 4 — persist plan address after a successful plan reading
+## Task 4 — persist trusted plan evidence after successful reading
 
 **Files**
 - Modify: `apps/api/src/ai-plan/service.ts`
-- Modify: `apps/api/test/ai-plan-service.test.ts`
 - Modify: `apps/api/src/pricing/context.ts`
+- Modify: `apps/api/test/ai-plan-service.test.ts`
 
-### Step 1: write failing service test
+### Step 1: RED service tests
 
-Create a fake writer and project row such that a successful reading returns `summary.project_address`. Assert one upsert into `project_pricing_contexts` with:
+A successful reading with `summary.project_address` must upsert via the existing trusted `findingsWriter`/service-role path and record:
 - workspace/project/file/job IDs
-- project `address_text`
-- sanitized plan-address evidence
-- conflict decision
-- no resolved pricing address when conflict exists
+- current `projects.address_text`
+- sanitized plan evidence
+- deterministic conflict decision
+- `pricing_address=null` when `needs_resolution`
 
-Also prove a successful plan reading **does not fail** if no address was found; it persists `missing` or project-only context deterministically.
+A successful reading with no plan address must still persist a deterministic project-only or missing context. A human-resolved context must not be silently overwritten back to plan/project on an unrelated reread unless a materially new conflicting plan address is observed; in that case mark `needs_resolution` and preserve audit lineage rather than trust stale resolution.
 
 ### Step 2: RED
 
@@ -291,11 +284,7 @@ Also prove a successful plan reading **does not fail** if no address was found; 
 node --experimental-strip-types --test apps/api/test/ai-plan-service.test.ts --test-name-pattern="pricing address"
 ```
 
-Expected: FAIL because plan-reading service does not persist pricing context.
-
-### Step 3: implement a narrow persistence helper
-
-In `pricing/context.ts` expose:
+### Step 3: implement helper
 
 ```ts
 export async function persistPlanPricingContext(input: {
@@ -309,24 +298,17 @@ export async function persistPlanPricingContext(input: {
 }): Promise<void>;
 ```
 
-In `AiPlanReadingService.create`, fetch `projects.address_text` instead of only `id`, then call this helper **after** the real result is validated and before returning the terminal job. Do not move pricing calculations into the plan reader.
+In `AiPlanReadingService.create`, fetch `projects.address_text` in the existing project lookup and call this helper only after the real reading result passes validation. Never add pricing calculations to the plan reader.
 
-### Step 4: GREEN
+### Step 4: GREEN + commit
 
 ```bash
 node --experimental-strip-types --test apps/api/test/ai-plan-service.test.ts apps/api/test/pricing-context.test.ts
-```
-
-Expected: PASS.
-
-### Step 5: commit
-
-```bash
 git add apps/api/src/ai-plan/service.ts apps/api/src/pricing/context.ts apps/api/test/ai-plan-service.test.ts
 git commit -m "feat: persist plan-derived pricing address context"
 ```
 
-## Task 5 — project pricing-context read/resolve API
+## Task 5 — pricing-context read/resolve API
 
 **Files**
 - Add: `apps/api/src/pricing/routes.ts`
@@ -336,14 +318,14 @@ git commit -m "feat: persist plan-derived pricing address context"
 
 ### Step 1: RED route tests
 
-Required endpoints:
+Endpoints:
 
 ```text
 GET   /api/projects/:projectId/pricing-context
 PATCH /api/projects/:projectId/pricing-context/address
 ```
 
-PATCH body:
+PATCH body is only:
 
 ```json
 { "choice": "plan" }
@@ -355,14 +337,15 @@ or
 { "choice": "project" }
 ```
 
-Tests must prove:
+Prove:
 - unauthenticated -> 401
-- wrong workspace -> 404/403 without leaking existence
+- wrong workspace -> 404/403 without existence leak
 - viewer PATCH -> 403
 - admin/estimator can resolve
-- `choice=plan` fails when no evidenced plan address exists
-- `choice=project` fails when project address is missing
-- resolved row records `confirmed_override`, `resolved_by`, `resolved_at`
+- plan choice without evidenced plan address -> 409/400
+- project choice without project address -> 409/400
+- direct request cannot supply/overwrite arbitrary `pricing_address`, `plan_address`, job/file ID, resolver ID, or status
+- returned resolved row is read back from DB after the RPC
 
 ### Step 2: RED
 
@@ -370,13 +353,11 @@ Tests must prove:
 node --experimental-strip-types --test apps/api/test/pricing-routes.test.ts
 ```
 
-Expected: FAIL because route is not wired.
-
 ### Step 3: implement routes
 
-Reuse request authentication/workspace pattern from `projects/routes.ts`. Route handler must always scope reads to both `workspace_id` and `project_id`.
+GET uses workspace-scoped SELECT. PATCH must call `resolve_project_pricing_address`; do **not** construct a generic client-controlled table update.
 
-Wire in `apps/api/src/http/handler.ts` before the generic project handler collision point:
+Wire before generic project handling:
 
 ```ts
 if (/^\/api\/projects\/[^/]+\/pricing-context(?:\/address)?$/.test(pathname)) {
@@ -384,27 +365,20 @@ if (/^\/api\/projects\/[^/]+\/pricing-context(?:\/address)?$/.test(pathname)) {
 }
 ```
 
-Add typed web client functions:
+Web client:
 
 ```ts
-export function getPricingContext(workspaceId: string, projectId: string) { ... }
-export function resolvePricingAddress(workspaceId: string, projectId: string, choice: 'plan'|'project') { ... }
+getPricingContext(workspaceId, projectId)
+resolvePricingAddress(workspaceId, projectId, choice: 'plan'|'project')
 ```
 
-### Step 4: GREEN
+### Step 4: GREEN + commit
 
 ```bash
 node --experimental-strip-types --test apps/api/test/pricing-routes.test.ts
 npm run test:api
-```
-
-Expected: PASS.
-
-### Step 5: commit
-
-```bash
 git add apps/api/src/pricing/routes.ts apps/api/src/http/handler.ts apps/api/test/pricing-routes.test.ts apps/web/app/src/services/api.ts
-git commit -m "feat: expose pricing address resolution API"
+git commit -m "feat: expose protected pricing address resolution API"
 ```
 
 ## Task 6 — address conflict UI
@@ -414,14 +388,14 @@ git commit -m "feat: expose pricing address resolution API"
 - Modify: `apps/web/app/src/pages/PlansPage.tsx`
 - Add: `apps/web/test/pricing-address-card.test.ts`
 
-### Step 1: RED UI contract test
+### Step 1: RED UI tests
 
-Test rendered/structural behavior following existing web-test style. Required states:
-- clear -> shows pricing address + source
-- conflict -> shows both addresses and warning
-- conflict -> buttons `Use plan address`, `Keep project address`
-- missing -> says pricing cannot start until an address is available
-- viewer -> no resolve buttons
+Required states:
+- clear -> pricing address + source
+- conflict -> plan address and project address + warning
+- conflict -> `Use plan address` and `Keep project address`
+- missing -> pricing unavailable until address exists
+- viewer -> no mutation controls
 
 ### Step 2: RED
 
@@ -429,13 +403,7 @@ Test rendered/structural behavior following existing web-test style. Required st
 node --experimental-strip-types --test apps/web/test/pricing-address-card.test.ts
 ```
 
-Expected: FAIL because component does not exist.
-
 ### Step 3: implement focused component
-
-Do not add more address logic to the already-large `PlansPage.tsx`. `PlansPage` should load/refresh context and pass props into `PricingAddressCard`.
-
-Suggested interface:
 
 ```ts
 type PricingAddressCardProps = {
@@ -445,28 +413,19 @@ type PricingAddressCardProps = {
 };
 ```
 
-After resolving, refetch server context rather than mutating a local trust decision.
+Keep address logic out of the already-large `PlansPage.tsx`. After a resolution call, refetch server context; never locally invent trusted status.
 
-### Step 4: GREEN + build
+### Step 4: GREEN + commit
 
 ```bash
 node --experimental-strip-types --test apps/web/test/pricing-address-card.test.ts
 npm run test:web
 npm run build:app
-```
-
-Expected: PASS.
-
-### Step 5: commit
-
-```bash
 git add apps/web/app/src/components/PricingAddressCard.tsx apps/web/app/src/pages/PlansPage.tsx apps/web/test/pricing-address-card.test.ts
 git commit -m "feat: add pricing address conflict review UI"
 ```
 
-## Task 7 — final verification for Workstream 01
-
-Run fresh:
+## Task 7 — final Workstream 01 verification
 
 ```bash
 npm run test:domain
@@ -476,13 +435,13 @@ npm run db:validate
 npm run build
 ```
 
-Expected: all PASS.
-
-Then manually verify on a non-production test/preview workspace:
-1. plan address matches project -> context `clear`
-2. plan address differs -> context `needs_resolution`
-3. conflicting context cannot be used by `assertPricingAddressResolved`
-4. resolving records human provenance
-5. no price, labor rate, or client recommendation is generated in this workstream
+Preview checks:
+1. matching plan/project address -> `clear`
+2. materially different addresses -> `needs_resolution`
+3. unresolved context is rejected by `assertPricingAddressResolved`
+4. resolution records human provenance via RPC
+5. viewer cannot resolve
+6. direct authenticated table mutation cannot rewrite plan evidence
+7. no material/labor/client pricing is generated in this workstream
 
 **Do not apply `0035` to production under this plan.**
