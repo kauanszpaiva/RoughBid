@@ -88,13 +88,51 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
   useEffect(() => {
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastObservedStatus = currentRevision?.aiPlanStatus;
+    let lastRevisionNote = currentRevision?.notes;
     setFindings([]);
-    if (workspaceId && currentRevision?.aiPlanJobId) {
-      getAiPlanReading(workspaceId, currentRevision.aiPlanJobId).then(job => {
-        if (active) setFindings(job.plan_reading_findings);
-      }).catch(error => { if (active) setPlanNotice(readableApiError(error)); });
+    const jobId = currentRevision?.aiPlanJobId;
+    if (!workspaceId || !jobId || !currentRevision) {
+      return () => { active = false; };
     }
-    return () => { active = false; };
+
+    const pollAiPlanReading = async () => {
+      try {
+        const polledJob = await getAiPlanReading(workspaceId, jobId);
+        if (!active) return;
+        setFindings(polledJob.plan_reading_findings);
+        const presentation = presentAiPlanStatus(polledJob.status);
+        if (lastObservedStatus !== polledJob.status || (presentation.revisionNote && lastRevisionNote !== presentation.revisionNote)) {
+          onPatchRevision(currentRevision.id, {
+            aiPlanJobId: polledJob.id,
+            aiPlanStatus: polledJob.status,
+            ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
+          });
+          lastObservedStatus = polledJob.status;
+          if (presentation.revisionNote) lastRevisionNote = presentation.revisionNote;
+        }
+        setReadingQuote((current) => current?.job_id === polledJob.id
+          ? { ...current, status: polledJob.status === 'failed' ? 'failed' : presentation.finished ? 'complete' : 'processing' }
+          : current);
+        if (polledJob.status === 'failed') {
+          setPlanNotice(`AI plan reading failed${polledJob.processing_error ? `: ${polledJob.processing_error}` : '.'}`);
+          return;
+        }
+        setPlanNotice(presentation.notice);
+        if (polledJob.status === 'queued' || polledJob.status === 'processing') {
+          timer = setTimeout(pollAiPlanReading, 4000);
+        }
+      } catch (error) {
+        if (active) setPlanNotice(readableApiError(error));
+      }
+    };
+
+    void pollAiPlanReading();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [workspaceId, currentRevision?.id, currentRevision?.aiPlanJobId]);
 
   useEffect(() => {
@@ -415,7 +453,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             Plans
           </h2>
           <p className="text-xs text-[#6b7280] mt-0.5">
-            Upload and manage your architectural blueprints and plan revisions.
+            Upload and manage construction drawings and plan revisions.
           </p>
           {planNotice && (
             <p className="text-xs text-[#2563eb] mt-2 max-w-2xl">
@@ -455,7 +493,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <Upload className="w-10 h-10 text-[#9ca3af] mb-3" />
               <h3 className="text-sm font-bold text-[#111827]">No plan uploaded</h3>
               <p className="text-xs text-[#6b7280] max-w-sm mt-1 mb-4">
-                Upload your architectural blueprints (PDF) to start taking off quantities.
+                Upload your construction drawing set (PDF) to start taking off quantities.
               </p>
               <label className="px-4 py-2 bg-[#2563eb] text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-[#1d4ed8] transition">
                 <span>Upload PDF Plan</span>
