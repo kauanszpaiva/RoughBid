@@ -20,8 +20,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Task 1 plan address contract
-        run: node --experimental-strip-types --test apps/api/test/ai-plan-address.test.ts apps/api/test/ai-plan-gemini.test.ts
+      - name: Task 2 pricing context schema contract
+        run: node --test supabase/test/pricing-context.test.mjs
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
