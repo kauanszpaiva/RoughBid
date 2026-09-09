@@ -13,7 +13,7 @@ function query(data: unknown) {
 const db: any = { auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) }, from(table: string) {
   if (table === 'profiles') return query({ is_platform_admin: false });
   if (table === 'workspaces') return query({ ai_processing_consented_at: '2026-09-08' });
-  if (table === 'projects') return query({ id: 'project-1' });
+  if (table === 'projects') return query({ id: 'project-1', address_text: null });
   if (table === 'project_files') return query({ id:'file-1', storage_path:'workspace-1/project-1/file-1/source.pdf', original_name:'plan.pdf', processing_status:'ready' });
   if (table === 'plan_reading_jobs') return query(Array.from({length:30}, (_,i) => ({id:String(i)})));
   throw new Error(table);
@@ -24,6 +24,22 @@ const finding = { page_number:1, finding_type:'question' as const, label:'Verify
 const result = { summary: { sheet_count:1, detected_trade_scope:[], scale_status:'missing' as const, human_review_required:true as const, limitations:[] }, findings:[finding] };
 
 async function pdf(pages = 1) { const d = await PDFDocument.create(); for(let i=0;i<pages;i++)d.addPage(); return new Uint8Array(await d.save()); }
+
+function pricingContextWriter(rpc: (name: string, args: any) => Promise<any>) {
+  let pricingContext: any = null;
+  return {
+    from(table: string) {
+      assert.equal(table, 'project_pricing_contexts');
+      const q: any = {};
+      q.select = () => q;
+      q.eq = () => q;
+      q.maybeSingle = async () => ({ data: pricingContext, error: null });
+      q.upsert = async (row: any) => { pricingContext = row; return { data: row, error: null }; };
+      return q;
+    },
+    rpc,
+  };
+}
 
 test('pilot budget reserves before provider; failed invocation stays counted and never uses paid fallback', async () => {
   const calls: string[] = [];
@@ -56,7 +72,7 @@ test('budget rejection never invokes any provider', async () => {
 
 test('verified owner remains unlimited after 30 prior jobs', async () => {
   const bytes=await pdf();
-  const writer={from:()=>({}),rpc:async(name:string)=>({error:null,data:name==='reserve_platform_admin_reading'?{job:{id:'job-1'},reused:false}:{status:'needs_review'}})};
+  const writer=pricingContextWriter(async(name:string)=>({error:null,data:name==='reserve_platform_admin_reading'?{job:{id:'job-1'},reused:false}:{status:'needs_review'}}));
   const service = new AiPlanReadingService(db,writer,storage,{read:async()=>result},'user-1','workspace-1',async()=>new Response(bytes),undefined,true);
   assert.equal((await service.create('project-1',{file_id:'file-1'})).status,'needs_review');
 });
