@@ -107,6 +107,79 @@ export function comparePricingAddresses(
   };
 }
 
+function dbValue<T>(result: { data: T; error: { message?: string } | null }, action: string): T {
+  if (result.error) throw new ProjectApiError(500, result.error.message ?? `Could not ${action}.`);
+  return result.data;
+}
+
+function normalizedPlanIdentity(plan: PlanProjectAddressEvidence | null): string | null {
+  const text = planAddressText(plan);
+  return text ? normalizeAddressText(text) : null;
+}
+
+/**
+ * Persists only sanitized plan evidence through the trusted server writer.
+ * A prior human resolution survives a reread when the underlying plan and
+ * project addresses are materially unchanged. New evidence that changes either
+ * address reopens deterministic resolution instead of silently preserving a
+ * stale choice.
+ */
+export async function persistPlanPricingContext(input: {
+  writer: { from(table: string): any };
+  workspaceId: string;
+  projectId: string;
+  projectAddressText: string | null;
+  planAddress: PlanProjectAddressEvidence | null;
+  fileId: string;
+  jobId: string;
+}): Promise<void> {
+  const existing = dbValue<any>(
+    await input.writer.from('project_pricing_contexts').select('*')
+      .eq('workspace_id', input.workspaceId).eq('project_id', input.projectId).maybeSingle(),
+    'read pricing context',
+  );
+
+  const existingPlan = (existing?.plan_address ?? null) as PlanProjectAddressEvidence | null;
+  const effectivePlan = input.planAddress ?? existingPlan;
+  const projectAddressText = cleanProjectAddress(input.projectAddressText);
+  const decision = comparePricingAddresses(effectivePlan, projectAddressText);
+
+  const existingPlanIdentity = normalizedPlanIdentity(existingPlan);
+  const nextPlanIdentity = normalizedPlanIdentity(effectivePlan);
+  const existingProjectIdentity = cleanProjectAddress(existing?.project_address_text ?? null);
+  const normalizedExistingProject = existingProjectIdentity ? normalizeAddressText(existingProjectIdentity) : null;
+  const normalizedNextProject = projectAddressText ? normalizeAddressText(projectAddressText) : null;
+  const evidenceUnchanged = existingPlanIdentity === nextPlanIdentity
+    && normalizedExistingProject === normalizedNextProject;
+  const preserveHumanResolution = existing?.address_status === 'resolved'
+    && existing?.address_source === 'confirmed_override'
+    && existing?.pricing_address
+    && existing?.resolved_by
+    && existing?.resolved_at
+    && evidenceUnchanged;
+
+  const hasFreshPlanEvidence = Boolean(input.planAddress);
+  const row = {
+    project_id: input.projectId,
+    workspace_id: input.workspaceId,
+    project_address_text: projectAddressText,
+    plan_address: effectivePlan,
+    pricing_address: preserveHumanResolution ? existing.pricing_address : decision.pricingAddress,
+    address_source: preserveHumanResolution ? 'confirmed_override' : decision.source,
+    address_status: preserveHumanResolution ? 'resolved' : decision.status,
+    plan_file_id: hasFreshPlanEvidence ? input.fileId : (existing?.plan_file_id ?? input.fileId),
+    plan_job_id: hasFreshPlanEvidence ? input.jobId : (existing?.plan_job_id ?? input.jobId),
+    resolved_by: preserveHumanResolution ? existing.resolved_by : null,
+    resolved_at: preserveHumanResolution ? existing.resolved_at : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  dbValue(
+    await input.writer.from('project_pricing_contexts').upsert(row, { onConflict: 'project_id' }),
+    'save pricing context',
+  );
+}
+
 /** Every future pricing path calls this before any market lookup or rate application. */
 export function assertPricingAddressResolved(context: {
   address_status: PricingAddressStatus;
