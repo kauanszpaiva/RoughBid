@@ -22,12 +22,6 @@ jobs:
       - run: npm ci
       - name: Task 4 trusted pricing context persistence
         run: node --experimental-strip-types --test apps/api/test/pricing-context-persistence.test.ts apps/api/test/pricing-context.test.ts apps/api/test/ai-plan-service.test.ts
-      - name: Owner free reading regression
-        run: node --experimental-strip-types --test apps/api/test/owner-free-reading.test.ts
-      - name: Founder full access regression
-        run: node --experimental-strip-types --test apps/api/test/founder-full-access.test.ts
-      - name: Pilot enforcement regression
-        run: node --experimental-strip-types --test apps/api/test/pilot-enforcement.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
@@ -36,18 +30,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://validate:validate@127.0.0.1:5432/validate
         run: npm run db:validate
-      - name: Domain tests
-        run: npm run test:domain
-      - name: API tests
-        run: npm run test:api
-      - name: MCP tests
-        run: npm run test:mcp
-      - name: Web tests
-        run: npm run test:web
-      - name: Supabase tests
-        run: node --test supabase/test/*.test.mjs
-      - name: Prisma tests
-        run: node --test prisma/*.test.mjs
+      - name: Full monorepo tests
+        run: npm test
       - name: Production build compile check
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
