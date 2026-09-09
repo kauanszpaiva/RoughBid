@@ -21,3 +21,8 @@ test('pilot release enforces the approved aggregate cohort ceiling before provid
   assert.match(migration, /budget_cents between 0 and 10000/);
   assert.match(migration, /c\.reserved_cents\+25>c\.budget_cents/);
 });
+
+test('pilot release removes direct RPC execution from the workspace-owner trigger function', () => {
+  assert.match(migration, /revoke execute on function public\.add_workspace_owner_membership\(\)/);
+  assert.match(migration, /from public,anon,authenticated/);
+});
