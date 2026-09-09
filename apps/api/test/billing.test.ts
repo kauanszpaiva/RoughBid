@@ -215,3 +215,21 @@ test('billing endpoint rejects invalid price keys without charging a fallback pr
   assert.equal(requestPrice, '');
   assert.equal(isBillingPriceKey('price_attacker_controlled'), false);
 });
+
+test('checkout request helper refuses marketplace prices even when one is configured', () => {
+  const config = createBillingConfig({
+    stripeMode: 'test',
+    productId: 'prod_roughbid',
+    priceIds: { marketplace_supplier_import: 'price_marketplace_supplier_import' },
+  });
+  assert.throws(
+    () => createCheckoutRequest(config, {
+      customerEmail: 'estimator@example.com',
+      successUrl: 'https://app.example.com/billing/success',
+      cancelUrl: 'https://app.example.com/billing/cancel',
+      userId: 'user_1',
+      priceKey: 'marketplace_supplier_import',
+    }),
+    /Marketplace purchases are not available yet\./,
+  );
+});

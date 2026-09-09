@@ -5,8 +5,11 @@ import { isConfiguredValue } from './readiness.ts';
 import { runProviderOperation } from './provider-errors.ts';
 
 // Pinned pricing and a single request: no model fallback, tools, caching or retries.
-// https://ai.google.dev/gemini-api/docs/pricing (verified 2026-09-08)
-export const PILOT_MODEL = 'gemini-2.5-flash';
+// Gemini 3.8 Flash GA pricing verified 2026-09-09 against the official Gemini API pricing page:
+// $0.75/M input + $3.75/M output through 2026-12-31. With this pilot envelope
+// (32k input + 4,096 output), the theoretical maximum is $0.03936 per analysis,
+// comfortably below the conservative $0.25 reservation made before provider work.
+export const PILOT_MODEL = 'gemini-3.8-flash';
 export const PILOT_MAX_INPUT_TOKENS = 32_000;
 export const PILOT_MAX_OUTPUT_TOKENS = 4_096;
 export const PILOT_RESERVATION_CENTS = 25;
@@ -44,10 +47,10 @@ export class PilotPlanReader {
     if (!Number.isSafeInteger(counted.totalTokens) || counted.totalTokens! < 1 || counted.totalTokens! > PILOT_MAX_INPUT_TOKENS) {
       throw new ProjectApiError(413, 'This PDF exceeds the pilot analysis size. Use a smaller, simpler plan.');
     }
-    // $0.30/M input + $2.50/M output = <= $0.01984, below the $0.25 reserve.
     const response = await runProviderOperation('gemini',PILOT_MODEL,'generate',()=>this.client.generateContent({ model: PILOT_MODEL, contents, config: {
-      responseMimeType: 'application/json', temperature: 0.1,
-      maxOutputTokens: PILOT_MAX_OUTPUT_TOKENS, thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: 'application/json',
+      maxOutputTokens: PILOT_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: 'LOW' },
       httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
     } }));
     const parsed = await runProviderOperation('gemini',PILOT_MODEL,'parse',async()=>JSON.parse(response.text || '{}'));

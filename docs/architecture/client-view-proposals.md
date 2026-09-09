@@ -1,6 +1,9 @@
 # Client View Proposals
 
-Status: data foundation added; API and UI workflow next.
+Status: shipped. Database, API and UI are implemented and covered by tests.
+Contractors create a link from the Export page; clients open `/proposal/:token`
+(rewritten to the app in `vercel.json`) and sign there. Open and signature
+notification emails go out through Resend when it is configured.
 
 ## Goal
 
@@ -24,9 +27,9 @@ Track:
 
 Every event stores proposal, workspace, timestamp, and bounded metadata. IP addresses should be hashed before storage when needed for fraud/audit.
 
-## Next API Endpoints
+## Implemented API Endpoints
 
-- `POST /api/estimates/:id/client-proposal-links`
+- `POST /api/projects/:projectId/client-proposals` (`apps/api/src/proposals/routes.ts`)
   - Authenticated estimator/admin creates link.
   - Sends email through Resend when configured.
 - `GET /api/client-proposals/:token`
@@ -38,9 +41,9 @@ Every event stores proposal, workspace, timestamp, and bounded metadata. IP addr
 
 ## Notification
 
-Initial notification path:
-- Resend transactional email to estimator on first open and on signature.
+Implemented:
+- Resend transactional email to the estimator on first open and on signature.
 
-Later:
+Not built yet:
 - In-app notification center.
 - Webhook integration for CRM/accounting systems.

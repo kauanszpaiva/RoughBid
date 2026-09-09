@@ -1,0 +1,44 @@
+name: CI
+
+# The durable-ai-plan workflow is path-filtered on pull requests and does not
+# run on pushes to main at all, so a change outside its paths, or any merge into
+# main, could land with nothing run. This gate is unconditional: every push to
+# main and every pull request runs the checks a contributor runs locally.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Backend and worker typecheck
+        run: npx tsc --noEmit
+      - name: Web app typecheck
+        run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Prisma schema validation
+        env:
+          # Parsed only to satisfy env("DATABASE_URL"); validate never connects.
+          DATABASE_URL: postgresql://validate:validate@127.0.0.1:5432/validate
+        run: npm run db:validate
+      - name: Full monorepo test suite
+        run: npm test
+      - name: Production build with compile-only public config
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build

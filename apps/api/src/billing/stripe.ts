@@ -111,6 +111,11 @@ function requireHttps(value: string, label: string): string {
 }
 
 export function createCheckoutRequest(config: BillingConfig, input: CheckoutInput): HostedCheckoutRequest {
+  // Marketplace SKUs have no product-grant path yet. They are also one-time
+  // purchases, so the subscription default below would silently create a
+  // recurring charge that grants nothing. Refuse them at the primitive, not
+  // only at the endpoint, so no future caller can reintroduce that path.
+  if (input.priceKey?.startsWith('marketplace_')) throw new Error('Marketplace purchases are not available yet.');
   const selectedPriceId = input.priceKey ? config.priceIds[input.priceKey] : config.priceId;
   if (!selectedPriceId) throw new Error('Checkout is disabled until an approved Stripe price is configured.');
   if (!input.customerId && !input.customerEmail.includes('@')) throw new Error('A valid customer email is required.');
