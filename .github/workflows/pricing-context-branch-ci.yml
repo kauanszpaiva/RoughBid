@@ -30,8 +30,18 @@ jobs:
         env:
           DATABASE_URL: postgresql://validate:validate@127.0.0.1:5432/validate
         run: npm run db:validate
-      - name: Full monorepo tests
-        run: npm test
+      - name: Domain tests
+        run: npm run test:domain
+      - name: API tests
+        run: npm run test:api
+      - name: MCP tests
+        run: npm run test:mcp
+      - name: Web tests
+        run: npm run test:web
+      - name: Supabase tests
+        run: node --test supabase/test/*.test.mjs
+      - name: Prisma tests
+        run: node --test prisma/*.test.mjs
       - name: Production build compile check
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
