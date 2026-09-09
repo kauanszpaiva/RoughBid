@@ -20,8 +20,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Task 2 pricing context schema contract
-        run: node --test supabase/test/pricing-context.test.mjs
+      - name: Task 3 pricing address decision contract
+        run: node --experimental-strip-types --test apps/api/test/pricing-context.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
