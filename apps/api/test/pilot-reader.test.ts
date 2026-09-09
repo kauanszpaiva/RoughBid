@@ -5,6 +5,10 @@ import { PilotPlanReader, PILOT_MODEL, requirePilotReaderConfig } from '../src/a
 const input = { fileBytes: new TextEncoder().encode('%PDF-example'), mimeType: 'application/pdf', sheetName: 'plan.pdf', requestedTrades: ['Framing'], scope: '' };
 const evidence = JSON.stringify({ summary: { sheet_count: 1, detected_trade_scope: ['Framing'], scale_status: 'missing' }, findings: [{ page_number: 1, finding_type: 'question', label: 'Verify dimensions', source_excerpt: 'VERIFY IN FIELD', confidence: 0.8, geometry: {} }] });
 
+test('pilot is pinned to the production-verified Gemini model', () => {
+  assert.equal(PILOT_MODEL, 'gemini-3.8-flash');
+});
+
 test('pilot fails before generation when token count is unavailable or above envelope', async () => {
   for (const totalTokens of [undefined, NaN, 32_001, -1]) {
     let generated = false;
@@ -24,7 +28,7 @@ test('pilot uses exactly one pinned bounded request and reports reserved cost se
     calls++;
     assert.equal(args.model, PILOT_MODEL);
     assert.equal(args.config.maxOutputTokens, 4096);
-    assert.deepEqual(args.config.thinkingConfig, { thinkingBudget: 0 });
+    assert.deepEqual(args.config.thinkingConfig, { thinkingLevel: 'LOW' });
     assert.deepEqual(args.config.httpOptions, { timeout: 60_000, retryOptions: { attempts: 1 } });
     assert.equal(args.config.tools, undefined);
     return { text: evidence };
