@@ -11,6 +11,8 @@
  *   GET  /api/workspaces           POST /api/workspaces
  *   GET  /api/projects             POST /api/projects
  *   GET  /api/projects/:id         PATCH /api/projects/:id
+ *   GET  /api/projects/:id/pricing-context
+ *   PATCH /api/projects/:id/pricing-context/address
  *   POST /api/estimates/recalculate
  *   POST /api/projects/:id/documents/upload-url
  *   POST /api/documents/:id/complete
@@ -227,6 +229,44 @@ export function updateProject(workspaceId: string, id: string, patch: unknown) {
 /** DELETE /api/projects/:id */
 export function deleteProject(workspaceId: string, id: string) {
   return request<RemoteProject>(`/api/projects/${id}`, { method: "DELETE", workspaceId });
+}
+
+export type PlanProjectAddressEvidence = {
+  project_name: string | null;
+  street_address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  building_lot_unit: string | null;
+  page_number: number;
+  source_excerpt: string;
+  confidence: number;
+};
+
+export type PricingContext = {
+  project_id: string;
+  workspace_id: string;
+  project_address_text: string | null;
+  plan_address: PlanProjectAddressEvidence | null;
+  pricing_address: Record<string, unknown> | null;
+  address_source: "plan" | "project" | "confirmed_override" | null;
+  address_status: "missing" | "clear" | "needs_resolution" | "resolved";
+  plan_file_id?: string | null;
+  plan_job_id?: string | null;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+};
+
+export function getPricingContext(workspaceId: string, projectId: string) {
+  return request<PricingContext>(`/api/projects/${projectId}/pricing-context`, { workspaceId });
+}
+
+export function resolvePricingAddress(workspaceId: string, projectId: string, choice: "plan" | "project") {
+  return request<PricingContext>(`/api/projects/${projectId}/pricing-context/address`, {
+    method: "PATCH",
+    workspaceId,
+    body: { choice },
+  });
 }
 
 /**
