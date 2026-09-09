@@ -1,125 +1,130 @@
-# RoughBid — checklist de conclusão
+# RoughBid — release gate final
 
-Data: 8 de setembro de 2026. Este documento separa o que está fechado em código
-do que só pode ser fechado com credenciais de produção ou uma decisão comercial.
-Nada aqui declara certificado um ciclo que não foi executado.
+Data: 9 de setembro de 2026.
 
-## Estado do repositório
+## Escopo desta release
 
-Verificado nesta sessão, com dependências instaladas (`npm ci`):
+Esta release fecha o **RoughBid para demonstração do fundador e piloto controlado**.
+Ela não declara lançamento comercial geral (GA) de assinaturas ou preço por projeto,
+porque esses preços ainda exigem decisão comercial explícita e ciclo Stripe real.
 
-| Verificação | Comando | Resultado |
-| --- | --- | --- |
-| Suíte completa | `npm test` | 368 testes, 0 falhas |
-| Typecheck backend/worker | `npx tsc --noEmit` | limpo |
-| Typecheck app web | `npx tsc --noEmit -p apps/web/app/tsconfig.json` | limpo |
-| Schema Prisma | `npm run db:validate` | válido |
-| Build de produção | `npm run build` | gera `dist/`, `dist/app/`, `dist/landing/` |
+O objetivo do gate é simples: ninguém chama o produto de pronto baseado apenas em
+build verde. A release precisa ter código verificável, provider real, budget limitado,
+persistência real e produção saudável.
 
-O build exige `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`; valores
-apenas de compilação bastam para validar o build, e são os que a CI usa.
+## Evidência já verificada em produção
 
-## Fechado nesta entrega
+- Produção atual na Vercel está `READY` e vinculada ao `main`.
+- `GET /api/health` respondeu HTTP 200.
+- `GET /api/capabilities` respondeu HTTP 200 com `aiReadingAvailable:true`,
+  `billing:true` e `billingPortal:true`; memberships Starter/Pro/Team continuam
+  intencionalmente desativadas.
+- Em **8 de setembro de 2026 às 21:20 UTC**, uma leitura real de planta completou
+  com `gemini-3.8-flash`, status `needs_review`, sem `processing_error` e com
+  **98 findings persistidos** em Supabase. O resultado exige revisão humana.
+- O Google documenta `gemini-3.8-flash` como GA e pronto para produção. O mesmo
+  modelo já foi comprovado no runtime do RoughBid.
 
-- **Gate de CI incondicional** (`.github/workflows/ci.yml`): typecheck backend e
-  web, validação do schema Prisma, suíte completa e build de produção em todo
-  push para `main` e em todo pull request. O workflow anterior
-  (`durable-ai-plan.yml`) só disparava em uma branch e num conjunto de paths, o
-  que permitia que mudanças fora daquela lista chegassem em `main` sem execução.
-- **Checkout de marketplace recusado na primitiva** (`apps/api/src/billing/stripe.ts`):
-  `createCheckoutRequest` agora rejeita qualquer chave `marketplace_*`. O endpoint
-  já respondia 503, mas a primitiva tratava toda chave não-`project_` como
-  assinatura — um preço de marketplace configurado por engano geraria cobrança
-  recorrente sem conceder produto algum. Coberto por teste.
-- **Documento de propostas corrigido** (`docs/architecture/client-view-proposals.md`):
-  dizia "API e UI a seguir" enquanto `apps/api/src/proposals/routes.ts`,
-  `ClientProposalPage.tsx` e o rewrite `/proposal/:token` já estavam em produção.
+## Fechado no release candidate
 
-## Pendências que exigem produção ou decisão sua
+- **CI incondicional** em todo pull request e push para `main`: suíte, typecheck
+  backend/worker, typecheck web, Prisma e build de produção.
+- **Gate específico da IA** preservado com verificações do boundary do provider,
+  reload persistido e visualização PDF desktop/mobile sob CSP de produção.
+- **Marketplace recusado na primitiva Stripe** enquanto não existir concessão de
+  produto correspondente.
+- **Landing atualizada** para não dizer que AI plan reading é algo futuro quando
+  a função já existe e foi comprovada.
+- **Brand metadata normalizada** para `RoughBid`.
+- **Piloto fixado em `gemini-3.8-flash`**, usando uma única tentativa bounded,
+  sem fallback pago e com limite de 32k tokens de entrada + 4.096 de saída.
+- **Reserva conservadora de US$0,25 antes do provider** permanece obrigatória.
+  Pela tarifa introdutória documentada do Gemini 3.8 Flash em 9/09/2026, o teto
+  teórico desse envelope é aproximadamente US$0,03936 por análise.
+- **Migration `0034_pilot_budget_and_model_alignment.sql`** reduz o teto do cohort
+  de US$125 para o limite aprovado de **US$100**, falha fechado se reservas já
+  ultrapassarem esse limite e alinha o RPC do piloto ao Gemini 3.8 Flash.
+- Testes de regressão impedem que o modelo do piloto ou o teto aprovado sejam
+  silenciosamente revertidos.
 
-Nenhuma destas é limitação de código. Todas dependem de credencial real, de uma
-execução autorizada ou de um preço que ainda não foi definido.
+## Estado do budget do piloto antes da promoção
 
-### 1. Validar uma leitura de IA real (maior prioridade)
+Consulta live antes desta release:
 
-O diagnóstico `ai_provider_failure` foi implementado mas nunca observou uma
-falha real. Até uma execução autorizada, a causa do incidente de produção do
-Gemini permanece desconhecida.
+- cohort: `founding-pilot-60d`
+- capacidade: 25
+- budget configurado: US$125 (divergente da decisão aprovada)
+- budget reservado: US$0
+- reservas de leitura: 0
 
-1. Confirmar `GEMINI_API_KEY` e `GEMINI_MODEL` na Vercel (produção).
-2. Ativar `PAID_PLAN_READINGS_ENABLED=true` ou usar o caminho gratuito do
-   proprietário (`FREE_OWNER_READINGS_ENABLED`, `FREE_OWNER_WORKSPACE_ID`).
-3. Rodar uma análise em um projeto do workspace do proprietário.
-4. Se falhar, ler o código e a referência UUID do `ai_provider_failure` e cruzar
-   com a tabela de `docs/readiness/2026-09-08-ai-provider-diagnostics.md`.
+Portanto a redução para US$100 não invalida nenhuma reserva existente.
 
-Sem esse passo, os itens 2 e 4 não podem ser avaliados com honestidade.
+## Gate de promoção para produção
 
-### 2. Primeiro convite do piloto com pessoa real
+A promoção deve usar **um único SHA exato** do PR #39 e obedecer esta ordem:
 
-O ciclo email → ativação → PDF → geração → lembrete → expiração existe apenas em
-teste automatizado; nenhum convite foi enviado. Requer `PILOT_READINGS_ENABLED=true`,
-`PILOT_INVITE_SIGNING_SECRET`, `CRON_SECRET` e `RESEND_WEBHOOK_SECRET`.
+1. Confirmar CI e Durable AI Plan Gate verdes no SHA final.
+2. Confirmar preview Vercel `READY` para o mesmo SHA.
+3. Aplicar **somente** `0034_pilot_budget_and_model_alignment.sql` no projeto
+   Supabase `piasgpciojstjalaqazu`.
+4. Verificar no banco: `pilot_cohorts.budget_cents = 10000`,
+   `reserved_cents <= budget_cents` e o RPC aceita o modelo esperado.
+5. Fazer merge do PR #39 em `main`.
+6. Esperar a Vercel promover o commit de `main` e confirmar deployment `READY`.
+7. Smoke: `/api/health`, `/api/capabilities`, `/`, `/app/`.
+8. Verificar logs de runtime após o smoke.
+9. Confirmar que uma leitura antiga continua recarregando findings persistidos.
 
-Começar por **um** convite no preset `Sample` (7 dias, 1 projeto). Observar a
-qualidade real antes de liberar 60 dias ou ampliar o grupo. Cada projeto reserva
-US$0,25 do teto de US$125; o painel mostra vagas e orçamento.
+Não aplicar `0023–0025` nesta promoção. O worker durável não está implantado e
+essas migrations pertencem a uma arquitetura opcional de escala, não ao caminho
+inline que já foi comprovado em produção.
 
-### 3. Preço por projeto
+## Rollback
 
-O checkout por projeto fica desabilitado enquanto `PROJECT_PRICING_VERSION`,
-`PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`,
-`PROJECT_PAYMENT_FIXED_CENTS` e `PROJECT_PAYMENT_FEE_BPS` estiverem em branco.
-Definir exige o custo medido por leitura — que só existe depois do item 1.
+Se o novo deployment falhar antes de qualquer usuário externo iniciar o piloto:
 
-### 4. Ciclo Stripe exercitado
+1. Reverter o deployment Vercel ao deployment de produção anterior.
+2. Manter o budget do banco em US$100; não reabrir o teto de US$125.
+3. Manter o piloto externo desativado até app e RPC voltarem a concordar sobre
+   o modelo autorizado.
+4. Owner/admin continua com o caminho comprovado de leitura real e pode ser
+   usado para diagnóstico.
 
-`capabilities.billing:true` descreve configuração, não certifica o ciclo. Em
-modo `test`, vinculado à conta correta, exercitar: compra, renovação, falha de
-pagamento, cancelamento, portal, e o desconto refletido no projeto. Confirmar
-que os webhooks assinados chegam e que `billing_customers` é populado.
+A migration reduz risco financeiro e não precisa ser revertida para recuperar a
+produção. Em caso de incompatibilidade app/RPC, falhar fechado é preferível a
+executar provider fora do envelope aprovado.
 
-### 5. Mensalidades: definir ou remover
+## Não bloqueia esta release de piloto/demo
 
-`BILLING_MEMBERSHIPS_ENABLED=false` e nenhum `STRIPE_PRICE_PLAN_*` configurado.
-Decisão binária: definir preço e termos aprovados, criar os preços na Stripe e
-validar o ciclo do item 4 — ou remover a UI de planos da `BillingPage`. Manter
-botões indisponíveis é a pior das três opções para um cliente novo.
+### Primeiro convite externo
 
-### 6. Worker durável
+Ainda não foi enviado. Isso inicia operação com uma pessoa real e deve acontecer
+somente depois da promoção acima. Começar com **um** convite `Sample` (7 dias,
+1 projeto), observar qualidade e só então ampliar.
 
-`AI_PLAN_DURABLE_ENABLED=false` e `PDF_PAGE_PROCESSING_ENABLED=false`. Hoje a
-leitura de IA roda inline no request da Edge Function, com `maxDuration: 180`
-em `vercel.json`. Um PDF grande em um dia lento do provedor estoura esse teto.
-Para fechar: publicar `Dockerfile.worker` com Redis (`REDIS_URL`) apontando para
-o mesmo Supabase, confirmar o heartbeat e só então ligar as duas flags. O código
-já falha fechado se nenhum worker vivo for visto.
+### Worker durável
 
-### 7. Marketplace: construir ou remover
+`AI_PLAN_DURABLE_ENABLED=false` e `PDF_PAGE_PROCESSING_ENABLED=false` devem
+continuar assim. Não existe worker Railway implantado hoje. Criar infraestrutura
+nova/custo recorrente é uma decisão separada. O caminho inline já concluiu uma
+leitura real em aproximadamente 11 segundos no teste live observado.
 
-Quatro SKUs (`marketplace_new_england_codes`, `marketplace_regional_material_prices`,
-`marketplace_labor_benchmarks`, `marketplace_supplier_import`) existem no tipo
-`BillingPriceKey` sem nenhuma concessão de produto implementada. Agora recusados
-em três camadas. Removê-los do tipo é seguro quando a decisão for não vendê-los.
+### Preço por projeto e memberships
 
-### 8. Supabase: proteção contra senha vazada
+Não inventar preço para completar checklist. Checkout por projeto e memberships
+só entram em GA depois de preço/termos aprovados, Stripe testado ponta a ponta e
+margem revalidada. Para esta release, o escopo é fundador + piloto controlado.
 
-Continua desativada. Aceitável enquanto a autenticação for exclusivamente magic
-link — mas isso precisa ser uma decisão registrada, e a proteção precisa ser
-ativada antes de oferecer senha como alternativa.
+### Marketplace
 
-### 9. Data-limite do piloto
+Continua propositalmente bloqueado até existir produto/concessão correspondente.
 
-A configuração atual interrompe novas análises do piloto em **1 de dezembro de
-2026** até revisão de preço e modelo. Conta do proprietário e clientes pagos não
-dependem dessa data. Revisar antes, não depois.
+### Supabase leaked-password protection
 
-## Não bloqueadores
+Não bloqueia enquanto autenticação permanecer magic-link only. Torna-se gate se
+senha for oferecida como alternativa.
 
-- Bundle do app acima de 500 kB sem code splitting. Só vale mexer se o tempo de
-  carregamento real incomodar.
-- O servidor MCP Mapify (`.mcp.json`) falhou ao conectar na sessão desta
-  auditoria (`CONNECTION_CLOSED`). Está configurado, não verificado.
-- Limites de produto já declarados e ainda válidos: revisão humana obrigatória
-  das medições e preços, sem feeds de preço de terceiros, sem verificação
-  automática de conformidade com códigos, sem abertura de ticket de suporte.
+## Data-limite operacional
+
+Novas análises do piloto param em **1 de dezembro de 2026** até nova revisão de
+preço/modelo. Isso evita continuar gastando sob premissas de tarifa antigas.
