@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - name: Task 6 pricing address UI contract
         run: node --experimental-strip-types --test apps/web/test/pricing-address-card.test.ts
+      - name: Web regression suite
+        run: npm run test:web
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
@@ -30,8 +32,16 @@ jobs:
         env:
           DATABASE_URL: postgresql://validate:validate@127.0.0.1:5432/validate
         run: npm run db:validate
-      - name: Full monorepo tests
-        run: npm test
+      - name: Domain tests
+        run: npm run test:domain
+      - name: API tests
+        run: npm run test:api
+      - name: MCP tests
+        run: npm run test:mcp
+      - name: Supabase tests
+        run: node --test supabase/test/*.test.mjs
+      - name: Prisma tests
+        run: node --test prisma/*.test.mjs
       - name: Production build compile check
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
