@@ -20,8 +20,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Task 4 trusted pricing context persistence
-        run: node --experimental-strip-types --test apps/api/test/pricing-context-persistence.test.ts apps/api/test/pricing-context.test.ts apps/api/test/ai-plan-service.test.ts
+      - name: Task 5 pricing context route contract
+        run: node --experimental-strip-types --test apps/api/test/pricing-routes.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
