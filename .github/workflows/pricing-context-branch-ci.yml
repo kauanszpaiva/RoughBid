@@ -20,8 +20,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Task 5 pricing context route contract
-        run: node --experimental-strip-types --test apps/api/test/pricing-routes.test.ts
+      - name: Task 6 pricing address UI contract
+        run: node --experimental-strip-types --test apps/web/test/pricing-address-card.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
       - name: Web typecheck
