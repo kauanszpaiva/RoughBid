@@ -102,11 +102,14 @@ export async function runDeepTakeoff(
       } catch (error) {
         summary.failed += 1;
         sheetSummary.status = 'blocked';
-        sheetSummary.blockers.push(`${passType}: ${(error instanceof Error ? error.message : 'Unknown failure').slice(0, 300)}`);
-        await repository.fail(request, {
-          classification: error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure',
-          message: (error instanceof Error ? error.message : 'Unknown failure').slice(0, 1000),
-        });
+        // Provider/transport/database exceptions may contain private plan text,
+        // signed URLs or credentials. Persist and return only fixed diagnostics.
+        const classification = error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure';
+        const message = classification === 'invalid_output'
+          ? 'The Full Takeoff pass returned invalid output. Review is required before another attempt.'
+          : 'The Full Takeoff pass could not be completed. Reconciliation is required before another attempt.';
+        sheetSummary.blockers.push(`${passType}: ${message}`);
+        await repository.fail(request, { classification, message });
         break;
       }
     }
