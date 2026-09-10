@@ -57,6 +57,16 @@ test('the plan-reading prompt auto-detects major construction drawing discipline
   assert.match(prompt, /do not guess|never guess/i);
 });
 
+test('the plan-reading prompt requests evidenced project address metadata without relaxing the no-money invariant', () => {
+  const prompt = systemPrompt('Permit set', []);
+  assert.match(prompt, /project\/site address/i);
+  assert.match(prompt, /cover sheet|title block/i);
+  assert.match(prompt, /physical page number/i);
+  assert.match(prompt, /verbatim source excerpt/i);
+  assert.match(prompt, /never infer|never fabricate/i);
+  assert.match(prompt, /never output money, prices, rates, construction costs/i);
+});
+
 test('reads a plan via the injected Gemini client and returns its findings', async () => {
   let calledWith: { model: string; contents: unknown[] } | undefined;
   const client = {

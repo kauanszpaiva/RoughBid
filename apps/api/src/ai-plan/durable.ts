@@ -1,3 +1,4 @@
+import { withUsageMeter } from '../owner-usage/meter.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
@@ -302,13 +303,16 @@ export class DurableAiPlanJobProcessor {
           p_job_id: queueJob.data.jobId, p_lease_id: leaseId,
         });
         if (attempt.error) throw new Error(attempt.error.message ?? 'Provider attempt was not authorized.');
-        result = await reader.read({
+        result = await withUsageMeter({ writer: this.writer, userId: context.requested_by,
+          workspaceId: context.workspace_id, projectId: context.project_id, jobId: queueJob.data.jobId,
+          billing: context.entitlement === 'owner_free' ? 'verified_free' : 'paid',
+        }, () => reader.read({
           fileBytes: bytes,
           mimeType: 'application/pdf',
           sheetName: context.original_name,
           requestedTrades: context.requested_trades,
           scope: context.requested_scope,
-        });
+        }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
         if (result.findings.some((f) => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > context.page_count))) {
           throw new Error('The reading contains quantities or locations without valid source pages.');

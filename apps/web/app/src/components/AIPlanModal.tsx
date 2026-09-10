@@ -26,7 +26,7 @@ interface AIPlanModalProps {
   onClose: () => void;
   onAddQuantityItem: (
     item: Omit<QuantityItem, "id" | "itemNumber">,
-    costOverride?: { materialCost: number; laborCost: number }
+    costOverride?: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string }
   ) => void;
   initialTab?: "analyze" | "missing" | "explain" | "revisions";
 }
@@ -118,14 +118,42 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     setFindingActionError(null);
     try {
       await setPlanReadingFindingStatus(workspaceId, finding.id, "accepted");
+
+      const pricing = (finding.geometry as { pricing?: Array<{ category: "material" | "labor"; cost: number }> })?.pricing;
+      let costOverride: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string } | undefined;
+
+      if (Array.isArray(pricing) && pricing.length > 0) {
+        let mat = 0;
+        let lab = 0;
+        for (const p of pricing) {
+          if (p.category === "material") mat += p.cost || 0;
+          if (p.category === "labor") lab += p.cost || 0;
+        }
+        costOverride = {
+          materialCost: Number(mat.toFixed(2)),
+          laborCost: Number(lab.toFixed(2)),
+          pricingStatus: mat > 0 || lab > 0 ? "configured" : "missing_price",
+          pricingSource: "AI Finding Geometry Pricing",
+        };
+      }
+
+      const area = (typeof finding.geometry?.area === "string" && finding.geometry.area.trim())
+        || (typeof finding.geometry?.room === "string" && finding.geometry.room.trim())
+        || (finding.finding_type === "room" && finding.label.trim())
+        || "Unknown Area";
+
       onAddQuantityItem(
         {
           name: finding.label,
           quantity: finding.quantity ?? 0,
           unit: normalizeUnit(finding.unit),
           category: finding.finding_type === "room" ? "Rooms & Areas" : finding.finding_type === "labor" ? "Labor" : "Plan Takeoff",
+          findingId: finding.id,
+          area,
+          ...(finding.page_number === null ? {} : { pageNumber: finding.page_number }),
+          ...(finding.source_excerpt === null ? {} : { sourceExcerpt: finding.source_excerpt }),
         },
-        undefined
+        costOverride
       );
       applyFindingStatus(finding.id, "accepted");
     } catch (error) {

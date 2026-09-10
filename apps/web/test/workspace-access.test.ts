@@ -20,7 +20,7 @@ test('application mutation guards run before project state or API changes', () =
 });
 
 test('a completed upload appends to the current project instead of its old page snapshot', () => {
-  const plans = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
-  assert.match(plans, /onAppendRevision\(newRev\)/);
-  assert.match(plans, /signal: AbortSignal\.timeout\(120_000\)/);
+  const plansContent = readFileSync(new URL('../app/src/pages/PlansPageContent.tsx', import.meta.url), 'utf8');
+  assert.match(plansContent, /onAppendRevision\(newRev\)/);
+  assert.match(plansContent, /signal: AbortSignal\.timeout\(120_000\)/);
 });
