@@ -191,7 +191,8 @@ export class AiPlanReadingService {
         p_scope: scope,
       });
       if (reserved.error) {
-        throw new ProjectApiError(403, reserved.error.message ?? 'Platform owner complimentary reading is not authorized.');
+        const message = reserved.error.message ?? 'Platform owner complimentary reading is not authorized.';
+        throw new ProjectApiError(/daily AI reading limit/i.test(message) ? 429 : 403, message);
       }
       if (reserved.data.reused) return this.get(reserved.data.job.id);
       job = reserved.data.job;
