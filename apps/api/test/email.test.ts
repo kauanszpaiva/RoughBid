@@ -96,7 +96,7 @@ test('workspace invite email uses the RoughBid organization invite template', as
   });
 });
 
-test('Resend client sends organization invites without exposing the API key', async () => {
+test('Resend client sends organization invites without exposing the API key and differentiates viewer role', async () => {
   let request: { url: string; init?: RequestInit } | undefined;
   const fetchMock = async (url: string | URL | Request, init?: RequestInit) => {
     request = { url: url.toString(), init };
@@ -121,7 +121,7 @@ test('Resend client sends organization invites without exposing the API key', as
       variables: {
         WORKSPACE_NAME: 'Main Shop',
         INVITE_URL: 'https://roughbid.vercel.app/?invite=token_123',
-        ROLE: 'viewer',
+        ROLE: 'viewer (read-only access to review saved projects and estimates)',
       },
     },
   });

@@ -6,6 +6,7 @@ import { handlePilotRequest } from '../pilot/routes.ts';
 import { handlePilotReminders, handleResendWebhook } from '../pilot/notifications.ts';
 import { PilotPlanReader, requirePilotReaderConfig } from '../ai-plan/pilot-reader.ts';
 import { handleProjectRequest } from '../projects/routes.ts';
+import { handlePricingContextRequest } from '../pricing/routes.ts';
 import { handleDocumentRequest } from '../documents/routes.ts';
 import { createDocumentQueue, type JobQueue } from '../documents/service.ts';
 import { createEstimateCalculationHandler } from '../estimates/routes.ts';
@@ -265,6 +266,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         sendProposalSignedEmail: (input) => sendProposalSignedEmail(resend, input),
       } : {}),
     });
+  }
+  if (/^\/api\/projects\/[^/]+\/pricing-context(?:\/address)?$/.test(pathname)) {
+    return handlePricingContextRequest(request, client as unknown as SupabaseLike);
   }
   if (pathname.startsWith('/api/projects') || pathname.startsWith('/api/project-files')) {
     return handleProjectRequest(request, client as unknown as SupabaseLike);
