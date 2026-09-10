@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Project, UserProfile, QuantityItem, PlanRevision } from "./types";
+import { Project, UserProfile, QuantityItem, EstimateItem, PlanRevision } from "./types";
 import { StorageService, persistentProject, type StorageScope } from "./utils/storage";
 import { ProjectSaveQueue, type SaveState } from "./utils/projectSaveQueue";
 import { projectReadiness } from "./utils/projectReadiness";
@@ -449,7 +449,7 @@ export default function App() {
     const equipmentCost = 0;
     const pricingStatus = costOverride?.pricingStatus ?? (materialCost > 0 || laborCost > 0 ? "configured" : "missing_price");
 
-    const newEstItem = {
+    const newEstItem: EstimateItem = {
       id: `est-${crypto.randomUUID()}`,
       quantityId: newId,
       name: item.name,
@@ -459,12 +459,12 @@ export default function App() {
       laborCost,
       equipmentCost,
       directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
-      findingId: item.findingId,
-      pageNumber: item.pageNumber,
-      area: item.area,
-      sourceExcerpt: item.sourceExcerpt,
       pricingStatus,
-      pricingSource: costOverride?.pricingSource,
+      ...(item.findingId ? { findingId: item.findingId } : {}),
+      ...(item.pageNumber != null ? { pageNumber: item.pageNumber } : {}),
+      ...(item.area ? { area: item.area } : {}),
+      ...(item.sourceExcerpt ? { sourceExcerpt: item.sourceExcerpt } : {}),
+      ...(costOverride?.pricingSource ? { pricingSource: costOverride.pricingSource } : {}),
     };
 
     const updated: Project = {

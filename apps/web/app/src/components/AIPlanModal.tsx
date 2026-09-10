@@ -149,9 +149,9 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           unit: normalizeUnit(finding.unit),
           category: finding.finding_type === "room" ? "Rooms & Areas" : finding.finding_type === "labor" ? "Labor" : "Plan Takeoff",
           findingId: finding.id,
-          pageNumber: finding.page_number ?? undefined,
           area,
-          sourceExcerpt: finding.source_excerpt ?? undefined,
+          ...(finding.page_number != null ? { pageNumber: finding.page_number } : {}),
+          ...(finding.source_excerpt ? { sourceExcerpt: finding.source_excerpt } : {}),
         },
         costOverride
       );

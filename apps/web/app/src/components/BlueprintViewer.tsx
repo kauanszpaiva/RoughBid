@@ -45,14 +45,21 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   const boxFor = (finding: PlanReadingFinding): number[] | null => {
     const box = finding.geometry?.bbox;
     if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
-    const [x, y, width, height] = box as number[];
-    return width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1 ? box as number[] : null;
+    const x = box[0] ?? 0;
+    const y = box[1] ?? 0;
+    const width = box[2] ?? 0;
+    const height = box[3] ?? 0;
+    return width > 0 && height > 0 && x + width <= 1 && y + height <= 1 ? [x, y, width, height] : null;
   };
 
   const pointFor = (finding: PlanReadingFinding): { x: number; y: number } | null => {
     const box = boxFor(finding);
-    if (box) {
-      return { x: box[0] + box[2] / 2, y: box[1] + box[3] / 2 };
+    if (box && box.length >= 4) {
+      const x = box[0] ?? 0;
+      const y = box[1] ?? 0;
+      const w = box[2] ?? 0;
+      const h = box[3] ?? 0;
+      return { x: x + w / 2, y: y + h / 2 };
     }
     const pt = finding.geometry?.point;
     if (Array.isArray(pt) && pt.length === 2 && typeof pt[0] === 'number' && typeof pt[1] === 'number' && pt[0] >= 0 && pt[0] <= 1 && pt[1] >= 0 && pt[1] <= 1) {
@@ -321,8 +328,12 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
           {/* AI Bounding Box Areas */}
           {showAreas && visibleFindings.filter(f => f.page_number === pageNumber).map(finding => {
             const box = boxFor(finding);
-            if (!box) return null;
-            return <button type="button" key={`box-${finding.id}`} title={`${finding.label} - click to review evidence`} aria-label={`Highlight area ${finding.label}`} onClick={event => { event.stopPropagation(); focusFinding(finding); }} style={{ left: `${box[0]! * 100}%`, top: `${box[1]! * 100}%`, width: `${box[2]! * 100}%`, height: `${box[3]! * 100}%`, pointerEvents: addingNote ? 'none' : 'auto' }} className={`absolute border-2 ${selectedFindingId === finding.id ? 'border-emerald-700 bg-emerald-400/30 ring-2 ring-white z-10' : finding.finding_type === 'risk' ? 'border-amber-600 bg-amber-300/15 hover:bg-amber-300/25' : 'border-emerald-500 bg-emerald-300/10 hover:bg-emerald-300/20'}`} />;
+            if (!box || box.length < 4) return null;
+            const x = box[0] as number;
+            const y = box[1] as number;
+            const width = box[2] as number;
+            const height = box[3] as number;
+            return <button type="button" key={`box-${finding.id}`} title={`${finding.label} - click to review evidence`} aria-label={`Highlight area ${finding.label}`} onClick={event => { event.stopPropagation(); focusFinding(finding); }} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${width * 100}%`, height: `${height * 100}%`, pointerEvents: addingNote ? 'none' : 'auto' }} className={`absolute border-2 ${selectedFindingId === finding.id ? 'border-emerald-700 bg-emerald-400/30 ring-2 ring-white z-10' : finding.finding_type === 'risk' ? 'border-amber-600 bg-amber-300/15 hover:bg-amber-300/25' : 'border-emerald-500 bg-emerald-300/10 hover:bg-emerald-300/20'}`} />;
           })}
 
           {/* AI Finding Markers - ONLY rendered when valid source geometry is present */}
