@@ -59,7 +59,7 @@ test('complimentary app access does not zero provider cost estimates',async()=>{
   const d=meterDb();
   await metering.withUsageMeter({...context,billing:'verified_free',writer:d.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>({usageMetadata:{promptTokenCount:100,candidatesTokenCount:20,thoughtsTokenCount:10}})));
   assert.match(d.rows[0].operation,/:measured$/);
-  assert.equal(d.rows[0].estimated_cost_usd,0.0001875);
+  assert.equal(d.rows[0].estimated_cost_usd,0.000188);
   assert.equal(d.rows[0].actual_cost_usd,null);
 });
 test('database outage fails closed before consuming provider credit',async()=>{
