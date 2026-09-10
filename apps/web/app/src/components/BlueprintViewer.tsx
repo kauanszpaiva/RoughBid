@@ -41,9 +41,11 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   const selectedFinding = reviewFindings.find(f => f.id === selectedFindingId);
   const boxFor = (finding: PlanReadingFinding): number[] | null => {
     const box = finding.geometry?.bbox;
-    if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
-    const [x, y, width, height] = box as number[];
-    return width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1 ? box as number[] : null;
+    if (!Array.isArray(box) || box.length !== 4) return null;
+    const [x, y, width, height] = box;
+    if (x === undefined || y === undefined || width === undefined || height === undefined) return null;
+    if (![x, y, width, height].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
+    return width > 0 && height > 0 && x + width <= 1 && y + height <= 1 ? [x, y, width, height] : null;
   };
   const focusFinding = (finding: PlanReadingFinding) => {
     if (pdf && finding.page_number && finding.page_number <= pdf.numPages) {
