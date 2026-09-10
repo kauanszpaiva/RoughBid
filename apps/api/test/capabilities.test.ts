@@ -38,7 +38,7 @@ test('Full Takeoff V2 requires explicit code, worker and schema gates', () => {
     ...configured,
     TAKEOFF_V2_ENABLED: 'true',
     TAKEOFF_V2_WORKER_ENABLED: 'true',
-    TAKEOFF_V2_SCHEMA_VERSION: '20260910225937',
+    TAKEOFF_V2_SCHEMA_VERSION: 'takeoff-v2-foundation-v1',
   }).fullTakeoffV2, true);
 });
 

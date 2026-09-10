@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
 const sql = readFileSync(new URL('../migrations/20260910225937_takeoff_v2_foundation.sql', import.meta.url), 'utf8');
+const fkIndexSql = readFileSync(new URL('../migrations/20260910233003_takeoff_v2_fk_indexes.sql', import.meta.url), 'utf8');
 
 test('takeoff v2 schema is additive, tenant scoped, and indexed', () => {
   for (const table of ['takeoff_runs','plan_sheets','takeoff_passes','scale_calibrations','takeoff_items','takeoff_evidence','takeoff_geometry','assemblies','assembly_versions','assembly_components','price_sources','price_snapshots','estimate_versions_v2','estimate_line_items_v2','estimate_adjustments_v2','estimate_recommendations_v2','estimate_rfis_v2']) {
@@ -12,6 +13,14 @@ test('takeoff v2 schema is additive, tenant scoped, and indexed', () => {
   }
   assert.match(sql, /foreign key \(project_id, workspace_id\)/);
   assert.match(sql, /takeoff_items_run_trade_status_idx/);
+  for (const index of [
+    'takeoff_runs_file_scope_idx',
+    'takeoff_passes_sheet_scope_idx',
+    'takeoff_evidence_item_scope_idx',
+    'estimate_versions_v2_project_scope_idx',
+    'estimate_line_items_v2_estimate_scope_idx',
+    'estimate_rfis_v2_estimate_scope_idx',
+  ]) assert.match(fkIndexSql, new RegExp(`create index ${index}`));
 });
 
 test('acceptance and release gates fail closed', () => {
@@ -42,6 +51,7 @@ test('migration executes on PostgreSQL and leaves browser roles read-only', asyn
       create function private.has_product_access() returns boolean language sql stable as 'select true';
     `);
     await db.exec(sql);
+    await db.exec(fkIndexSql);
     const tables = await db.query(`select tablename, rowsecurity from pg_tables where schemaname='public' and tablename in ('takeoff_runs','takeoff_items','estimate_versions_v2') order by tablename`);
     assert.deepEqual(tables.rows, [
       { tablename: 'estimate_versions_v2', rowsecurity: true },

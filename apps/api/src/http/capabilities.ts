@@ -40,7 +40,7 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
     flags.billing = true;
     flags.fullTakeoffV2 = env.TAKEOFF_V2_ENABLED === 'true'
       && env.TAKEOFF_V2_WORKER_ENABLED === 'true'
-      && env.TAKEOFF_V2_SCHEMA_VERSION === '20260910225937';
+      && env.TAKEOFF_V2_SCHEMA_VERSION === 'takeoff-v2-foundation-v1';
   } catch {
     // Optional paid features remain unavailable until all their prerequisites exist.
   }
