@@ -76,6 +76,7 @@ export const HelpPage: React.FC = () => {
             <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
             <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/data-use.html" target="_blank" rel="noreferrer">Data Use and AI Policy</a>
             <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/acceptable-use.html" target="_blank" rel="noreferrer">Acceptable Use Policy</a>
+            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/refunds.html" target="_blank" rel="noreferrer">Refund & cancellation policy</a>
           </div>
         </div>
 

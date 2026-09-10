@@ -29,6 +29,7 @@ import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../storage
 import { loadResendServerConfig, sendProposalOpenedEmail, sendProposalSignedEmail, sendWorkspaceInviteEmail } from '../email/resend.ts';
 import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
+import { handleMarketplaceCatalog } from '../marketplace/catalog.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -111,6 +112,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     const admin = createClient(process.env.SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
     return handleOwnerUsageRequest(request, client, admin);
   }
+  if(pathname==='/api/marketplace/catalog') return handleMarketplaceCatalog(request,client as unknown as SupabaseLike,process.env);
   if (pathname.startsWith('/api/pilot/')) {
     const key = loadSupabaseServiceRoleKey();
     if (!key || !process.env.SUPABASE_URL) return json({ error: 'Pilot administration is not configured.' }, 503);
@@ -154,6 +156,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     const billing = createBillingEndpointHandler({
       config: createBillingConfigFromEnv(process.env),
       membershipsEnabled: process.env.BILLING_MEMBERSHIPS_ENABLED === 'true',
+      marketplaceEnabled: process.env.BILLING_MARKETPLACE_ENABLED === 'true',
       webhookSecret: stripeWebhookSecret,
       reconcileProjectPayment: event => new ProjectPayments(createClient(supabaseUrl,supabaseServiceRoleKey,{auth:{persistSession:false,autoRefreshToken:false}}),process.env).reconcile(event),
       stripe: new StripeHttpGateway(stripeSecretKey, fetch, process.env.STRIPE_MODE === 'live' ? 'live' : 'test'),

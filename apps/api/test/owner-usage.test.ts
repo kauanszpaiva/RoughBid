@@ -38,19 +38,19 @@ test('per-user totals separate estimates, actual cost, pending exposure, and lif
   assert.equal(r.cohorts[0].reservationShortfallCents,1250);
 });
 
-function meterDb(failInsert=false,failUpdate=false) {
-  const rows:any[]=[]; const sequence:string[]=[];
-  return {rows,sequence,writer:{from(table:string){assert.equal(table,'api_usage_events'); return {
+function meterDb(failInsert=false,failUpdate=false,spendError='') {
+  const rows:any[]=[]; const sequence:string[]=[]; const spend:any[]=[];
+  return {rows,sequence,spend,writer:{from(table:string){assert.equal(table,'api_usage_events'); return {
     insert:async(row:any)=>{sequence.push('reserve');if(!failInsert)rows.push(row);return {error:failInsert?{message:'private db error'}:null};},
     update:(patch:any)=>({eq:async(_:string,id:string)=>{sequence.push('settle');if(!failUpdate)Object.assign(rows.find(r=>r.id===id),patch);return {error:failUpdate?{message:'private db error'}:null};}})
-  };}}};
+  };},rpc:async(fn:string,args:any)=>{sequence.push(fn==='reserve_provider_spend'?'spend-reserve':'spend-capture');spend.push({fn,args});return{data:{},error:spendError?{message:spendError}:null};}}};
 }
 const context={userId:'u',workspaceId:'w',projectId:'p',jobId:'job-1',billing:'paid'};
 test('trusted provider calls reserve before dispatch and settle from response metadata',async()=>{
   assert.equal(typeof metering.withUsageMeter,'function','Provider-boundary metering must be implemented');
   const d=meterDb();
   await metering.withUsageMeter({...context,writer:d.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>{d.sequence.push('provider');return {responseId:'response-1',usageMetadata:{promptTokenCount:100,candidatesTokenCount:20,thoughtsTokenCount:10}};}));
-  assert.deepEqual(d.sequence,['reserve','provider','settle']);
+  assert.deepEqual(d.sequence,['reserve','spend-reserve','provider','settle','spend-capture']);
   assert.equal(d.rows[0].output_tokens,30); assert.equal(d.rows[0].actual_cost_usd,null);
   assert.match(d.rows[0].operation,/:measured$/);
   assert.equal(JSON.stringify(d.rows).includes('fileBytes'),false);
@@ -71,6 +71,7 @@ test('provider timeout remains unknown and is not refunded as zero',async()=>{
   const d=meterDb();
   await assert.rejects(metering.withUsageMeter({...context,writer:d.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>{throw new Error('timeout');})),/timeout/);
   assert.match(d.rows[0].operation,/:failed_unknown$/); assert.equal(d.rows[0].actual_cost_usd,null);
+  assert.equal(d.spend.at(-1).fn,'capture_provider_spend'); assert.equal(d.spend.at(-1).args.p_estimated_cost_usd,null);
 });
 test('missing usage and settlement outages retain unknown or pending exposure',async()=>{
   const d=meterDb();await metering.withUsageMeter({...context,writer:d.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>({text:'bad JSON'})));
@@ -78,6 +79,13 @@ test('missing usage and settlement outages retain unknown or pending exposure',a
   const e=meterDb(false,true);
   await assert.rejects(metering.withUsageMeter({...context,writer:e.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>({usageMetadata:{promptTokenCount:1,candidatesTokenCount:1}}))),/accounting/i);
   assert.match(e.rows[0].operation,/:pending$/);
+});
+
+test('company spend breaker blocks before provider dispatch and records a nonzero-cost block state',async()=>{
+  const d=meterDb(false,false,'Company AI spend limit reached'); let calls=0;
+  await assert.rejects(metering.withUsageMeter({...context,writer:d.writer},()=>metering.meterGeminiCall('gemini-3.8-flash','generate',async()=>{calls++;return{};})),/company AI spend limit/i);
+  assert.equal(calls,0); assert.match(d.rows[0].operation,/:blocked_spend_limit$/);
+  assert.deepEqual(d.sequence,['reserve','spend-reserve','settle']);
 });
 
 function query(data:any) { const q:any={};for(const name of ['select','eq','gte','lt','order','range'])q[name]=()=>q;q.maybeSingle=async()=>({data,error:null});q.then=(resolve:any,reject:any)=>Promise.resolve({data,error:null}).then(resolve,reject);return q; }
@@ -138,5 +146,5 @@ test('accounting failure cannot fan out to another configured Gemini model',asyn
   const d=meterDb(true);let calls=0;
   const client=await createGeminiClient('fixture-not-a-key',async()=>({GoogleGenAI:class {models={generateContent:async()=>{calls++;return {text:'{}'};}};files={} as any;}}));
   await assert.rejects(metering.withUsageMeter({...context,writer:d.writer},()=>new GeminiPlanReader(client,['gemini-3.8-flash','gemini-3.6-flash']).read({fileBytes:new Uint8Array([1]),mimeType:'application/pdf',sheetName:'test.pdf',requestedTrades:[],scope:null})),/accounting/i);
-  assert.equal(calls,0);assert.equal(d.sequence.length,1);
+  assert.equal(calls,0);assert.deepEqual(d.sequence,['reserve']);
 });

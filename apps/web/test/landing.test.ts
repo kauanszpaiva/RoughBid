@@ -8,6 +8,9 @@ test('landing page explains RoughBid as an independent SaaS product', async () =
   assert.match(html, /Plans → Quantities → Estimate → Export/i);
   assert.match(html, /Independent SaaS platform/i);
   assert.match(html, /standalone construction estimating SaaS/i);
+  assert.match(html, /controlled customer access/i);
+  assert.match(html, /Marketplace add-ons/i);
+  assert.match(html, /href="\/refunds\.html"/i);
   assert.match(html, /href="\/app\/"/i);
   assert.match(html, /rel="icon" href="\/brand\/roughbid-mark\.png" type="image\/png"/i);
   assert.match(html, /class="brand-logo" src="\/brand\/roughbid-logo\.png"/i);

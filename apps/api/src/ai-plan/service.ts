@@ -7,6 +7,7 @@ import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
 import { persistPlanPricingContext } from '../pricing/context.ts';
+import { ProviderSpendLimitError, UsageAccountingError } from '../owner-usage/meter.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
 
@@ -356,6 +357,8 @@ export class AiPlanReadingService {
         });
       }
       if (error instanceof ProjectApiError) throw error;
+      if (error instanceof ProviderSpendLimitError) throw new ProjectApiError(429, error.message);
+      if (error instanceof UsageAccountingError) throw new ProjectApiError(503, error.message);
       throw new ProjectApiError(502, error instanceof Error ? error.message : 'AI plan reading failed');
     }
   }

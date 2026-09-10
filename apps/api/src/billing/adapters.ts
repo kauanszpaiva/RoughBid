@@ -1,5 +1,5 @@
 import type { AuthenticatedUser, BillingRepository, StripeGateway } from './endpoints.ts';
-import type { BillingCustomerUpdate, HostedCheckoutRequest, PortalRequest, StripeEvent, StripeSubscription, StripeMode } from './stripe.ts';
+import type { HostedCheckoutRequest, PortalRequest, StripeEvent, StripeReconciliationUpdate, StripeSubscription, StripeMode } from './stripe.ts';
 
 function appendForm(form: URLSearchParams, key: string, value: unknown): void {
   if (value === undefined) return;
@@ -44,19 +44,40 @@ export class StripeHttpGateway implements StripeGateway {
     return result.id;
   }
 
-  async hasBlockingSubscription(customerId: string): Promise<boolean> {
+  async hasBlockingSubscription(customerId: string, priceIds: readonly string[] = []): Promise<boolean> {
     // More than 100 subscriptions is unexpected: fail closed rather than overlook a later page.
     const response = await this.fetcher(`https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=100`, { headers: { authorization: `Bearer ${this.secretKey}` } });
-    const result = await response.json() as { data?: Array<{ status: string }>; has_more?: boolean };
+    const result = await response.json() as { data?: Array<{ status: string;items?:{data?:Array<{price?:{id?:string}}>} }>; has_more?: boolean };
     if (!response.ok || !Array.isArray(result.data)) throw new Error('Unable to verify existing subscriptions.');
-    return result.has_more === true || result.data.some(item => !['canceled', 'incomplete_expired'].includes(item.status));
+    return result.has_more === true || result.data.some(item => !['canceled', 'incomplete_expired'].includes(item.status)
+      && (!priceIds.length || item.items?.data?.some(line=>priceIds.includes(line.price?.id??''))));
   }
 
   async retrieveSubscription(subscriptionId: string): Promise<StripeSubscription> {
+    // Payment entitlement depends on the authoritative invoice state. Stripe
+    // otherwise returns latest_invoice as an ID, never as proof of payment.
     const response = await this.fetcher(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}?expand%5B%5D=latest_invoice`, { headers: { authorization: `Bearer ${this.secretKey}` } });
     const result = await response.json() as StripeSubscription;
     if (!response.ok || result.id !== subscriptionId) throw new Error('Unable to read current Stripe subscription.');
     return result;
+  }
+
+  async retrieveInvoiceSubscription(invoiceId: string): Promise<string | null> {
+    if (!invoiceId.startsWith('in_')) throw new Error('Invalid Stripe invoice identity.');
+    const response=await this.fetcher(`https://api.stripe.com/v1/invoices/${encodeURIComponent(invoiceId)}`,{headers:{authorization:`Bearer ${this.secretKey}`}});
+    const result=await response.json() as any;
+    if (!response.ok || result.id!==invoiceId) throw new Error('Unable to read current Stripe invoice.');
+    const subscription=result.parent?.subscription_details?.subscription ?? result.subscription;
+    return typeof subscription==='string'?subscription:subscription?.id??null;
+  }
+
+  async retrieveChargeInvoice(chargeId:string):Promise<string|null>{
+    if(!chargeId.startsWith('ch_'))throw new Error('Invalid Stripe charge identity.');
+    const response=await this.fetcher(`https://api.stripe.com/v1/charges/${encodeURIComponent(chargeId)}`,{headers:{authorization:`Bearer ${this.secretKey}`}});
+    const result=await response.json() as any;
+    if(!response.ok||result.id!==chargeId)throw new Error('Unable to read current Stripe charge.');
+    const invoice=result.invoice;
+    return typeof invoice==='string'?invoice:invoice?.id??null;
   }
 }
 
@@ -113,19 +134,33 @@ export class SupabaseBillingRepository implements BillingRepository {
     return { id: result.id, expiresAt: Math.floor(Date.parse(result.expires_at) / 1000) };
   }
 
+  async claimMarketplaceCheckout(userId: string, workspaceId: string, feedId: string, priceId: string, mode: 'test'|'live'): Promise<{id:string;expiresAt:number}> {
+    const response=await this.request('rpc/claim_marketplace_checkout',{method:'POST',body:JSON.stringify({
+      p_user_id:userId,p_workspace_id:workspaceId,p_feed_id:feedId,p_price_id:priceId,p_mode:mode,
+    })});
+    if (!response.ok) throw new Error('Marketplace checkout is not authorized or another checkout is already active.');
+    const result=await response.json() as {id:string;expires_at:string};
+    return {id:result.id,expiresAt:Math.floor(Date.parse(result.expires_at)/1000)};
+  }
+
   async beginSubscriptionSync(subscriptionId: string): Promise<number> {
     const response = await this.request('rpc/begin_billing_subscription_sync', { method: 'POST', body: JSON.stringify({ p_subscription_id: subscriptionId }) });
     if (!response.ok) throw new Error('Unable to begin subscription reconciliation.');
     return await response.json() as number;
   }
 
-  async processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: BillingCustomerUpdate | null): Promise<boolean> {
+  async processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: StripeReconciliationUpdate | null): Promise<boolean> {
+    const marketplace=update && 'kind' in update && update.kind==='marketplace'?update:null;
     const response = await this.request('rpc/process_stripe_event', { method: 'POST', body: JSON.stringify({
       p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
       p_user_id: update?.userId ?? null, p_customer_id: update?.stripeCustomerId ?? null,
       p_subscription_id: update?.stripeSubscriptionId ?? null, p_price_id: update?.stripePriceId ?? null,
       p_status: update?.subscriptionStatus ?? null, p_period_end: update?.currentPeriodEnd ?? null,
       p_invoice_paid: update?.invoicePaid ?? false, p_sync_revision: update?.syncRevision ?? null,
+      p_marketplace_workspace_id:marketplace?.workspaceId??null,p_marketplace_feed_id:marketplace?.feedId??null,
+      p_marketplace_invoice_id:marketplace?.invoiceId??null,p_marketplace_checkout_session_id:marketplace?.checkoutSessionId??null,
+      p_marketplace_amount_paid:marketplace?.amountPaid??null,p_marketplace_currency:marketplace?.currency??null,
+      p_marketplace_force_revoke:marketplace?.forceRevoke??false,
     }) });
     if (!response.ok) throw new Error('Unable to persist Stripe event.');
     return await response.json() as boolean;

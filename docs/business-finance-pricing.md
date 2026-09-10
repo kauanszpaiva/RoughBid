@@ -1,6 +1,10 @@
 # RoughBid Business, Finance, and Pricing Plan
 
-Status: draft operating plan. Owner approval and measured cost inputs are required before enabling live project-reading charges or publishing final customer-facing pricing copy.
+Status: controlled-sales operating policy, approved for technical activation on 2026-09-10. Legal copy remains an operational draft pending counsel review.
+
+Active pricing versions:
+- Project plan reading: `2026-09-05-v1` (conservative configured cost model; 50% target margin for non-members).
+- Marketplace Supplier Price Import: `2026-09-10-marketplace-v1`, $49/month.
 
 ## Product Positioning
 
@@ -49,10 +53,8 @@ Measured cost inputs come from environment configuration and should include both
 Subscriptions reduce the margin RoughBid keeps on each future project read. The monthly subscription prices are not hard-coded yet; they must be approved and configured as Stripe price ids before `BILLING_MEMBERSHIPS_ENABLED=true`.
 
 Marketplace add-ons:
-- New England Code Assistant: $9/month.
-- Regional Material Price Tables: $19/month.
-- Local Labor Benchmarks: $29/month.
-- Supplier Price Import: $49/month.
+- Supplier Price Import: $49/month and the only sellable initial SKU.
+- New England Code Assistant, Regional Material Price Tables, and Local Labor Benchmarks remain unavailable until their datasets, sources, licensing, and update processes are verified.
 
 ## Unit Economics Snapshot
 
@@ -102,7 +104,7 @@ Implemented entities:
 - `plan_reading_jobs`
 - `plan_reading_findings`
 
-Future entities for marketplace feeds and wider usage accounting:
+Implemented entities for marketplace access and wider usage accounting:
 - `api_usage_events`
 - `marketplace_entitlements`
 - `marketplace_purchases`
@@ -111,9 +113,9 @@ Future entities for marketplace feeds and wider usage accounting:
 
 | Plan | Monthly price | Project-read margin | Active projects | Seats | PDF limit | AI attempts/paid quote | Client proposal links/month | Included feeds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Starter | TBD | 40% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
-| Pro | TBD | 35% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
-| Team | TBD | 30% | TBD | TBD | 18 MB current hard cap | 2 | TBD | TBD |
+| Starter | TBD | 40% | TBD | TBD | 50 MB current paid-path hard cap | 2 | TBD | TBD |
+| Pro | TBD | 35% | TBD | TBD | 50 MB current paid-path hard cap | 2 | TBD | TBD |
+| Team | TBD | 30% | TBD | TBD | 50 MB current paid-path hard cap | 2 | TBD | TBD |
 | Enterprise | custom | as low as 20% | custom | custom | custom after engineering review | custom contract | custom | custom |
 
 Enterprise/custom can exist later, but should require manual approval because usage can destroy margins if unlimited.
@@ -154,6 +156,8 @@ Feed behavior:
 - Marketplace cost/royalty is included in margin calculations.
 
 ## Finance Controls
+
+Every Gemini generation call must reserve against `provider_spend_policy` before dispatch. The initial company-wide rolling-24-hour ceiling is $25 with a conservative $2.50 reservation per call. Known measured cost replaces the reservation; failed or missing telemetry keeps the full reservation instead of becoming $0. This circuit breaker is independent of per-workspace job limits and quote attempts.
 
 Weekly checks:
 - Average COGS per completed project.

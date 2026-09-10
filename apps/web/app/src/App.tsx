@@ -642,7 +642,7 @@ export default function App() {
           {/* Secondary Views */}
           {activeTab === "materials" && <MaterialsPage scope={scopeRef.current!} canWrite={canWrite} />}
           {activeTab === "assemblies" && <AssembliesPage scope={scopeRef.current!} canWrite={canWrite} />}
-          {activeTab === "pricelists" && <PriceListsPage scope={scopeRef.current!} onOpenMaterials={() => setActiveTab("materials")} />}
+          {activeTab === "pricelists" && <PriceListsPage scope={scopeRef.current!} canWrite={canWrite} onOpenMaterials={() => setActiveTab("materials")} />}
           {activeTab === "billing" && <fieldset disabled={!canWrite}><BillingPage /></fieldset>}
           {activeTab === "templates" && (
             <fieldset disabled={!canWrite}><TemplatesPage onUseTemplate={handleUseTemplate} /></fieldset>
