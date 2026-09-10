@@ -4,7 +4,7 @@ import { ProjectApiError, ProjectService } from '../src/projects/service.ts';
 
 type DbError = { message: string; code?: string } | null;
 
-function projectClient(deleteError: DbError) {
+function projectClient(deleteError: DbError, storageError: DbError = null) {
   const trace: string[] = [];
   const project = { id: 'project-1', workspace_id: 'workspace-1', name: 'Delete me' };
   const storagePath = 'workspace-1/project-1/file-1.pdf';
@@ -18,7 +18,7 @@ function projectClient(deleteError: DbError) {
           async remove(paths: string[]) {
             trace.push('storage-remove');
             assert.deepEqual(paths, [storagePath]);
-            return { data: null, error: null };
+            return { data: null, error: storageError };
           },
         };
       },
@@ -70,4 +70,20 @@ test('successful project delete commits the database delete before storage clean
 
   assert.deepEqual(await service.remove('project-1'), project);
   assert.deepEqual(trace, ['db-delete', 'storage-remove']);
+});
+
+test('post-commit storage cleanup failure does not turn a committed database delete into HTTP 500', async () => {
+  const { client, project, trace } = projectClient(null, { message: 'storage temporarily unavailable' });
+  const service = new ProjectService(client as never, 'user-1', 'workspace-1');
+  const originalError = console.error;
+  const errors: unknown[][] = [];
+  console.error = (...args: unknown[]) => errors.push(args);
+  try {
+    assert.deepEqual(await service.remove('project-1'), project);
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(trace, ['db-delete', 'storage-remove']);
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0]?.[0]), /project storage cleanup failed/i);
 });
