@@ -236,6 +236,32 @@ from Stripe, verify durable payment and duplicate idempotence, then refund this
 same TEST payment and verify signed revocation. Record actual responses and
 database/UI evidence; do not write financial state directly.
 
+## Production signature failure isolated to the Node request adapter
+
+PR53 merged as `6f3e830dba473f09889aab0bff352a898f33256f`, production deployment
+`dpl_Bf1Cs4XjJFnSyyqnrexFcmzX9nYZ`, with both exact-head CI workflows green
+(476 tests and all three Chromium/WebKit gates). The actual browser recovered
+the original $12.74 quote, Framing selection and saved payment-only scope after
+reload, without starting AI. The pilot also reopened its saved PDF, completed
+reading and accepted 1,270 SF quantity on this production version.
+
+The original Stripe event was resent at 17:39:55 UTC. Delivery still returned
+HTTP400, with the new server diagnostic identifying `stage: signature`. The
+database remained unpaid with zero attempts and no job.
+
+The existing Node bridge reads Vercel's lazy `request.body` helper, which parses
+JSON, and then calls `JSON.stringify`. This cannot preserve the exact request
+bytes signed by Stripe. The follow-up uses a native Web Request handler only for
+the Stripe route, preserving raw bytes and the size bound before forwarding to
+the unchanged authentication/reconciliation handler. Other API routes retain
+their existing Node adapter. Signature verification is not weakened or bypassed.
+
+Primary references: [Vercel request body helpers](https://vercel.com/docs/functions/runtimes/node-js#request-body),
+[Vercel raw body guide](https://vercel.com/kb/guide/how-do-i-get-the-raw-body-of-a-serverless-function),
+[Stripe raw-body requirement](https://github.com/stripe/stripe-node#webhook-signing).
+The regression reproduces signed JSON with whitespace/Unicode and rejects
+changed bytes; actual Stripe delivery must still be verified after deployment.
+
 ## Evidence sources
 
 - Stripe `list_available_accounts_or_orgs`; `GetAccountsAccount` confirmed account
