@@ -10,6 +10,12 @@ import { DurableAiPlanReadingService, type DurableAiPlanQueue } from './durable.
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { isFreeProviderConfigured } from './free-provider.ts';
 import { hasPlatformAdminProjectAccess, isPlatformAdmin } from '../access/platform-admin.ts';
+import {
+  FULL_TAKEOFF_V2_MODE,
+  FullTakeoffV2Service,
+  SupabaseFullTakeoffV2Persistence,
+  type FullTakeoffV2ProviderFactory,
+} from '../takeoff-v2/service.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -32,6 +38,8 @@ export interface AiPlanRequestDependencies {
   pilotReader?: PlanReader;
   /** Durable BullMQ queue. Required only when AI_PLAN_DURABLE_ENABLED=true. */
   durableQueue?: DurableAiPlanQueue | undefined;
+  /** Closed-by-default provider factory for the explicit Full/Deep V2 path. */
+  fullTakeoffV2ProviderFactory?: FullTakeoffV2ProviderFactory | undefined;
 }
 
 export async function handleAiPlanRequest(request: Request, db: SupabaseLike, deps: AiPlanRequestDependencies): Promise<Response> {
@@ -47,6 +55,27 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
+      const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+      if (body.mode === FULL_TAKEOFF_V2_MODE) {
+        // Full V2 has no generally available paid entitlement yet. Restrict the
+        // first integration boundary to the verified platform owner and fail
+        // closed unless a dedicated pass provider was explicitly wired.
+        if (!await isPlatformAdmin(db, data.user.id)) {
+          throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
+        }
+        if (!deps.fullTakeoffV2ProviderFactory) {
+          throw new ProjectApiError(503, 'Full Takeoff V2 provider is not configured. No run was started.');
+        }
+        const full = new FullTakeoffV2Service(
+          db,
+          deps.storage,
+          new SupabaseFullTakeoffV2Persistence(deps.findingsWriter),
+          deps.fullTakeoffV2ProviderFactory,
+          data.user.id,
+          workspaceId,
+        );
+        return json(await full.create(parts[1], body), 201);
+      }
       // The outer production handler always supplies paidReaderAvailable. Tests
       // and internal callers that omit it preserve the legacy service contract.
       // Platform-owner identity is verified exactly once here and then injected
@@ -63,7 +92,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
             db, deps.findingsWriter, deps.storage, deps.reader,
             data.user.id, workspaceId, undefined, deps.freeReader, true,
           );
-          return json(await adminService.create(parts[1], await request.json()), 201);
+          return json(await adminService.create(parts[1], body), 201);
         }
       }
       if (deps.pilotEnforcement) {
@@ -74,7 +103,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
           if (!deps.pilotReader) throw new ProjectApiError(503, 'Pilot AI is not configured. Your invitation remains active.');
           const pilotService = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader,
             data.user.id, workspaceId, undefined, undefined, false, deps.pilotReader);
-          return json(await pilotService.create(parts[1], await request.json()), 201);
+          return json(await pilotService.create(parts[1], body), 201);
         }
       }
       if (durableEnabled) {
@@ -85,10 +114,10 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
         const durable = new DurableAiPlanReadingService(
           db, deps.findingsWriter, deps.storage, deps.durableQueue, data.user.id, workspaceId,
         );
-        return json(await durable.reserve(parts[1], await request.json()), 202);
+        return json(await durable.reserve(parts[1], body), 202);
       }
       // Legacy synchronous path remains available only while the durable flag is off.
-      return json(await service.create(parts[1], await request.json()), 201);
+      return json(await service.create(parts[1], body), 201);
     }
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
       // Platform-admin complimentary access deliberately uses the paid provider,

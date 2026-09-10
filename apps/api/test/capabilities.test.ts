@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runtimeCapabilities } from '../src/http/capabilities.ts';
 import { handleApiRequest } from '../src/http/handler.ts';
 
-const closed = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport:false };
+const closed = { aiReadingAvailable: false, fullTakeoffV2: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport:false };
 const configured = {
   PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
   OPENROUTER_API_KEY: 'unit-free-provider-credential',
@@ -29,6 +29,17 @@ test('billing stays disabled for missing reconciliation, wrong mode or unmeasure
   for (const overrides of [{ STRIPE_WEBHOOK_SECRET: '' }, { STRIPE_MODE: 'live' }, { PROJECT_COST_BASE_CENTS: '' }]) {
     assert.equal(runtimeCapabilities({ ...configured, ...overrides }).billing, false);
   }
+});
+
+test('Full Takeoff V2 requires explicit code, worker and schema gates', () => {
+  assert.equal(runtimeCapabilities({ ...configured, TAKEOFF_V2_ENABLED: 'true' }).fullTakeoffV2, false);
+  assert.equal(runtimeCapabilities({ ...configured, TAKEOFF_V2_ENABLED: 'true', TAKEOFF_V2_WORKER_ENABLED: 'true' }).fullTakeoffV2, false);
+  assert.equal(runtimeCapabilities({
+    ...configured,
+    TAKEOFF_V2_ENABLED: 'true',
+    TAKEOFF_V2_WORKER_ENABLED: 'true',
+    TAKEOFF_V2_SCHEMA_VERSION: '20260910225937',
+  }).fullTakeoffV2, true);
 });
 
 test('masked secrets, placeholder models and unmeasured policies cannot advertise paid availability', () => {

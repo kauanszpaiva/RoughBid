@@ -483,14 +483,89 @@ $$;
 revoke all on function public.set_takeoff_item_review_status(uuid, text) from public, anon;
 grant execute on function public.set_takeoff_item_review_status(uuid, text) to authenticated;
 
+create or replace function private.enforce_estimate_line_v2_math()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  parent_status text;
+  unrounded_purchase numeric(24,6);
+begin
+  select status into parent_status
+  from public.estimate_versions_v2
+  where id = new.estimate_id and workspace_id = new.workspace_id and project_id = new.project_id;
+  if parent_status not in ('draft','needs_review') then
+    raise exception 'Released estimate line items are immutable';
+  end if;
+  if least(new.material_rate, new.material_freight, new.material_tax, new.labor_hours,
+    new.labor_hourly_cost, new.equipment_total, new.subcontract_total, new.other_direct_total) < 0 then
+    raise exception 'Estimate rates and costs cannot be negative';
+  end if;
+  new.waste_quantity := round(new.raw_quantity * new.waste_percent / 100, 6);
+  unrounded_purchase := new.raw_quantity + new.waste_quantity;
+  new.purchasing_quantity := case
+    when new.rounding_rule = 'round_up_package' then ceil(unrounded_purchase / new.package_size) * new.package_size
+    else unrounded_purchase
+  end;
+  new.material_total := round(new.purchasing_quantity * new.material_rate, 6) + new.material_freight + new.material_tax;
+  new.labor_total := round(new.labor_hours * new.labor_hourly_cost, 6);
+  new.direct_total := new.material_total + new.labor_total + new.equipment_total + new.subcontract_total + new.other_direct_total;
+  return new;
+end;
+$$;
+
+create trigger estimate_line_items_v2_math_gate
+before insert or update on public.estimate_line_items_v2
+for each row execute function private.enforce_estimate_line_v2_math();
+
+create or replace function private.enforce_estimate_child_v2_mutability()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  target_estimate_id uuid;
+  parent_status text;
+begin
+  target_estimate_id := case when tg_op = 'DELETE' then old.estimate_id else new.estimate_id end;
+  select status into parent_status from public.estimate_versions_v2 where id = target_estimate_id;
+  if parent_status not in ('draft','needs_review') then
+    raise exception 'Released estimate adjustments are immutable';
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+create trigger estimate_line_items_v2_mutability_gate
+before insert or update or delete on public.estimate_line_items_v2
+for each row execute function private.enforce_estimate_child_v2_mutability();
+
+create trigger estimate_adjustments_v2_mutability_gate
+before insert or update or delete on public.estimate_adjustments_v2
+for each row execute function private.enforce_estimate_child_v2_mutability();
+
 create or replace function private.enforce_estimate_v2_release()
 returns trigger
 language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  line_count bigint;
+  direct_total numeric(20,6);
+  adjustment_total numeric(20,6);
 begin
   if new.status in ('estimate_ready','final') and (tg_op = 'INSERT' or old.status is distinct from new.status) then
+    select count(*), coalesce(sum(l.direct_total), 0)
+      into line_count, direct_total
+      from public.estimate_line_items_v2 l where l.estimate_id = new.id;
+    if line_count = 0 then
+      raise exception 'Estimate cannot be released without line items';
+    end if;
     if exists (select 1 from public.estimate_line_items_v2 l where l.estimate_id = new.id and l.pricing_status <> 'priced') then
       raise exception 'Estimate has unpriced, provisional, expired, or review-required line items';
     end if;
@@ -499,6 +574,17 @@ begin
     end if;
     if exists (select 1 from public.takeoff_items t where t.takeoff_run_id = new.takeoff_run_id and t.review_status in ('needs_review','blocked')) then
       raise exception 'Estimate has unresolved takeoff review items';
+    end if;
+    select coalesce(sum(a.amount), 0) into adjustment_total
+      from public.estimate_adjustments_v2 a where a.estimate_id = new.id;
+    new.totals := jsonb_build_object(
+      'calculation_version', 'takeoff-v2-fixed-6',
+      'direct_cost', direct_total::text,
+      'adjustment_total', adjustment_total::text,
+      'final_bid', (direct_total + adjustment_total)::text
+    );
+    if new.status = 'final' and (new.finalized_by is null or new.finalized_at is null) then
+      raise exception 'Final estimates require final reviewer identity and timestamp';
     end if;
   end if;
   return new;

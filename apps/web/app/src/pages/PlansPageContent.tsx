@@ -45,6 +45,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const paidActionInFlight = useRef(false);
   const [selectedTrades, setSelectedTrades] = useState(PLAN_TRADES);
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
+  const [fullTakeoffV2, setFullTakeoffV2] = useState(false);
   const [billingAvailable, setBillingAvailable] = useState(false);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
   // Per-workspace entitlement. Never derived from a global flag: a customer
@@ -55,7 +56,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [entitlementError, setEntitlementError] = useState(false);
   const [entitlementRetry, setEntitlementRetry] = useState(0);
   const entitlementReady = entitlementContext === `${workspaceId}:${project.remoteId}`;
-  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setFullTakeoffV2(value.fullTakeoffV2); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => {
     let active = true;
     const remoteId = project.remoteId;
@@ -387,7 +388,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
         quote_id: quote.id,
-        mode: "quick",
+        mode: fullTakeoffV2 ? "full_v2" : "quick",
         scope: quote.scope,
         trades: quote.trades,
       });

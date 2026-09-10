@@ -67,7 +67,7 @@ export interface DeepPassResult {
 
 export interface DeepPassProvider { runPass(request: DeepPassRequest): Promise<DeepPassResult>; }
 export interface DeepCheckpointRepository {
-  begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded'>;
+  begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'>;
   succeed(request: DeepPassRequest, result: DeepPassResult): Promise<void>;
   fail(request: DeepPassRequest, failure: { classification: string; message: string }): Promise<void>;
 }

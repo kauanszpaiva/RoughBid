@@ -18,6 +18,7 @@ import {
   type PlanReadingFinding,
   type PlanReadingJob,
 } from "../services/api";
+import { TakeoffCoverageDashboard } from "./TakeoffCoverageDashboard";
 
 interface AIPlanModalProps {
   project: Project;
@@ -262,6 +263,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             <ul className="list-disc pl-4 space-y-1 text-xs leading-relaxed">{limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>
           </section>
         )}
+
+        {job.output_summary.takeoff_v2 && <TakeoffCoverageDashboard coverage={job.output_summary.takeoff_v2} />}
 
         {findingActionError && (
           <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{findingActionError}</div>

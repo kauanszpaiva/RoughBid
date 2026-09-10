@@ -1,4 +1,4 @@
-import type { DeepCheckpointRepository, DeepPassProvider, DeepPassRequest, DeepPassType, PlanSetManifest } from './types.ts';
+import type { DeepCheckpointRepository, DeepPassProvider, DeepPassRequest, DeepPassResult, DeepPassType, PlanSetManifest } from './types.ts';
 
 export const DEEP_PASS_ORDER: readonly DeepPassType[] = [
   'classification', 'legends_schedules', 'geometry', 'discipline', 'reconciliation',
@@ -11,7 +11,44 @@ async function idempotencyKey(runId: string, page: number, passType: DeepPassTyp
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
-export interface DeepRunSummary { attempted: number; succeeded: number; blocked: number; failed: number; }
+export interface DeepSheetSummary {
+  physicalPageNumber: number;
+  status: 'reviewed' | 'review_required' | 'blocked';
+  passesCompleted: number;
+  passesTotal: number;
+  blockers: string[];
+}
+
+export interface DeepRunSummary {
+  attempted: number;
+  succeeded: number;
+  blocked: number;
+  failed: number;
+  sheets: DeepSheetSummary[];
+}
+
+function validatedPassResult(value: unknown): DeepPassResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SyntaxError('Deep pass returned an invalid result object.');
+  const input = value as Record<string, unknown>;
+  if (input.status !== 'succeeded' && input.status !== 'blocked') throw new SyntaxError('Deep pass returned an invalid status.');
+  if (!input.checkpoint || typeof input.checkpoint !== 'object' || Array.isArray(input.checkpoint)) {
+    throw new SyntaxError('Deep pass returned an invalid checkpoint.');
+  }
+  let checkpointBytes: number;
+  try { checkpointBytes = new TextEncoder().encode(JSON.stringify(input.checkpoint)).byteLength; }
+  catch { throw new SyntaxError('Deep pass checkpoint is not serializable.'); }
+  if (checkpointBytes > 1_000_000) throw new SyntaxError('Deep pass checkpoint exceeds 1 MB.');
+  if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 160)) {
+    throw new SyntaxError('Deep pass returned invalid model metadata.');
+  }
+  for (const field of ['inputTokens', 'outputTokens'] as const) {
+    const tokenCount = input[field];
+    if (tokenCount !== undefined && (!Number.isSafeInteger(tokenCount) || (tokenCount as number) < 0)) {
+      throw new SyntaxError(`Deep pass returned invalid ${field}.`);
+    }
+  }
+  return value as DeepPassResult;
+}
 
 /**
  * Bounded, resumable FULL orchestration. A sheet/pass failure is persisted and
@@ -26,29 +63,55 @@ export async function runDeepTakeoff(
 ): Promise<DeepRunSummary> {
   if (!runId) throw new TypeError('runId is required.');
   if (manifest.physicalPageCount !== manifest.sheets.length) throw new Error('Manifest page count does not reconcile.');
-  const summary: DeepRunSummary = { attempted: 0, succeeded: 0, blocked: 0, failed: 0 };
+  const summary: DeepRunSummary = { attempted: 0, succeeded: 0, blocked: 0, failed: 0, sheets: [] };
   for (const sheet of manifest.sheets) {
+    const sheetSummary: DeepSheetSummary = {
+      physicalPageNumber: sheet.physicalPageNumber,
+      status: 'review_required',
+      passesCompleted: 0,
+      passesTotal: DEEP_PASS_ORDER.length,
+      blockers: [],
+    };
+    summary.sheets.push(sheetSummary);
     for (const passType of DEEP_PASS_ORDER) {
       const request: DeepPassRequest = {
         runId, sheet, passType, attempt: 1,
         idempotencyKey: await idempotencyKey(runId, sheet.physicalPageNumber, passType, 1),
         reasoningEffort: 'high',
       };
-      if (await repository.begin(request) === 'already_succeeded') continue;
+      const disposition = await repository.begin(request);
+      if (disposition !== 'run') {
+        sheetSummary.passesCompleted += 1;
+        if (disposition === 'already_blocked') {
+          summary.blocked += 1;
+          sheetSummary.status = 'blocked';
+          sheetSummary.blockers.push(`${passType} pass remains blocked.`);
+        }
+        continue;
+      }
       summary.attempted += 1;
       try {
-        const result = await provider.runPass(request);
+        const result = validatedPassResult(await provider.runPass(request));
         await repository.succeed(request, result);
-        if (result.status === 'blocked') summary.blocked += 1;
-        else summary.succeeded += 1;
+        sheetSummary.passesCompleted += 1;
+        if (result.status === 'blocked') {
+          summary.blocked += 1;
+          sheetSummary.status = 'blocked';
+          sheetSummary.blockers.push(`${passType} pass is blocked.`);
+        } else summary.succeeded += 1;
       } catch (error) {
         summary.failed += 1;
+        sheetSummary.status = 'blocked';
+        sheetSummary.blockers.push(`${passType}: ${(error instanceof Error ? error.message : 'Unknown failure').slice(0, 300)}`);
         await repository.fail(request, {
           classification: error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure',
           message: (error instanceof Error ? error.message : 'Unknown failure').slice(0, 1000),
         });
         break;
       }
+    }
+    if (sheetSummary.passesCompleted === sheetSummary.passesTotal && sheetSummary.blockers.length === 0) {
+      sheetSummary.status = 'reviewed';
     }
   }
   return summary;

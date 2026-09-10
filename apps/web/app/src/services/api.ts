@@ -34,6 +34,7 @@
  */
 import { supabase } from "./supabaseClient";
 import { ApiError, createAuthenticatedFetch } from "./authenticatedFetch";
+import type { TakeoffV2Coverage } from "../utils/takeoffCoverage";
 export { ApiError } from "./authenticatedFetch";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
@@ -99,7 +100,7 @@ export function getHealth() {
 }
 
 export function getCapabilities() {
-  return request<{ aiReadingAvailable: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
+  return request<{ aiReadingAvailable: boolean; fullTakeoffV2: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
 }
 
 export type AuthBootstrap = {
@@ -314,6 +315,7 @@ export type PlanReadingJob = {
     detected_trade_scope?: string[];
     scale_status?: "detected" | "missing" | "conflicting";
     pricing?: { materialCost: number; laborCost: number; directCost: number; pricedFindings: number; unpricedFindings: number };
+    takeoff_v2?: TakeoffV2Coverage;
   };
   plan_reading_findings: PlanReadingFinding[];
 };
@@ -334,7 +336,7 @@ export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
   return request<{ freeReadingAvailable: boolean; pilotActive?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed" | "full_v2"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,

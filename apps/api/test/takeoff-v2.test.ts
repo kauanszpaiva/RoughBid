@@ -55,3 +55,24 @@ test('deep mode is per-sheet, high-reasoning, checkpointed and preserves partial
   assert.equal(succeeded.filter(request => request.sheet.physicalPageNumber === 1).length, DEEP_PASS_ORDER.length);
   assert.ok(begun.every(request => /^[0-9a-f]{64}$/.test(request.idempotencyKey)));
 });
+
+test('deep mode rejects malformed provider checkpoints and stops that sheet fail closed', async () => {
+  const pdf = await PDFDocument.create(); pdf.addPage([100, 100]);
+  const manifest = await createPlanSetManifest(await pdf.save());
+  const failures: Array<{ classification: string; message: string }> = [];
+  let calls = 0;
+  const summary = await runDeepTakeoff('run-invalid', manifest, {
+    async runPass() {
+      calls += 1;
+      return { status: 'succeeded', checkpoint: [] } as never;
+    },
+  }, {
+    async begin() { return 'run'; },
+    async succeed() { throw new Error('Malformed output must not be persisted as success.'); },
+    async fail(_request, failure) { failures.push(failure); },
+  });
+  assert.equal(calls, 1);
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.sheets[0]?.status, 'blocked');
+  assert.equal(failures[0]?.classification, 'invalid_output');
+});
