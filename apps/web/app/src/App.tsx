@@ -471,11 +471,11 @@ export default function App() {
       laborCost,
       equipmentCost,
       directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
+      pricingStatus,
       ...(item.findingId === undefined ? {} : { findingId: item.findingId }),
       ...(item.pageNumber === undefined ? {} : { pageNumber: item.pageNumber }),
       ...(item.area === undefined ? {} : { area: item.area }),
       ...(item.sourceExcerpt === undefined ? {} : { sourceExcerpt: item.sourceExcerpt }),
-      pricingStatus,
       ...(costOverride?.pricingSource === undefined ? {} : { pricingSource: costOverride.pricingSource }),
     };
 

@@ -44,9 +44,11 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
 
   const boxFor = (finding: PlanReadingFinding): [number, number, number, number] | null => {
     const box = finding.geometry?.bbox;
-    if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
-    const [x, y, width, height] = box as number[];
-    return width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1 ? box as [number, number, number, number] : null;
+    if (!Array.isArray(box) || box.length !== 4) return null;
+    const [x, y, width, height] = box;
+    if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') return null;
+    if (![x, y, width, height].every(n => Number.isFinite(n) && n >= 0 && n <= 1)) return null;
+    return width > 0 && height > 0 && x + width <= 1 && y + height <= 1 ? [x, y, width, height] : null;
   };
 
   const pointFor = (finding: PlanReadingFinding): { x: number; y: number } | null => {
