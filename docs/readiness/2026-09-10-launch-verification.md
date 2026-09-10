@@ -56,3 +56,26 @@ The production smoke ledger must be updated after deployment. An old deployment
 being READY does not certify this candidate. A full Stripe TEST Checkout and
 signed-webhook cycle, approved membership prices and appropriate LIVE configuration
 are required for paid GA; see the separate Stripe audit.
+
+## First production verification and follow-up
+
+PR51 merged as `aadd0234f85fb8922dc50a03306224b57fb0efaa`. Vercel deployment
+`dpl_EMRQhktfL43zduRqygWAuDoES4vL` became READY and served `roughbid.vercel.app`.
+The candidate passed 454 tests and both browser gates before merge.
+
+The interrupted pilot upload resumed the same file ID and completed with the real
+ten-page PDF. The authenticated browser rendered it. All eight API authorization
+checks passed again; a third project was refused with HTTP429 and no new row.
+
+The first actual pilot analysis failed safely at JSON parsing. The provider
+reported 6,281 input and 4,089 output tokens; the corresponding estimated cost was
+$0.020045 and actual invoiced cost remained unknown. The single $0.25 reservation
+remained counted. No findings or substitute quantities were saved. The near-cap
+output strongly suggests truncation; that response's finish reason was not logged.
+
+The follow-up patch bounds the pilot response to twelve prioritized evidence
+findings with a structured schema, includes schema text in token preflight, rejects
+MAX_TOKENS distinctly, and visibly discloses incomplete coverage. Input/output,
+model, reservation and attempt limits remain unchanged. Its real provider
+acceptance must be verified after deployment in the QA account's second existing
+project using that project's unused normal file/AI allowance. No quota reset.

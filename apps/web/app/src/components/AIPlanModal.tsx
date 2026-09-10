@@ -191,6 +191,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   };
 
   const findings = job?.plan_reading_findings ?? [];
+  const rawLimitations = (job?.output_summary as { limitations?: unknown } | undefined)?.limitations;
+  const limitations = Array.isArray(rawLimitations) ? rawLimitations.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())) : [];
   const priceableFindings = findings.filter((f) => f.quantity !== null && f.quantity > 0 && f.unit && KNOWN_UNITS.includes(f.unit as UnitType));
   const noteFindings = findings.filter((f) => !priceableFindings.includes(f));
 
@@ -235,8 +237,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     if (job.status === "failed") {
       return (
         <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
-          AI plan reading failed{job.processing_error ? `: ${job.processing_error}` : "."} Try starting a new reading from the
-          Plans step.
+          AI plan reading failed{job.processing_error ? `: ${job.processing_error}` : "."} This attempt may remain counted.
+          Review the plan manually or contact support before starting another reading.
         </div>
       );
     }
@@ -254,6 +256,13 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           </p>
         </div>
 
+        {limitations.length > 0 && (
+          <section aria-label="Reading limitations" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900">
+            <h4 className="text-xs font-semibold mb-1.5">Reading limits — review the full plan</h4>
+            <ul className="list-disc pl-4 space-y-1 text-xs leading-relaxed">{limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>
+          </section>
+        )}
+
         {findingActionError && (
           <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{findingActionError}</div>
         )}
@@ -263,7 +272,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             Quantities & Areas (Requires Your Confirmation)
           </h4>
           {priceableFindings.length === 0 ? (
-            <p className="text-xs text-[#6b7280]">No materials or labor were identified on this plan.</p>
+            <p className="text-xs text-[#6b7280]">No supported quantities were extracted in this review. Check the remaining plan manually.</p>
           ) : (
             <div className="space-y-2.5">
               {priceableFindings.map((finding) => {

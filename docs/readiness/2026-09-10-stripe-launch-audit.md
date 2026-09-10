@@ -147,11 +147,59 @@ No test card was submitted and no AI call was started. The test amount is the
 runtime quote's output, not evidence of approved commercial pricing.
 
 The failing code discarded Stripe's reason. A small server-only diagnostic patch
-now logs HTTP status, request ID, error type/code/parameter and quote ID, while
+logs HTTP status, request ID, error type/code/parameter and quote ID, while
 keeping the key, full response body and freeform provider message out of logs.
 The focused payment suite passed 11/11, including rejection without payment-state
-mutation or sensitive-message leakage. Deployment and a controlled retry are
-required to learn the actual provider rejection; no cause is presumed yet.
+mutation or sensitive-message leakage.
+
+## Confirmed credential rejection at 16:42:27 UTC
+
+After deployment `dpl_EMRQhktfL43zduRqygWAuDoES4vL` (merged commit
+`aadd0234f85fb8922dc50a03306224b57fb0efaa`) became production, the same normal TEST
+checkout was retried. It returned HTTP 502 again. Vercel runtime logs, scoped to
+that deployment and the preceding five minutes, captured:
+
+```text
+Stripe project checkout creation failed
+quoteId: 31f065c5-b178-4752-9950-c135abbb7bca
+status: 401
+requestId: null
+type: invalid_request_error
+code: null
+param: null
+```
+
+The upstream failure is therefore Stripe authentication rejection. The current
+deployment's `STRIPE_SECRET_KEY` must be replaced or corrected with a valid
+credential for the intended KSP TEST account before another checkout attempt.
+The diagnostic does not establish whether the configured key is invalid,
+revoked, expired or otherwise mismatched; no secret value was exposed. Repeated
+checkout attempts before repairing the credential would not complete this gate.
+
+The source request otherwise matches the official Checkout contract: a single
+inline `price_data` with product name, 1,274 USD cents, card, quantity one and a
+valid 30-minute-to-24-hour expiration window at both attempts. Catalog prices are
+not required for this inline price path.
+[Stripe Checkout API reference](https://docs.stripe.com/api/checkout/sessions/create).
+
+## Credential correction prepared for the next deployment
+
+An authenticated, dedicated Chrome tab confirmed the exact account
+`acct_1O0CDnDg0iNecPWH`, Nauakk, in TEST mode. Its existing TEST secret was reused;
+no new key, rotation, revocation or access-policy change was made. A separate
+authenticated Vercel tab showed the RoughBid project's `STRIPE_SECRET_KEY` as a
+write-only Secret variable scoped only to Production, with an existing note
+identifying Nauakk TEST and forbidding live payments.
+
+Only that variable's value was replaced directly from the visible Stripe UI via
+an in-memory value. Vercel confirmed **Updated just now**. The Secret type,
+Production-only environment, existing note, `STRIPE_MODE`, webhook secret and
+all other values were preserved. There was no existing preview key to update.
+No credential was saved in a file or repository. Both dedicated tabs were closed.
+
+This change requires a new deployment. No deployment was triggered by the billing
+agent, and the payment lifecycle remains uncertified until the normal TEST
+Checkout succeeds and its signed webhook grants durable entitlement.
 
 ## Evidence sources
 

@@ -33,17 +33,12 @@
  * login gate and this module never invents a fake backend success response.
  */
 import { supabase } from "./supabaseClient";
+import { ApiError, createAuthenticatedFetch } from "./authenticatedFetch";
+export { ApiError } from "./authenticatedFetch";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
-export class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
+const authenticatedFetch = createAuthenticatedFetch(supabase?.auth ?? null);
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -51,28 +46,12 @@ type RequestOptions = {
   body?: unknown;
 };
 
-async function sessionToken() {
-  if (!supabase) return undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const result = await Promise.race([
-      supabase.auth.getSession(),
-      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ApiError(408, "Your session took too long to load. Refresh and try again.")), 15_000); }),
-    ]);
-    if (result.error) throw new ApiError(401, "Your session could not be verified. Please sign in again.");
-    return result.data.session?.access_token;
-  } finally { clearTimeout(timer); }
-}
-
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", workspaceId, body } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (workspaceId) headers["x-workspace-id"] = workspaceId;
-  const token = await sessionToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await authenticatedFetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     signal: AbortSignal.timeout(path.includes("ai-plan-readings") ? 170_000 : path.endsWith("/complete") ? 120_000 : 30_000),
@@ -97,10 +76,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 async function requestBlob(path: string, options: Pick<RequestOptions, "workspaceId"> = {}): Promise<Blob> {
   const headers: Record<string, string> = {};
   if (options.workspaceId) headers["x-workspace-id"] = options.workspaceId;
-  const token = await sessionToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(60_000) });
+  const response = await authenticatedFetch(`${API_BASE_URL}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(60_000) });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     let message = detail;

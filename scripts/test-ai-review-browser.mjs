@@ -30,7 +30,7 @@ export class ApiError extends Error {}
 export async function getAiPlanReading() {
   const h = window.reviewHarness; h.loads++;
   if (h.failLoad) { h.failLoad = false; throw new Error('Synthetic temporary load failure'); }
-  return { id: 'saved-job', status: 'needs_review', plan_reading_findings: [{ id: 'finding', finding_type: 'material', label: 'Synthetic drywall', quantity: 500, unit: 'SF', page_number: 2, source_excerpt: '500 SF gypsum board', confidence: 0.9, geometry: { area: 'Living Room', pricing: [{ category: 'material', cost: 999999 }] }, status: h.status }] };
+  return { id: 'saved-job', status: 'needs_review', output_summary: { limitations: ['Limited pilot review: at most 12 prioritized findings; other rooms and trades may remain unreviewed.', null, 42] }, plan_reading_findings: [{ id: 'finding', finding_type: 'material', label: 'Synthetic drywall', quantity: 500, unit: 'SF', page_number: 2, source_excerpt: '500 SF gypsum board', confidence: 0.9, geometry: { area: 'Living Room', pricing: [{ category: 'material', cost: 999999 }] }, status: h.status }] };
 }
 export async function setPlanReadingFindingStatus(workspaceId, findingId, status) {
   window.reviewHarness.writes++;
@@ -67,6 +67,10 @@ export async function setPlanReadingFindingStatus(workspaceId, findingId, status
       await page.goto('http://127.0.0.1:4181/?fail=1');
       await page.getByRole('button', { name: 'Retry loading saved reading' }).click();
       await page.getByRole('button', { name: 'Add Item', exact: true }).waitFor({ timeout: 5000 }).catch(async error => { console.log(await page.locator('body').innerText()); throw error; });
+      const limitations = page.getByRole('region', { name: 'Reading limitations' });
+      assert.equal(await limitations.isVisible(), true);
+      assert.match(await limitations.innerText(), /other rooms and trades may remain unreviewed/);
+      assert.equal(await limitations.getByRole('listitem').count(), 1);
       await page.getByRole('button', { name: 'Add Item', exact: true }).evaluate(button => { button.click(); button.click(); });
       await page.waitForFunction(() => window.reviewHarness.imports === 1);
       assert.equal(await page.evaluate(() => window.reviewHarness.writes), 1);
@@ -89,7 +93,7 @@ export async function setPlanReadingFindingStatus(workspaceId, findingId, status
       await page.waitForFunction(() => window.reviewHarness.imports === 1);
       assert.equal(await page.evaluate(() => window.reviewHarness.writes), 1, 'Recover the saved acceptance without another status write.');
       assert.deepEqual(errors, []);
-      console.log('PASS ' + browserName + ': saved-result retry, reentrant acceptance, evidence-only pricing, close/reopen recovery');
+      console.log('PASS ' + browserName + ': saved-result retry, visible coverage limits, reentrant acceptance, evidence-only pricing, close/reopen recovery');
     } finally { await browser.close(); }
   }
 } finally {
