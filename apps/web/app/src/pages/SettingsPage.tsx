@@ -1,3 +1,4 @@
+import { OwnerUsagePanel } from '../components/OwnerUsagePanel';
 import React, { useEffect, useState } from "react";
 import { Save, Percent, User, Shield, Check, BrainCircuit, Loader2 } from "lucide-react";
 import { UserProfile } from "../types";
@@ -100,6 +101,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
           </div>
         )}
       </div>
+
+      <OwnerUsagePanel userId={user.id} email={user.email} />
 
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">

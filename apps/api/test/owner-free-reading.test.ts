@@ -58,7 +58,7 @@ function fakeDb(workspaceId: string) {
       const calls: Array<[string, unknown[]]> = [];
       return makeQuery(() => {
         if (table === 'workspaces') return { data: { ai_processing_consented_at: '2026-09-01T00:00:00Z' }, error: null };
-        if (table === 'projects') return { data: { id: 'project-1' }, error: null };
+        if (table === 'projects') return { data: { id: 'project-1', address_text: null }, error: null };
         if (table === 'project_files') {
           return { data: { id: 'file-1', original_name: 'plan.pdf', storage_path: `${workspaceId}/project-1/file-1/source.pdf`, processing_status: 'ready' }, error: null };
         }
@@ -74,7 +74,20 @@ function fakeDb(workspaceId: string) {
 
 function harness(opts: { rpc?: (fn: string, args: any) => any } = {}) {
   const rpcCalls: Array<{ fn: string; args: any }> = [];
+  let pricingContext: any = null;
   const findingsWriter = {
+    from: (table: string) => {
+      assert.equal(table, 'project_pricing_contexts');
+      const builder: any = {};
+      builder.select = () => builder;
+      builder.eq = () => builder;
+      builder.maybeSingle = async () => ({ data: pricingContext, error: null });
+      builder.upsert = async (row: any) => {
+        pricingContext = row;
+        return { data: row, error: null };
+      };
+      return builder;
+    },
     rpc: async (fn: string, args: any) => {
       rpcCalls.push({ fn, args });
       if (opts.rpc) { const r = opts.rpc(fn, args); if (r !== undefined) return r; }

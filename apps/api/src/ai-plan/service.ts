@@ -1,3 +1,4 @@
+import { withUsageMeter } from '../owner-usage/meter.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
@@ -5,6 +6,7 @@ import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-pr
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
+import { persistPlanPricingContext } from '../pricing/context.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
 
@@ -115,7 +117,10 @@ export class AiPlanReadingService {
       throw new ProjectApiError(403, 'This workspace must accept AI plan-reading data processing (workspace settings) before starting a job.');
     }
 
-    dbResult(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
+    const project = dbResult<any>(
+      await this.db.from('projects').select('id, address_text').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(),
+      true,
+    );
     const file = dbResult<any>(
       await this.db.from('project_files').select('id, original_name, storage_path, processing_status, page_count')
         .eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', fileId).maybeSingle(),
@@ -186,7 +191,8 @@ export class AiPlanReadingService {
         p_scope: scope,
       });
       if (reserved.error) {
-        throw new ProjectApiError(403, reserved.error.message ?? 'Platform owner complimentary reading is not authorized.');
+        const message = reserved.error.message ?? 'Platform owner complimentary reading is not authorized.';
+        throw new ProjectApiError(/daily AI reading limit/i.test(message) ? 429 : 403, message);
       }
       if (reserved.data.reused) return this.get(reserved.data.job.id);
       job = reserved.data.job;
@@ -268,16 +274,30 @@ export class AiPlanReadingService {
       }
 
       const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
-      const result = await activeReader.read({
+      const result = await withUsageMeter({ writer: this.findingsWriter, userId: this.userId,
+        workspaceId: this.workspaceId, projectId, jobId: job.id,
+        billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
+      }, () => activeReader.read({
         fileBytes,
         mimeType: 'application/pdf',
         sheetName: file.original_name,
         requestedTrades,
         scope,
-      });
+      }));
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
       const pageCount = unquotedPlan ? unquotedPlan.pages : quote.page_count;
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > pageCount))) throw new Error('The reading contains quantities or locations without valid source pages.');
+
+      await persistPlanPricingContext({
+        writer: this.findingsWriter,
+        workspaceId: this.workspaceId,
+        projectId,
+        projectAddressText: typeof project.address_text === 'string' ? project.address_text : null,
+        planAddress: result.summary.project_address ?? null,
+        fileId,
+        jobId: job.id,
+      });
+
       const findingsRows = result.findings.map((finding) => {
         return {
           job_id: job.id,

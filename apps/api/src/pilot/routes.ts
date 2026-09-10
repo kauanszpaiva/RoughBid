@@ -1,3 +1,4 @@
+import { readPilotCohort } from '../owner-usage/routes.ts';
 import { createHash, createHmac } from 'node:crypto';
 import { validateEmail } from '../../../../packages/domain/src/index.ts';
 import { PILOT_PRESETS, sendPilotEmail, type PilotPreset } from './email.ts';
@@ -53,8 +54,9 @@ export async function handlePilotRequest(request: Request, client: Database, adm
       return { ...safe, enrollment_expires_at: access?.expires_at ?? null, reserved_cents: access?.reserved_cents ?? (row.accepted_at ? undefined : 0), budget_cents: access?.budget_cents ?? 500, ...(secret.length >= 32 && !row.accepted_at && !row.revoked_at && Date.parse(row.expires_at) > Date.now() ? { invite_url: pilotInviteUrl(appUrl, row.email, secret) } : {}) };
     };
     if (request.method === 'GET') {
+      const cohort = await readPilotCohort(admin);
       const invitations = unwrap(await admin.rpc('list_pilot_invitations', { p_admin_user_id: userId }));
-      return json({ invitations: (Array.isArray(invitations) ? invitations : []).map(redact), sendingConfigured: secret.trim().length >= 32 && Boolean(env.RESEND_API_KEY?.trim()), remindersConfigured: Boolean(env.CRON_SECRET?.trim() && env.RESEND_API_KEY?.trim()), deliveryTrackingConfigured: Boolean(env.RESEND_WEBHOOK_SECRET?.trim()), capacity: 25, cohortBudgetCents: 12500 });
+      return json({ invitations: (Array.isArray(invitations) ? invitations : []).map(redact), sendingConfigured: secret.trim().length >= 32 && Boolean(env.RESEND_API_KEY?.trim()), remindersConfigured: Boolean(env.CRON_SECRET?.trim() && env.RESEND_API_KEY?.trim()), deliveryTrackingConfigured: Boolean(env.RESEND_WEBHOOK_SECRET?.trim()), capacity: cohort.capacity, cohortBudgetCents: cohort.budget_cents });
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
     const body = await request.json() as Record<string, unknown>;

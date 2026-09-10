@@ -1,3 +1,4 @@
+import { meterGeminiCall, UsageAccountingError } from '../owner-usage/meter.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
@@ -43,7 +44,7 @@ export async function createGeminiClient(
 ): Promise<GeminiGenerateContentClient> {
   const mod = await loader();
   const client = new mod.GoogleGenAI({ apiKey });
-  return { generateContent: args => client.models.generateContent(args), countTokens: args => client.models.countTokens!(args), files: client.files };
+  return { generateContent: args => meterGeminiCall(args.model, 'generate', () => client.models.generateContent(args)), countTokens: args => meterGeminiCall(args.model, 'count_tokens', () => client.models.countTokens!(args)), files: client.files };
 }
 
 async function preparePlan(input: GeminiPlanReadInput) {
@@ -59,13 +60,29 @@ CRITICAL HARD INVARIANTS:
 2. Honesty over coverage: admitting a gap is the rewarded behavior. NEVER guess a dimension or schedule note that is illegible or ambiguous — note it as a "risk" or "question" finding instead.
 3. Every numeric quantity MUST have: a physical page number, a verbatim source_excerpt quoting the exact callout or schedule note, and a unit strictly from SF, LF, EA, CY, SY, HR, LS.
 4. Auto-detect the drawing discipline and sheet purpose from title blocks, sheet numbers, legends and visible content. A set may mix architectural/floor plans, structural drawings, civil/site plans, electrical, plumbing, mechanical/HVAC, fire protection, reflected ceiling plans, interior/finishes, demolition, landscape drawings, schedules, details, sections and elevations. Inspect the whole provided set before deciding what evidence is present. Requested trades are takeoff priorities, not a claim that other drawing disciplines are absent. Relevant cross-trade evidence may be recorded as scope_note, risk or question instead of being silently ignored.
-5. Identify each labeled room or separate area as a "room" finding. Include its printed area only if explicitly supported; otherwise quantity and unit are null. Identify schedules, materials, dimensions, openings, symbols, keynotes, details, sections, elevations and scope with page evidence.
-6. Never output money, prices, rates, construction costs, service fees, margins or invented labor hours. The application calculates its service fee separately. Labor quantities require explicit evidence, never inferred allowances.
-7. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
-8. For visually located rooms and items, include geometry.bbox [x,y,width,height], normalized to 0..1 from the top-left of the displayed physical PDF page, and geometry.area for the printed room/area name. Boxes must stay inside the page. Use an empty geometry if a location cannot be reliably identified. Never fabricate boundaries. Cite a visible label for each location. Disclose unreadable pages, missing/conflicting scale and uncertain boundaries in summary.limitations.
-9. Output MUST be valid JSON only, matching exactly:
+5. Extract the project/site address when visibly supported by a cover sheet, title block, permit information, or project-information section. Include the physical page number and a verbatim source excerpt. Capture project name, street address, city, state, ZIP/postal code, and building/lot/unit only when visible. Never infer or fabricate an address or missing address component. This is evidence only; it does not authorize pricing.
+6. Identify each labeled room or separate area as a "room" finding. Include its printed area only if explicitly supported; otherwise quantity and unit are null. Identify schedules, materials, dimensions, openings, symbols, keynotes, details, sections, elevations and scope with page evidence.
+7. Never output money, prices, rates, construction costs, service fees, margins or invented labor hours. The application calculates its service fee separately. Labor quantities require explicit evidence, never inferred allowances.
+8. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
+9. For visually located rooms and items, include geometry.bbox [x,y,width,height], normalized to 0..1 from the top-left of the displayed physical PDF page, and geometry.area for the printed room/area name. Boxes must stay inside the page. Use an empty geometry if a location cannot be reliably identified. Never fabricate boundaries. Cite a visible label for each location. Disclose unreadable pages, missing/conflicting scale and uncertain boundaries in summary.limitations.
+10. Output MUST be valid JSON only, matching exactly:
 {
-  "summary": { "sheet_count": <integer>, "detected_trade_scope": ["Framing", ...], "scale_status": "detected" | "missing" | "conflicting" },
+  "summary": {
+    "sheet_count": <integer>,
+    "detected_trade_scope": ["Framing", ...],
+    "scale_status": "detected" | "missing" | "conflicting",
+    "project_address": null | {
+      "project_name": <string|null>,
+      "street_address": <string|null>,
+      "city": <string|null>,
+      "state": <string|null>,
+      "postal_code": <string|null>,
+      "building_lot_unit": <string|null>,
+      "page_number": <integer>,
+      "source_excerpt": "verbatim quote from the sheet",
+      "confidence": <0..1>
+    }
+  },
   "findings": [
     { "page_number": <integer>, "finding_type": "room", "label": "...", "value_text": "...", "quantity": <number|null>, "unit": "SF"|"LF"|"EA"|"CY"|"SY"|"HR"|"LS"|null, "confidence": <0..1>, "source_excerpt": "verbatim quote from the sheet", "geometry": { "bbox": [0.1, 0.2, 0.3, 0.2], "area": "printed area name" } }
   ]
@@ -133,6 +150,7 @@ export class GeminiPlanReader {
           lastFailure=new AiProviderError('provider_empty_output',{provider:'gemini',model,stage,durationMs:Date.now()-started});
           logProviderFailure(lastFailure);
         } catch (error) {
+          if (error instanceof UsageAccountingError) throw error;
           lastFailure=classifyProviderFailure(error,{provider:'gemini',model,stage,durationMs:Date.now()-started},stage==='parse'?'provider_invalid_output':'provider_unknown');
           logProviderFailure(lastFailure);
           // A different model cannot repair these failures. Keep the request

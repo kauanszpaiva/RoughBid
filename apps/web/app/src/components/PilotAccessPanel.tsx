@@ -22,7 +22,7 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [budget, setBudget] = useState(12500);
+  const [budget, setBudget] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -84,11 +84,11 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
     {expanded && <div className="p-4 sm:p-6 pt-0 space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded ? rows.length : '—'} / 25</strong><p className="text-xs text-slate-500 mt-1">Total reserved invitation seats</p></div>
-        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded && reserved !== null ? money(Math.max(0, budget - reserved)) : 'Awaiting usage data'}</strong><p className="text-xs text-slate-500 mt-1">Available AI budget out of {money(budget)}; conservative reservations included</p></div>
+        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded && reserved !== null && budget !== null ? money(Math.max(0, budget - reserved)) : 'Awaiting usage data'}</strong><p className="text-xs text-slate-500 mt-1">Available AI budget out of {budget === null ? 'Loading budget...' : money(budget)}; conservative reservations included</p></div>
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3"><strong>Your account is complimentary</strong><p className="text-xs text-emerald-800 mt-1">Your access is separate from the 25 users and their API budget.</p></div>
       </div>
       <form onSubmit={submit} className="space-y-3 max-w-3xl">
-        <p className="text-xs text-slate-600 leading-relaxed">Each invitation creates a private workspace for that email. Access starts when redeemed. Existing invitations keep their original terms; sending again does not extend access or add another seat. All presets allow one PDF up to 10 MiB / 10 pages and one AI attempt per project, within a $5 user budget and the shared $125 cap.</p>
+        <p className="text-xs text-slate-600 leading-relaxed">Each invitation creates a private workspace for that email. Access starts when redeemed. Existing invitations keep their original terms; sending again does not extend access or add another seat. All presets allow one PDF up to 10 MiB / 10 pages and one AI attempt per project, within a $5 user budget and the shared {budget === null ? 'configured' : money(budget)} cap.</p>
         <label className="block text-xs font-semibold">Access preset<select value={preset} disabled={busy} onChange={(event) => setPreset(event.target.value as PilotPreset)} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-sm">{Object.entries(presets).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         <label className="block text-xs font-semibold">Email addresses<textarea value={emails} disabled={busy} onChange={(event) => setEmails(event.target.value)} rows={3} placeholder="builder@company.com" className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm" /></label>
         <p className="text-xs text-slate-500">No card at activation. At expiry, future paid use follows the standard checkout. The final $25 of your $150 ceiling is reserved as a safety margin.</p>

@@ -63,7 +63,7 @@ function aiDb(options: { platformAdmin?: boolean; projectExists?: boolean; role?
       if (table === 'profiles') return queryResult({ is_platform_admin: platformAdmin });
       if (table === 'workspace_members') return queryResult({ role });
       if (table === 'workspaces') return queryResult({ ai_processing_consented_at: '2026-09-08T00:00:00Z' });
-      if (table === 'projects') return queryResult(projectExists ? { id: 'project-1' } : null);
+      if (table === 'projects') return queryResult(projectExists ? { id: 'project-1', address_text: null } : null);
       if (table === 'project_files') return queryResult({
         id: 'file-1',
         original_name: 'plan.pdf',
@@ -111,8 +111,20 @@ const realFindingReader = {
 
 test('platform admin can run the paid provider without a Stripe quote or fake payment', async () => {
   const calls: string[] = [];
+  let pricingContext: any = null;
   const findingsWriter = {
-    from: () => { throw new Error('Direct writes are not expected'); },
+    from: (table: string) => {
+      assert.equal(table, 'project_pricing_contexts');
+      const query: any = {};
+      query.select = () => query;
+      query.eq = () => query;
+      query.maybeSingle = async () => ({ data: pricingContext, error: null });
+      query.upsert = async (row: any) => {
+        pricingContext = row;
+        return { data: row, error: null };
+      };
+      return query;
+    },
     rpc: async (fn: string) => {
       calls.push(fn);
       if (fn === 'reserve_platform_admin_reading') {

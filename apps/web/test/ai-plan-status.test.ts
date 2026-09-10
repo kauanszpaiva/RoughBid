@@ -30,8 +30,8 @@ test('only persisted review-ready states are presented as complete', () => {
   assert.equal(failed.revisionNote, undefined);
 });
 
-test('Plans page polls an in-flight AI reading and syncs terminal status instead of leaving stale processing UI', () => {
-  const plans = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+test('Plans page content polls an in-flight AI reading and syncs terminal status instead of leaving stale processing UI', () => {
+  const plans = readFileSync(new URL('../app/src/pages/PlansPageContent.tsx', import.meta.url), 'utf8');
   assert.match(plans, /const pollAiPlanReading = async \(\) =>/);
   assert.match(plans, /setTimeout\(pollAiPlanReading,\s*4000\)/);
   assert.match(plans, /aiPlanStatus:\s*polledJob\.status/);
