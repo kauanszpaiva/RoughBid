@@ -1,10 +1,12 @@
 import type { Project } from '../types/index.ts';
+import { hasUnverifiedAiPrice } from './aiFindingReview.ts';
 
 export function projectReadiness(project: Project) {
   const currentPlan = project.revisions.find(revision => revision.isCurrent) ?? project.revisions.at(-1);
   const hasPlan = Boolean(currentPlan?.remoteFileId);
   const hasQuantities = project.quantities.length > 0 && project.quantities.every(item => Number.isFinite(item.quantity) && item.quantity > 0 && item.name.trim());
   const hasEstimate = project.estimateItems.length > 0 && project.estimateItems.every(item => {
+    if (hasUnverifiedAiPrice(item) || item.pricingStatus === 'missing_price') return false;
     const costs = [item.materialCost, item.laborCost, item.equipmentCost];
     const total = costs.reduce((sum, cost) => sum + cost, 0);
     return item.name.trim() && Number.isFinite(item.quantity) && item.quantity > 0 && costs.every(cost => Number.isFinite(cost) && cost >= 0) && total > 0 && Number.isFinite(item.directCost) && Math.abs(total - item.directCost) < 0.02;

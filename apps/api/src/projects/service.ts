@@ -107,7 +107,11 @@ export class ProjectService {
       status: input.status == null ? 'draft' : status(input.status),
       app_state: appState(input),
     };
-    return dbResult(await this.db.from('projects').insert(row).select('*').single());
+    const result = await this.db.from('projects').insert(row).select('*').single();
+    if (result.error?.code === 'P0001' && result.error.message === 'Pilot project limit reached') {
+      throw new ProjectApiError(429, 'Pilot project limit reached');
+    }
+    return dbResult(result);
   }
 
   async update(projectId: string, input: Record<string, unknown>) {

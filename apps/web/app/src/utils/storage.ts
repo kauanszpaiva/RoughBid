@@ -5,6 +5,7 @@ import type {
   PriceList,
   UserProfile,
 } from "../types";
+import { flagUnverifiedAiPrice } from './aiFindingReview.ts';
 
 // Browser caches are isolated by authenticated account and workspace. Legacy
 // unscoped keys are deliberately never imported into an authenticated account.
@@ -64,6 +65,7 @@ function writeValue(key: string, value: unknown): boolean {
 export function persistentProject(project: Project): Project {
   return {
     ...project,
+    estimateItems: project.estimateItems.map(flagUnverifiedAiPrice),
     revisions: project.revisions.map(({ fileUrl: _fileUrl, ...revision }) => revision),
   };
 }

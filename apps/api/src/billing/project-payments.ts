@@ -104,8 +104,18 @@ export class ProjectPayments {
     // One Stripe session per immutable quote, with matching expiry and no hidden retries.
     const response = await this.fetcher('https://api.stripe.com/v1/checkout/sessions',{method:'POST',
       headers:{authorization:`Bearer ${key}`,'content-type':'application/x-www-form-urlencoded','idempotency-key':`roughbid-quote-${q.id}`},body:params});
-    const session = await response.json() as { id?: string; url?: string };
-    if (!response.ok || !session.id || !session.url) throw new ProjectApiError(502,'Could not open secure checkout. Please try again.');
+    const session = await response.json() as { id?: string; url?: string; error?: { type?: unknown; code?: unknown; param?: unknown } };
+    if (!response.ok || !session.id || !session.url) {
+      // Keep provider diagnostics server-side and bounded. Never log the key,
+      // response body or freeform Stripe message, which may echo request data.
+      const diagnostic = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_[\].-]{1,120}$/.test(value) ? value : null;
+      console.error('Stripe project checkout creation failed', {
+        quoteId: q.id, status: response.status,
+        requestId: diagnostic(response.headers.get('request-id')),
+        type: diagnostic(session.error?.type), code: diagnostic(session.error?.code), param: diagnostic(session.error?.param),
+      });
+      throw new ProjectApiError(502,'Could not open secure checkout. Please try again.');
+    }
     databaseValue(await this.db.from('project_reading_quotes').update({stripe_session_id:session.id}).eq('id',q.id));
     return { url:session.url };
   }

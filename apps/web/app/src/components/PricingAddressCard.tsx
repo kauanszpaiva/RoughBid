@@ -52,9 +52,9 @@ export const PricingAddressCard: React.FC<PricingAddressCardProps> = ({ context,
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-slate-900">Pricing address</h3>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Not ready</span>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Comparison pending</span>
           </div>
-          <p className="mt-2 text-xs text-slate-600">Pricing cannot start until the server has an address context from the project or evidenced plan data.</p>
+          <p className="mt-2 text-xs text-slate-600">Plan analysis will compare any evidenced address with the saved project address. You can enter verified costs manually in your estimate now.</p>
           {error && <p className="mt-2 text-xs text-rose-700">{error}</p>}
         </div>
       </section>

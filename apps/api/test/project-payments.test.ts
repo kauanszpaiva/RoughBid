@@ -44,7 +44,7 @@ test('unpaid and unrelated Stripe events never grant a project reading',async()=
   assert.equal(calls[0].args.p_amount,100);
 });
 
-function checkoutFixture(env: Record<string, string | undefined>, pilot: any = { active: false, status: 'none' }) {
+function checkoutFixture(env: Record<string, string | undefined>, pilot: any = { active: false, status: 'none' }, gatewayResponse?: Response) {
   const mutations: string[] = [];
   const requests: string[] = [];
   const quote = { id: 'quote-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
@@ -62,7 +62,7 @@ function checkoutFixture(env: Record<string, string | undefined>, pilot: any = {
   }, rpc: async (fn: string) => { if (fn === 'get_pilot_access') return { data: pilot, error: null }; mutations.push('rpc'); return { data: null, error: null }; } };
   const fetcher = (async (input: string | URL | Request) => {
     requests.push(String(input));
-    return Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
+    return gatewayResponse ?? Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
   }) as typeof fetch;
   return { payments: new ProjectPayments(db, env, fetcher), mutations, requests };
 }
@@ -118,4 +118,19 @@ test('active pilot cannot pay around its limits and unknown pilot status fails c
 test('expired pilot returns to the ordinary paid project checkout', async () => {
   const f=checkoutFixture({PAID_PLAN_READINGS_ENABLED:'true',GEMINI_API_KEY:'unit-provider-credential',GEMINI_MODEL:'gemini-2.5-flash',STRIPE_SECRET_KEY:'sk_test_unitcredential',STRIPE_WEBHOOK_SECRET:'whsec_test_unitcredential',APP_URL:'https://roughbid.test'},{active:false,status:'expired'});
   assert.equal((await f.payments.checkout('user-1','workspace-1','project-1','quote-1')).url,'https://checkout.stripe.test/session');
+});
+
+test('rejected Stripe checkout logs bounded diagnostics without leaking provider messages or saving payment state', async (t) => {
+  const logs: unknown[][] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { logs.push(args); });
+  const f = checkoutFixture({ PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+    STRIPE_SECRET_KEY: 'sk_test_unitcredential', STRIPE_WEBHOOK_SECRET: 'whsec_test_unitcredential', APP_URL: 'https://roughbid.test' },
+    { active: false }, Response.json({ error: { type: 'invalid_request_error', code: 'parameter_invalid_integer', param: 'expires_at',
+      message: 'sensitive request body and sk_test_do_not_log', secret: 'private' } }, { status: 400, headers: { 'request-id': 'req_QaCheckout' } }));
+  await assert.rejects(f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1'),
+    (error: any) => error.status === 502 && error.message === 'Could not open secure checkout. Please try again.');
+  assert.deepEqual(logs, [['Stripe project checkout creation failed', { quoteId: 'quote-1', status: 400, requestId: 'req_QaCheckout',
+    type: 'invalid_request_error', code: 'parameter_invalid_integer', param: 'expires_at' }]]);
+  assert.doesNotMatch(JSON.stringify(logs), /sk_test_|private|sensitive request/);
+  assert.deepEqual(f.mutations, []);
 });

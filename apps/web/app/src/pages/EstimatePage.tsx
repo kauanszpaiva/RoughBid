@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Project, EstimateItem, UnitType } from "../types";
 import { createUnpricedEstimateItem, editEstimateLine, validateEstimateInput } from "../utils/manualEstimate";
+import { hasUnverifiedAiPrice } from "../utils/aiFindingReview";
 import {
   calculateProjectFinancials,
   calculateLineDirectCost,
@@ -67,7 +68,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   useEffect(() => { if (!canWrite) { setEditingItemId(null); setIsAddingLine(false); setShowRateModal(false); } }, [canWrite]);
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
-  const unpricedItems = project.estimateItems.filter((item) => calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
+  const unpricedItems = project.estimateItems.filter((item) => hasUnverifiedAiPrice(item) || item.pricingStatus === 'missing_price' || calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
   const missingQuantities = project.quantities.filter((quantity) => !project.estimateItems.some((item) => item.quantityId === quantity.id));
 
   const handleOpenRates = () => {
@@ -233,7 +234,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
         When editing a quantity here, review and enter the matching cost totals.
       </div>
       {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
-      {unpricedItems.length > 0 && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900"><AlertCircle className="h-4 w-4 shrink-0" /><span>{unpricedItems.length} item{unpricedItems.length === 1 ? " has" : "s have"} no costs entered. The estimate is incomplete until you price or remove these items.</span></div>}
+      {unpricedItems.length > 0 && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900"><AlertCircle className="h-4 w-4 shrink-0" /><span>{unpricedItems.length} item{unpricedItems.length === 1 ? " needs" : "s need"} verified costs. Historical AI amounts are unverified. Review and save actual costs or remove these items before exporting.</span></div>}
       {missingQuantities.length > 0 && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-600"><span>{missingQuantities.length} takeoff item{missingQuantities.length === 1 ? " is" : "s are"} excluded from this estimate.</span><button disabled={!canWrite} onClick={handleRestoreQuantities} className="self-start rounded-md bg-blue-50 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-100">Add missing takeoff items</button></div>}
 
       {/* Inline Search Bar */}

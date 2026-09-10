@@ -90,7 +90,7 @@ test("Line-item provenance metadata & configured vs missing price states", () =>
     area: "Living Room",
     sourceExcerpt: "1/2 inch Gypsum board",
     pricingStatus: "configured",
-    pricingSource: "AI Finding Geometry Pricing",
+    pricingSource: "Estimator entered supplier quote",
   };
 
   const estItemUnpriced: EstimateItem = {

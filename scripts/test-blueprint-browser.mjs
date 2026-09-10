@@ -63,7 +63,9 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
   await build(config);
   server = await preview(config);
   for (const browserName of ['chromium', 'webkit']) {
-    const browser = await playwright[browserName].launch({ headless: true });
+    const browser = await playwright[browserName].launch({ headless: true,
+      ...(browserName === 'chromium' && process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}),
+    });
     try {
       const context = await browser.newContext(browserName === 'webkit'
         ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
@@ -110,5 +112,7 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
   }
 } finally {
   if (server) await new Promise(resolve => server.httpServer.close(resolve));
-  await rm(root, { recursive: true, force: true });
+  const cleanupRoot = path.resolve(root);
+  if (!cleanupRoot.startsWith(path.resolve(repo) + path.sep) || !path.basename(cleanupRoot).startsWith('.viewer-check-')) throw new Error('Refusing cleanup outside the isolated viewer fixture.');
+  await rm(cleanupRoot, { recursive: true, force: true });
 }

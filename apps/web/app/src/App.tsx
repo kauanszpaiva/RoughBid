@@ -3,6 +3,7 @@ import { Project, UserProfile, QuantityItem, PlanRevision } from "./types";
 import { StorageService, persistentProject, type StorageScope } from "./utils/storage";
 import { ProjectSaveQueue, type SaveState } from "./utils/projectSaveQueue";
 import { projectReadiness } from "./utils/projectReadiness";
+import { appendAcceptedAiQuantity } from "./utils/aiFindingReview";
 import { canWriteWorkspace } from "./utils/workspaceAccess";
 import { patchProjectRevision, type RevisionPatch } from "./utils/projectRevisions";
 import { Sidebar, NavTab } from "./components/Sidebar";
@@ -437,55 +438,16 @@ export default function App() {
     if (!StorageService.saveUserProfile(scopedUser)) setLocalCacheWarning(true);
   };
 
-  // AI Confirmed item addition (Requires User Confirmation). `costOverride`
-  // carries the real priced material/labor cost from the AI plan-reading
-  // worker. Unpriced checklist items remain at zero until the estimator sets
-  // their costs; never insert invented placeholder prices into a proposal.
+  // Accepting source quantities does not verify a construction price.
   const handleAddQuantityFromAI = (
     item: Omit<QuantityItem, "id" | "itemNumber">,
-    costOverride?: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string }
   ) => {
     if (!canWriteRef.current) return;
     const currentProject = projectsRef.current.find((project) => project.id === activeProject?.id);
     if (!currentProject) return;
 
-    const newId = `qty-${crypto.randomUUID()}`;
-    const newQtyItem: QuantityItem = {
-      ...item,
-      id: newId,
-      itemNumber: currentProject.quantities.length + 1,
-    };
-
-    const materialCost = costOverride?.materialCost ?? 0;
-    const laborCost = costOverride?.laborCost ?? 0;
-    const equipmentCost = 0;
-    const pricingStatus = costOverride?.pricingStatus ?? (materialCost > 0 || laborCost > 0 ? "configured" : "missing_price");
-
-    const newEstItem = {
-      id: `est-${crypto.randomUUID()}`,
-      quantityId: newId,
-      name: item.name,
-      quantity: item.quantity,
-      unit: item.unit,
-      materialCost,
-      laborCost,
-      equipmentCost,
-      directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
-      pricingStatus,
-      ...(item.findingId === undefined ? {} : { findingId: item.findingId }),
-      ...(item.pageNumber === undefined ? {} : { pageNumber: item.pageNumber }),
-      ...(item.area === undefined ? {} : { area: item.area }),
-      ...(item.sourceExcerpt === undefined ? {} : { sourceExcerpt: item.sourceExcerpt }),
-      ...(costOverride?.pricingSource === undefined ? {} : { pricingSource: costOverride.pricingSource }),
-    };
-
-    const updated: Project = {
-      ...currentProject,
-      quantities: [...currentProject.quantities, newQtyItem],
-      estimateItems: [...currentProject.estimateItems, newEstItem],
-    };
-
-    handleUpdateProject(updated);
+    const updated = appendAcceptedAiQuantity(currentProject, item);
+    if (updated !== currentProject) handleUpdateProject(updated);
   };
 
   const handleUseTemplate = (templateName: string) => {
