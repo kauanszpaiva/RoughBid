@@ -3,11 +3,13 @@ export const PLAN_BUCKET = 'plan-files';
 
 export type ProjectStatus = 'draft' | 'active' | 'archived';
 
+type DbError = { message?: string; code?: string } | null;
+
 export interface SupabaseLike {
   auth: { getUser(): Promise<{ data: { user: { id: string } | null }; error: unknown }> };
   from(table: string): any;
   storage: { from(bucket: string): any };
-  rpc?(fn: string, args?: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+  rpc?(fn: string, args?: Record<string, unknown>): PromiseLike<{ data: unknown; error: DbError }>;
 }
 
 export class ProjectApiError extends Error {
@@ -66,8 +68,11 @@ export async function validatePlanFile(file: File): Promise<void> {
   if (new TextDecoder().decode(signature) !== '%PDF-') throw new ProjectApiError(415, 'File content is not a valid PDF');
 }
 
-function dbResult<T>(result: { data: T; error: { message?: string } | null }, notFound = false): T {
-  if (result.error) throw new ProjectApiError(500, result.error.message ?? 'Database operation failed');
+function dbResult<T>(result: { data: T; error: DbError }, notFound = false): T {
+  if (result.error) {
+    const httpStatus = result.error.code === '23503' ? 409 : 500;
+    throw new ProjectApiError(httpStatus, result.error.message ?? 'Database operation failed');
+  }
   if (notFound && !result.data) throw new ProjectApiError(404, 'Resource not found');
   return result.data;
 }
@@ -119,11 +124,17 @@ export class ProjectService {
     const project = await this.get(projectId);
     const files = dbResult<any[]>(await this.db.from('project_files').select('storage_path').eq('workspace_id', this.workspaceId).eq('project_id', projectId));
     const paths = files.map((file) => file.storage_path);
+
+    // Commit the relational delete before touching object storage. The database
+    // deliberately protects quote/audit history with restrictive foreign keys;
+    // a blocked delete must never destroy the source PDF while leaving the
+    // project record behind.
+    dbResult(await this.db.from('projects').delete().eq('workspace_id', this.workspaceId).eq('id', projectId));
+
     if (paths.length) {
       const removed = await this.db.storage.from(PLAN_BUCKET).remove(paths);
       if (removed.error) throw new ProjectApiError(500, removed.error.message ?? 'Could not remove project plans');
     }
-    dbResult(await this.db.from('projects').delete().eq('workspace_id', this.workspaceId).eq('id', projectId));
     return project;
   }
 
