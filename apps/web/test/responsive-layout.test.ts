@@ -8,7 +8,7 @@ const blueprint = readFileSync(new URL('../app/src/components/BlueprintViewer.ts
 const materials = readFileSync(new URL('../app/src/pages/MaterialsPage.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../app/src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
 const projects = readFileSync(new URL('../app/src/pages/ProjectsPage.tsx', import.meta.url), 'utf8');
-const plans = readFileSync(new URL('../app/src/pages/PlansPage.tsx', import.meta.url), 'utf8');
+const plansContent = readFileSync(new URL('../app/src/pages/PlansPageContent.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../app/src/services/api.ts', import.meta.url), 'utf8');
 
 test('app shell uses mobile viewport height and tablet-friendly collapsed sidebar default', () => {
@@ -28,6 +28,11 @@ test('plan viewer fits its container and lets phones scroll the actual PDF', () 
   assert.match(blueprint, /overflow-auto/);
 });
 
+test('plan viewer calculates container width immediately on mount with 0x0 fallback', () => {
+  assert.match(blueprint, /updateWidth\(\);/);
+  assert.match(blueprint, /effectiveWidth = measuredWidth > 0 \? measuredWidth : 632/);
+});
+
 test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(blueprint, /<canvas/);
   assert.match(blueprint, /pdfjs\.getDocument/);
@@ -36,7 +41,7 @@ test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(blueprint, /onAnnotationsChange/);
   assert.doesNotMatch(blueprint, /const hotspots/);
   assert.doesNotMatch(blueprint, /PLAN SHEET A-1|EXISTING HOUSE|STAIRS \(4 RISERS\)/);
-  assert.match(plans, /createDocumentPreviewObjectUrl/);
+  assert.match(plansContent, /createDocumentPreviewObjectUrl/);
   assert.match(api, /URL\.createObjectURL/);
   assert.match(api, /application\/pdf/);
   assert.match(api, /fetch\(preview\.url/);

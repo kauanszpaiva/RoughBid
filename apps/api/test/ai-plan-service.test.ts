@@ -35,7 +35,7 @@ function baseResolver(overrides: Partial<Record<string, unknown>> = {}) {
       const consentedAt = 'consentedAt' in overrides ? overrides.consentedAt : '2026-09-01T00:00:00Z';
       return { data: { ai_processing_consented_at: consentedAt }, error: null };
     }
-    if (table === 'projects') return { data: { id: 'project-1' }, error: null };
+    if (table === 'projects') return { data: { id: 'project-1', address_text: overrides.addressText ?? null }, error: null };
     if (table === 'project_files') {
       return {
         data: {
@@ -98,7 +98,16 @@ test('create() still blocks a file that has not finished uploading', async () =>
 });
 
 function directWriter(onInsert: (rows: any[])=>void = () => {}) {
-  return { from: () => { throw new Error('Reading writes must be atomic'); }, rpc: async (fn: string, args: any) => {
+  let pricingContext: any = null;
+  return { from: (table: string) => {
+    if (table !== 'project_pricing_contexts') throw new Error('Reading writes must be atomic');
+    const builder: any = {};
+    builder.select = () => builder;
+    builder.eq = () => builder;
+    builder.maybeSingle = async () => ({ data: pricingContext, error: null });
+    builder.upsert = async (row: any) => { pricingContext = row; return { data: row, error: null }; };
+    return builder;
+  }, rpc: async (fn: string, args: any) => {
     if (fn === 'reserve_project_reading') return { data: { job: { id: 'job-1' }, quote: { trades: ['Framing'], scope: '', file_sha256: PDF_DIGEST(new Uint8Array([1,2,3])), page_count: 1 }, reused: false }, error: null };
     assert.equal(fn, 'finish_project_reading');
     if (!args.p_error) onInsert(args.p_findings);

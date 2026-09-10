@@ -10,7 +10,7 @@ The platform owner manages invitations under **Access invitations** in the deskt
 | Limited month (`month1`) | 30 days | 1 project in each rolling 7-day window |
 | Pilot (`pilot60`) | 60 days | 2 projects in each rolling 7-day window |
 
-Every preset permits one PDF per project, no larger than 10 MiB or 10 pages, and one AI attempt per project. The account allocation is $5, with a shared $125 cohort ceiling; the other $25 of the owner's stated $150 maximum is a safety reserve. Usage reservations are conservative allocations, not proof of the provider's actual invoice cost.
+Every preset permits one PDF per project, no larger than 10 MiB or 10 pages, and one AI attempt per project. The account allocation is $5, with a shared $100 cohort ceiling; the other $25 of the owner's stated $125 maximum is a safety reserve. Usage reservations are conservative allocations, not proof of the provider's actual invoice cost.
 
 The cohort has at most 25 distinct invited email addresses. Duplicate requests preserve the original invitation and preset. Revocation and expiration do not erase the audit record or restore a previously allocated seat. The owner's complimentary account is excluded from these allocations.
 

@@ -225,7 +225,8 @@ export default function App() {
             setInviteNotice("Invite accepted. Your organization access is ready.");
           } catch (error) {
             if (!active) return;
-            setInviteNotice(error instanceof Error ? error.message : "Invite could not be accepted.");
+            const message = error instanceof Error ? error.message : "Invite could not be accepted.";
+            setInviteNotice(`Invite notice: ${message} (Invite link token preserved in URL for retry or verification)`);
           }
         }
         const workspaces = await listWorkspaces();
@@ -234,11 +235,7 @@ export default function App() {
         const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
         const savedWorkspace = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId);
         const newestRealWorkspace = sortedWorkspaces.find((candidate) => !/\b(?:validation|qa|test|synthetic)\b/i.test(candidate.name));
-        const resolved = invitedWorkspaceId
-          ? sortedWorkspaces.find((candidate) => candidate.id === invitedWorkspaceId)
-          : savedWorkspace && !/\b(?:validation|qa|test|synthetic)\b/i.test(savedWorkspace.name)
-            ? savedWorkspace
-            : newestRealWorkspace;
+        const resolved = savedWorkspace ?? newestRealWorkspace;
         const activeWorkspace = resolved
           ?? sortedWorkspaces[0]
           ?? (await createWorkspace(`${session.user.email ?? "My"} Workspace`));
@@ -446,7 +443,7 @@ export default function App() {
   // their costs; never insert invented placeholder prices into a proposal.
   const handleAddQuantityFromAI = (
     item: Omit<QuantityItem, "id" | "itemNumber">,
-    costOverride?: { materialCost: number; laborCost: number }
+    costOverride?: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string }
   ) => {
     if (!canWriteRef.current) return;
     const currentProject = projectsRef.current.find((project) => project.id === activeProject?.id);
@@ -462,6 +459,7 @@ export default function App() {
     const materialCost = costOverride?.materialCost ?? 0;
     const laborCost = costOverride?.laborCost ?? 0;
     const equipmentCost = 0;
+    const pricingStatus = costOverride?.pricingStatus ?? (materialCost > 0 || laborCost > 0 ? "configured" : "missing_price");
 
     const newEstItem = {
       id: `est-${crypto.randomUUID()}`,
@@ -473,6 +471,12 @@ export default function App() {
       laborCost,
       equipmentCost,
       directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
+      pricingStatus,
+      ...(item.findingId === undefined ? {} : { findingId: item.findingId }),
+      ...(item.pageNumber === undefined ? {} : { pageNumber: item.pageNumber }),
+      ...(item.area === undefined ? {} : { area: item.area }),
+      ...(item.sourceExcerpt === undefined ? {} : { sourceExcerpt: item.sourceExcerpt }),
+      ...(costOverride?.pricingSource === undefined ? {} : { pricingSource: costOverride.pricingSource }),
     };
 
     const updated: Project = {

@@ -54,7 +54,7 @@ export async function handlePilotRequest(request: Request, client: Database, adm
     };
     if (request.method === 'GET') {
       const invitations = unwrap(await admin.rpc('list_pilot_invitations', { p_admin_user_id: userId }));
-      return json({ invitations: (Array.isArray(invitations) ? invitations : []).map(redact), sendingConfigured: secret.trim().length >= 32 && Boolean(env.RESEND_API_KEY?.trim()), remindersConfigured: Boolean(env.CRON_SECRET?.trim() && env.RESEND_API_KEY?.trim()), deliveryTrackingConfigured: Boolean(env.RESEND_WEBHOOK_SECRET?.trim()), capacity: 25, cohortBudgetCents: 12500 });
+      return json({ invitations: (Array.isArray(invitations) ? invitations : []).map(redact), sendingConfigured: secret.trim().length >= 32 && Boolean(env.RESEND_API_KEY?.trim()), remindersConfigured: Boolean(env.CRON_SECRET?.trim() && env.RESEND_API_KEY?.trim()), deliveryTrackingConfigured: Boolean(env.RESEND_WEBHOOK_SECRET?.trim()), capacity: 25, cohortBudgetCents: 10000 });
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
     const body = await request.json() as Record<string, unknown>;

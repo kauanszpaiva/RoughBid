@@ -27,6 +27,18 @@ export interface PlanReadingFinding {
   source_excerpt: string | null;
 }
 
+export interface PlanProjectAddressEvidence {
+  project_name: string | null;
+  street_address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  building_lot_unit: string | null;
+  page_number: number;
+  source_excerpt: string;
+  confidence: number;
+}
+
 export interface PlanReadingSummary {
   sheet_count: number;
   detected_trade_scope: string[];
@@ -34,6 +46,8 @@ export interface PlanReadingSummary {
   human_review_required: true;
   /** Honesty-over-coverage disclosures: unreadable pages, ambiguous scale, dropped findings, fallback notices. */
   limitations: string[];
+  /** EVIDENCE only. Pricing/address resolution code decides whether this address may drive market lookup. */
+  project_address?: PlanProjectAddressEvidence;
   /** True when this result is the deterministic placeholder takeoff, not a real model reading — lets a multi-provider orchestrator know to try the next provider instead of trusting it. */
   synthetic?: boolean;
   pilot_usage?: { model: string; counted_input_tokens: number; reserved_cents: number; provider_usage?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number } };
@@ -57,6 +71,51 @@ export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {
   return { bbox: box, coordinate_space: 'normalized', ...(typeof input.area === 'string' ? { area: input.area.trim().slice(0, 100) } : {}) };
 }
 
+function safeNullableText(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, max) : null;
+}
+
+function sanitizeProjectAddressEvidence(raw: unknown, sheetCount: number): { address?: PlanProjectAddressEvidence; limitation?: string } {
+  if (raw == null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { limitation: 'Project address evidence dropped because the provider returned an invalid address object.' };
+  }
+  const input = raw as Record<string, unknown>;
+  const pageNumber = typeof input.page_number === 'number' && Number.isInteger(input.page_number) ? input.page_number : null;
+  const sourceExcerpt = safeNullableText(input.source_excerpt, 1000);
+  if (pageNumber === null || pageNumber < 1 || pageNumber > sheetCount || !sourceExcerpt) {
+    return { limitation: 'Project address evidence dropped because it did not include a valid physical page and verbatim source excerpt.' };
+  }
+
+  const streetAddress = safeNullableText(input.street_address, 240);
+  const city = safeNullableText(input.city, 120);
+  const state = safeNullableText(input.state, 80);
+  const postalCode = safeNullableText(input.postal_code, 24);
+  const buildingLotUnit = safeNullableText(input.building_lot_unit, 120);
+  if (!streetAddress && !city && !state && !postalCode && !buildingLotUnit) {
+    return { limitation: 'Project address evidence dropped because no physical address component was visibly supported.' };
+  }
+
+  const confidence = typeof input.confidence === 'number' && Number.isFinite(input.confidence)
+    ? Math.max(0.1, Math.min(1, input.confidence))
+    : 0.75;
+  return {
+    address: {
+      project_name: safeNullableText(input.project_name, 160),
+      street_address: streetAddress,
+      city,
+      state,
+      postal_code: postalCode,
+      building_lot_unit: buildingLotUnit,
+      page_number: pageNumber,
+      source_excerpt: sourceExcerpt,
+      confidence,
+    },
+  };
+}
+
 /**
  * Cleans raw model (or fallback-generator) output into safe, storable
  * findings — the same hard validation rule an untrusted model output needs
@@ -69,6 +128,10 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   const rawSummary = (input.summary && typeof input.summary === 'object' ? input.summary : {}) as Record<string, unknown>;
   const rawFindings = Array.isArray(input.findings) ? input.findings : [];
 
+  const sheetCount = typeof rawSummary.sheet_count === 'number' && Number.isInteger(rawSummary.sheet_count) && rawSummary.sheet_count > 0
+    ? rawSummary.sheet_count
+    : 1;
+  const projectAddress = sanitizeProjectAddressEvidence(rawSummary.project_address, sheetCount);
   const dropped: string[] = [];
   const findings: PlanReadingFinding[] = [];
 
@@ -93,7 +156,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
     const pageNumber = typeof item.page_number === 'number' && Number.isInteger(item.page_number) && item.page_number > 0
       ? item.page_number
       : null;
-    if (hasQuantity && (pageNumber === null || (typeof rawSummary.sheet_count === 'number' && pageNumber > rawSummary.sheet_count))) {
+    if (hasQuantity && (pageNumber === null || pageNumber > sheetCount)) {
       dropped.push(`"${label}": quantity without a valid source page`); continue;
     }
     const confidence = typeof item.confidence === 'number' && Number.isFinite(item.confidence)
@@ -115,16 +178,18 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
 
   const capped = findings.slice(0, MAX_FINDINGS);
   const limitations = [...notices, ...(Array.isArray(rawSummary.limitations) ? rawSummary.limitations.filter((v): v is string => typeof v === 'string').map(v => v.slice(0, 1000)) : [])];
+  if (projectAddress.limitation) limitations.push(projectAddress.limitation);
   if (dropped.length) limitations.push(`${dropped.length} item(s) dropped for missing a verbatim source citation or an invalid unit.`);
   if (findings.length > MAX_FINDINGS) limitations.push(`Findings capped at ${MAX_FINDINGS} (${findings.length} detected).`);
 
   return {
     summary: {
-      sheet_count: typeof rawSummary.sheet_count === 'number' ? rawSummary.sheet_count : 1,
+      sheet_count: sheetCount,
       detected_trade_scope: Array.isArray(rawSummary.detected_trade_scope) ? rawSummary.detected_trade_scope.map(String) : [],
       scale_status: rawSummary.scale_status === 'detected' || rawSummary.scale_status === 'conflicting' ? rawSummary.scale_status : 'missing',
       human_review_required: true,
       limitations,
+      ...(projectAddress.address ? { project_address: projectAddress.address } : {}),
       ...(synthetic ? { synthetic: true } : {}),
     },
     findings: capped,

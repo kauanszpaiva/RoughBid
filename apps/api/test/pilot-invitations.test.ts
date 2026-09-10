@@ -92,7 +92,12 @@ test('redemption calls the authenticated client with a digest instead of the pla
 
 test('owner dashboard sanitizes hashes and exposes server-derived budget data', async () => {
   const { db } = fixture(); const response = await handlePilotRequest(request('/api/pilot/invitations'), db, db, env);
-  const result = await response.json(); assert.equal(result.invitations[0].reserved_cents, 75); assert.equal(result.invitations[0].enrollment_expires_at, '2099-02-01T00:00:00Z'); assert.equal('token_hash' in result.invitations[0], false);
+  const result = await response.json();
+  assert.equal(result.cohortBudgetCents, 10000);
+  assert.equal(result.capacity, 25);
+  assert.equal(result.invitations[0].reserved_cents, 75);
+  assert.equal(result.invitations[0].enrollment_expires_at, '2099-02-01T00:00:00Z');
+  assert.equal('token_hash' in result.invitations[0], false);
 });
 
 test('pilot email discloses limits and no automatic charge, with stable provider idempotency', async () => {
