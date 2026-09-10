@@ -14,8 +14,11 @@ const catalog=[
     cadence:'month',description:'Local labor benchmarks. Not available until the methodology and coverage are verified.',availability:'coming_soon'},
 ] as const;
 
-export async function handleMarketplaceCatalog(request:Request,db:SupabaseLike,env:Record<string,string|undefined>):Promise<Response>{
-  if(request.method!=='GET') return Response.json({error:'Method not allowed'},{status:405});
+export type MarketplaceAccess = { role: string; platformAdmin: boolean; entitled: boolean };
+
+/** Re-read membership and the reconciled ledger for every protected operation. */
+export async function getMarketplaceAccess(request:Request,db:SupabaseLike,env:Record<string,string|undefined>):Promise<MarketplaceAccess|Response>{
+  try {
   const {data,error}=await db.auth.getUser();
   if(error||!data.user) return Response.json({error:'Sign in to view the Marketplace.'},{status:401});
   const workspaceId=request.headers.get('x-workspace-id')?.trim();
@@ -33,11 +36,22 @@ export async function handleMarketplaceCatalog(request:Request,db:SupabaseLike,e
   const currentMode=env.STRIPE_MODE==='live'?'live':'test';
   const entitled=platformAdmin||Boolean(entitlement&&['active','trialing'].includes(entitlement.status)&&entitlement.invoice_paid===true
     && entitlement.mode===currentMode&&entitlement.current_period_end&&Date.parse(entitlement.current_period_end)>Date.now());
+  return {role:member.data.role,platformAdmin,entitled};
+  } catch {
+    return Response.json({error:'Unable to verify Marketplace access.'},{status:503});
+  }
+}
+
+export async function handleMarketplaceCatalog(request:Request,db:SupabaseLike,env:Record<string,string|undefined>):Promise<Response>{
+  if(request.method!=='GET') return Response.json({error:'Method not allowed'},{status:405});
+  const access=await getMarketplaceAccess(request,db,env);
+  if(access instanceof Response) return access;
+  const {platformAdmin,entitled,role}=access;
   const checkoutConfigured=env.BILLING_MARKETPLACE_ENABLED==='true'
     && isConfiguredValue(env.STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT)
     && /^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT!);
   return Response.json({pricingVersion:MARKETPLACE_PRICING_VERSION,items:catalog.map(item=>({
     ...item,entitled:item.id==='supplier_import'&&entitled,
-    checkoutAvailable:!platformAdmin&&!entitled&&item.id==='supplier_import'&&item.availability==='available'&&checkoutConfigured&&member.data.role==='admin',
+    checkoutAvailable:!platformAdmin&&!entitled&&item.id==='supplier_import'&&item.availability==='available'&&checkoutConfigured&&role==='admin',
   }))},{headers:{'cache-control':'private, no-store'}});
 }
