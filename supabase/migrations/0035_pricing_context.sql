@@ -16,6 +16,15 @@ create table public.project_pricing_contexts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (workspace_id, project_id),
+  constraint project_pricing_contexts_project_workspace_fkey
+    foreign key (project_id, workspace_id)
+    references public.projects(id, workspace_id) on delete cascade,
+  constraint project_pricing_contexts_file_scope_fkey
+    foreign key (plan_file_id, workspace_id, project_id)
+    references public.project_files(id, workspace_id, project_id),
+  constraint project_pricing_contexts_job_scope_fkey
+    foreign key (plan_job_id, workspace_id, project_id, plan_file_id)
+    references public.plan_reading_jobs(id, workspace_id, project_id, file_id),
   constraint project_pricing_contexts_resolution_pair check (
     (resolved_by is null and resolved_at is null)
     or (resolved_by is not null and resolved_at is not null)
