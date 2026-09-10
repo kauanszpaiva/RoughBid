@@ -112,7 +112,13 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => setAvailableWidth(Math.max(180, element.clientWidth - 32)));
+    const updateWidth = () => {
+      const measuredWidth = element.clientWidth;
+      const effectiveWidth = measuredWidth > 0 ? measuredWidth : 632;
+      setAvailableWidth(Math.max(180, effectiveWidth - 32));
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
