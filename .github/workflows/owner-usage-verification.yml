@@ -24,7 +24,7 @@ jobs:
         run: |
           mkdir -p /tmp/owner-usage-evidence
           git archive --format=tar HEAD > /tmp/owner-usage-evidence/source.tar
-          tar -cf /tmp/owner-usage-evidence/pglite.tar node_modules/@electric-sql/pglite
+          tar -czf /tmp/owner-usage-evidence/dependencies.tar.gz node_modules
           git rev-parse HEAD > /tmp/owner-usage-evidence/commit.txt
       - uses: actions/upload-artifact@v4
         with:
