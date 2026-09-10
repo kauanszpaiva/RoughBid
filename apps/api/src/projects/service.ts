@@ -133,7 +133,17 @@ export class ProjectService {
 
     if (paths.length) {
       const removed = await this.db.storage.from(PLAN_BUCKET).remove(paths);
-      if (removed.error) throw new ProjectApiError(500, removed.error.message ?? 'Could not remove project plans');
+      if (removed.error) {
+        // The project deletion is already committed. Returning HTTP 500 here
+        // would falsely imply the delete failed and invite unsafe retries. The
+        // orphaned blob is no longer addressable through project/file records;
+        // keep the deletion truthful and surface cleanup failure in runtime logs.
+        console.error('Project storage cleanup failed after committed database delete', {
+          projectId,
+          pathCount: paths.length,
+          error: removed.error.message ?? 'unknown storage error',
+        });
+      }
     }
     return project;
   }
