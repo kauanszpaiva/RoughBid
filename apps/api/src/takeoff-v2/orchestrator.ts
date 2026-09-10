@@ -38,8 +38,11 @@ function validatedPassResult(value: unknown): DeepPassResult {
   try { checkpointBytes = new TextEncoder().encode(JSON.stringify(input.checkpoint)).byteLength; }
   catch { throw new SyntaxError('Deep pass checkpoint is not serializable.'); }
   if (checkpointBytes > 1_000_000) throw new SyntaxError('Deep pass checkpoint exceeds 1 MB.');
-  if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 160)) {
-    throw new SyntaxError('Deep pass returned invalid model metadata.');
+  for (const field of ['provider', 'model'] as const) {
+    const metadata = input[field];
+    if (metadata !== undefined && (typeof metadata !== 'string' || !metadata.trim() || metadata.length > 160)) {
+      throw new SyntaxError(`Deep pass returned invalid ${field} metadata.`);
+    }
   }
   for (const field of ['inputTokens', 'outputTokens'] as const) {
     const tokenCount = input[field];

@@ -213,6 +213,7 @@ export class SupabaseDeepCheckpointRepository implements DeepCheckpointRepositor
       await this.writer.from('takeoff_passes').update({
         status: pass.status === 'blocked' ? 'blocked' : 'succeeded',
         checkpoint: pass.checkpoint,
+        provider: pass.provider ?? null,
         model: pass.model ?? null,
         input_tokens: pass.inputTokens ?? null,
         output_tokens: pass.outputTokens ?? null,

@@ -3,7 +3,18 @@ import type { GeminiPlanReadInput } from './gemini.ts';
 
 /** The subset of the Anthropic Messages API this reader needs — narrow enough to fake in tests. */
 export interface ClaudeMessagesClient {
-  createMessage(args: { model: string; system: string; maxTokens: number; content: unknown[] }): Promise<{ text: string | null }>;
+  createMessage(args: {
+    model: string;
+    system: string;
+    maxTokens: number;
+    content: unknown[];
+    thinking?: { type: 'adaptive' };
+    outputConfig?: { effort: 'high' };
+  }): Promise<{
+    text: string | null;
+    stopReason?: string;
+    usage?: { inputTokens?: number; outputTokens?: number };
+  }>;
 }
 
 const API_VERSION = '2023-06-01';
@@ -18,7 +29,14 @@ export class HttpClaudeMessagesClient implements ClaudeMessagesClient {
     this.fetcher = fetcher;
   }
 
-  async createMessage(args: { model: string; system: string; maxTokens: number; content: unknown[] }): Promise<{ text: string | null }> {
+  async createMessage(args: {
+    model: string;
+    system: string;
+    maxTokens: number;
+    content: unknown[];
+    thinking?: { type: 'adaptive' };
+    outputConfig?: { effort: 'high' };
+  }): Promise<{ text: string | null; stopReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
     const response = await this.fetcher('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -30,14 +48,32 @@ export class HttpClaudeMessagesClient implements ClaudeMessagesClient {
         model: args.model,
         max_tokens: args.maxTokens,
         system: args.system,
+        ...(args.thinking ? { thinking: args.thinking } : {}),
+        ...(args.outputConfig ? { output_config: args.outputConfig } : {}),
         messages: [{ role: 'user', content: args.content }],
       }),
       signal: AbortSignal.timeout(60_000),
     });
-    if (!response.ok) throw new Error(`Anthropic Messages API request failed (${response.status})`);
-    const payload = await response.json() as { content?: Array<{ type: string; text?: string }> };
+    if (!response.ok) {
+      const error = new Error('Anthropic Messages API request failed.');
+      Object.assign(error, { status: response.status });
+      throw error;
+    }
+    const payload = await response.json() as {
+      content?: Array<{ type: string; text?: string }>;
+      stop_reason?: string;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
     const textBlock = payload.content?.find((block) => block.type === 'text');
-    return { text: textBlock?.text ?? null };
+    const usage = payload.usage ? {
+      ...(payload.usage.input_tokens === undefined ? {} : { inputTokens: payload.usage.input_tokens }),
+      ...(payload.usage.output_tokens === undefined ? {} : { outputTokens: payload.usage.output_tokens }),
+    } : undefined;
+    return {
+      text: textBlock?.text ?? null,
+      ...(payload.stop_reason ? { stopReason: payload.stop_reason } : {}),
+      ...(usage ? { usage } : {}),
+    };
   }
 }
 

@@ -193,3 +193,24 @@ test('an in-flight checkpoint rejects orchestration before the provider is calle
     { runPass: async () => { calls += 1; return { status: 'succeeded', checkpoint: {} }; } }, repository(writer)), isConflict);
   assert.equal(calls, 0);
 });
+
+test('the Claude provider identity is accepted and persisted with its completed pass', async () => {
+  const writer = new MemoryWriter(); const repo = repository(writer);
+  const pass = { status: 'succeeded' as const, checkpoint: { evidence: 'synthetic' }, provider: 'claude', model: 'verified-test-model' };
+  const summary = await runDeepTakeoff('run-1', manifest, { runPass: async () => pass }, repo);
+  assert.equal(summary.succeeded, 10);
+  assert.equal(writer.rows.length, 10);
+  assert.ok(writer.rows.every(row => row.provider === 'claude' && row.model === 'verified-test-model'));
+});
+
+for (const provider of ['', ' '.repeat(2), 'x'.repeat(161), 123]) {
+  test(`invalid provider metadata (${typeof provider}, length ${String(provider).length}) fails before persistence`, async () => {
+    let saved = 0; const failures: string[] = [];
+    const summary = await runDeepTakeoff('run-1', manifest,
+      { runPass: async () => ({ status: 'succeeded', checkpoint: {}, provider }) as never },
+      { begin: async () => 'run', succeed: async () => { saved += 1; }, fail: async (_request, failure) => { failures.push(failure.classification); } });
+    assert.equal(summary.failed, 1);
+    assert.equal(saved, 0);
+    assert.deepEqual(failures, ['invalid_output']);
+  });
+}
