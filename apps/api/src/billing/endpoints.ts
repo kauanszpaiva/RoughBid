@@ -10,7 +10,7 @@ export interface StripeGateway {
   createCheckoutSession(input: ReturnType<typeof createCheckoutRequest>, idempotencyKey?: string): Promise<{ url: string }>;
   createPortalSession(input: ReturnType<typeof createPortalRequest>): Promise<{ url: string }>;
   createCustomer?(user: AuthenticatedUser): Promise<string>;
-  hasBlockingSubscription?(customerId: string, priceIds: readonly string[]): Promise<boolean>;
+  hasBlockingSubscription?(customerId: string, priceIds: readonly string[], workspaceId?: string): Promise<boolean>;
   retrieveSubscription?(subscriptionId: string): Promise<StripeSubscription>;
   retrieveInvoiceSubscription?(invoiceId: string): Promise<string | null>;
   retrieveChargeInvoice?(chargeId:string):Promise<string|null>;
@@ -155,7 +155,7 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
           await deps.repository.saveCustomer(user.id, customerId);
         }
         const conflictingPrices=marketplace?[selectedPrice]:Object.entries(deps.config.priceIds).filter(([key])=>key.startsWith('plan_')).map(([,value])=>value!);
-        if (await deps.stripe.hasBlockingSubscription(customerId,conflictingPrices)) {
+        if (await deps.stripe.hasBlockingSubscription(customerId,conflictingPrices,marketplace?workspaceId:undefined)) {
           return json(409, { error: marketplace?'This Marketplace add-on already has a subscription. Manage it in the billing portal.':'This account already has a membership. Manage it in the billing portal.' });
         }
         const checkoutInput = {

@@ -18,3 +18,18 @@ test('supplier CSV import is bounded to two thousand data rows',()=>{
   const body=Array.from({length:2001},(_,i)=>`Item ${i},EA,1`).join('\n');
   assert.throws(()=>parseSupplierPriceCsv(`Name,Unit,Cost\n${body}`),/2,000 rows/i);
 });
+
+test('missing and ambiguous supplier prices never become zero or a different amount',()=>{
+  for(const cost of ['', ' ', '$', '0x10', '1e3', '"1,25"', '"14"25']) {
+    assert.throws(()=>parseSupplierPriceCsv(`Name,Unit,Cost\nBoard,EA,${cost}`),/unit cost|invalid quote/i,cost);
+  }
+  assert.throws(()=>parseSupplierPriceCsv('Name,Unit,Cost\nBoard,EA'),/unit cost/i);
+  assert.throws(()=>parseSupplierPriceCsv('Name,Unit,Cost\nBoard,EA,14,25'),/extra columns/i);
+  assert.throws(()=>parseSupplierPriceCsv('Name,Unit,Cost,Price\nBoard,EA,14,25'),/ambiguous headers/i);
+  assert.equal(parseSupplierPriceCsv('Name,Unit,Cost\nBoard,EA,0')[0].unitCost,0);
+  assert.equal(parseSupplierPriceCsv('Name,Unit,Cost\nBoard,EA,"$1,234.50"')[0].unitCost,1234.50);
+});
+
+test('supplier CSV byte limit also applies to multibyte UTF-8 content',()=>{
+  assert.throws(()=>parseSupplierPriceCsv('é'.repeat(1024*1024+1)),/2 MB/i);
+});

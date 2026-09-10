@@ -44,18 +44,20 @@ type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   workspaceId?: string;
   body?: unknown;
+  rawBody?: string;
+  contentType?: string;
 };
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", workspaceId, body } = options;
+  const { method = "GET", workspaceId, body, rawBody, contentType = "application/json" } = options;
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": contentType };
   if (workspaceId) headers["x-workspace-id"] = workspaceId;
   const response = await authenticatedFetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     signal: AbortSignal.timeout(path.includes("ai-plan-readings") ? 170_000 : path.endsWith("/complete") ? 120_000 : 30_000),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(rawBody !== undefined ? { body: rawBody } : body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
   if (!response.ok) {
@@ -475,6 +477,12 @@ export type MarketplaceCatalogItem={id:string;priceKey:BillingPriceKey;name:stri
   availability:'available'|'coming_soon';entitled:boolean;checkoutAvailable:boolean};
 export type MarketplaceCatalog={pricingVersion:string;items:MarketplaceCatalogItem[]};
 export function getMarketplaceCatalog(workspaceId:string){return request<MarketplaceCatalog>('/api/marketplace/catalog',{workspaceId});}
+
+export function importSupplierPrices(workspaceId: string, csv: string) {
+  return request<{ materials: import('../types').MaterialItem[] }>('/api/marketplace/supplier-import', {
+    method: 'POST', workspaceId, rawBody: csv, contentType: 'text/csv;charset=utf-8',
+  });
+}
 
 export function createBillingPortal() {
   return request<{ url: string }>("/api/billing/portal", { method: "POST", body: { returnUrl: `${window.location.origin}/app/` } });

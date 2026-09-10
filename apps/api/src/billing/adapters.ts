@@ -44,12 +44,14 @@ export class StripeHttpGateway implements StripeGateway {
     return result.id;
   }
 
-  async hasBlockingSubscription(customerId: string, priceIds: readonly string[] = []): Promise<boolean> {
+  async hasBlockingSubscription(customerId: string, priceIds: readonly string[] = [], workspaceId?: string): Promise<boolean> {
     // More than 100 subscriptions is unexpected: fail closed rather than overlook a later page.
     const response = await this.fetcher(`https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=100`, { headers: { authorization: `Bearer ${this.secretKey}` } });
-    const result = await response.json() as { data?: Array<{ status: string;items?:{data?:Array<{price?:{id?:string}}>} }>; has_more?: boolean };
+    const result = await response.json() as { data?: Array<{ status: string;metadata?:{workspace_id?:string};items?:{data?:Array<{price?:{id?:string}}>} }>; has_more?: boolean };
     if (!response.ok || !Array.isArray(result.data)) throw new Error('Unable to verify existing subscriptions.');
     return result.has_more === true || result.data.some(item => !['canceled', 'incomplete_expired'].includes(item.status)
+      // Marketplace subscriptions belong to a workspace. Unknown scope still blocks a possible duplicate.
+      && (!workspaceId || !item.metadata?.workspace_id || item.metadata.workspace_id === workspaceId)
       && (!priceIds.length || item.items?.data?.some(line=>priceIds.includes(line.price?.id??''))));
   }
 
