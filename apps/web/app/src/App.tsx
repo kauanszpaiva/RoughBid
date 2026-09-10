@@ -471,12 +471,12 @@ export default function App() {
       laborCost,
       equipmentCost,
       directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
-      findingId: item.findingId,
-      pageNumber: item.pageNumber,
-      area: item.area,
-      sourceExcerpt: item.sourceExcerpt,
       pricingStatus,
-      pricingSource: costOverride?.pricingSource,
+      ...(item.findingId === undefined ? {} : { findingId: item.findingId }),
+      ...(item.pageNumber === undefined ? {} : { pageNumber: item.pageNumber }),
+      ...(item.area === undefined ? {} : { area: item.area }),
+      ...(item.sourceExcerpt === undefined ? {} : { sourceExcerpt: item.sourceExcerpt }),
+      ...(costOverride?.pricingSource === undefined ? {} : { pricingSource: costOverride.pricingSource }),
     };
 
     const updated: Project = {
