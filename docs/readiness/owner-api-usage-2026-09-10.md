@@ -32,8 +32,9 @@ Other providers, platform invoices and other applications are outside this meter
 - API previously advertised $125; the new response reads the real database value.
 - Pilot SQL already enforces rolling weekly projects, expiry, one PDF (10 MiB/10
   pages), one AI attempt/project, $0.25 permanent reserve and $5 reserve/user.
-- Owner complimentary use is not free provider usage and is NOT covered by the
-  pilot cohort cap. This change makes that limitation visible, not fixed.
+- Owner complimentary use is not free provider usage and is not covered by the
+  pilot cohort cap. Migration 0037 adds a separate atomic 25-attempt rolling
+  24-hour cap across all owner workspaces; failed attempts remain counted.
 
 ## Funding scenario (not a measured cost forecast or hard guarantee)
 
