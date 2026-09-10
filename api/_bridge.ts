@@ -6,6 +6,37 @@ export const config = {
   },
 };
 
+/** Web-standard boundary for signed payloads. Never touches Node's lazy req.body parser. */
+export function createRawPostHandler(handleRequest: (request: Request) => Promise<Response>) {
+  return async (request: Request): Promise<Response> => {
+    if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    const limit = 2 * 1024 * 1024;
+    const tooLarge = () => Response.json({ error: 'Request too large' }, { status: 413 });
+    if (Number(request.headers.get('content-length')) > limit) return tooLarge();
+    if (request.bodyUsed) return Response.json({ error: 'Request body is unavailable' }, { status: 400 });
+    const reader = request.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > limit) { await reader.cancel(); return tooLarge(); }
+          chunks.push(value);
+        }
+      } catch {
+        return Response.json({ error: 'Unable to read request body' }, { status: 400 });
+      } finally { reader.releaseLock(); }
+    }
+    const rawBody = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { rawBody.set(chunk, offset); offset += chunk.byteLength; }
+    return handleRequest(new Request(request, { body: rawBody }));
+  };
+}
+
 function headerEntries(headers: Record<string, string | string[] | undefined>) {
   return Object.entries(headers).flatMap(([name, value]) => {
     if (value === undefined) return [];
