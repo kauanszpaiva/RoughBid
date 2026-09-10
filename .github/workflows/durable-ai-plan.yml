@@ -59,6 +59,8 @@ jobs:
         run: node scripts/test-blueprint-browser.mjs
       - name: AI review recovery and pricing evidence boundary
         run: node scripts/test-ai-review-browser.mjs
+      - name: Paid return recovery without automatic AI or payment
+        run: node scripts/test-paid-return-browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

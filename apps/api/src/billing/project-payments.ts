@@ -73,6 +73,28 @@ export class ProjectPayments {
       membership,pricing_version:price.version,livemode:this.env.STRIPE_MODE === 'live' } }));
     return publicQuote(row);
   }
+  async savedQuote(userId: string, workspaceId: string, projectId: string, fileId: string, quoteId?: string) {
+    await this.access(userId, workspaceId, projectId);
+    if (!fileId) throw new ProjectApiError(400, 'Select an uploaded plan.');
+    const file = databaseValue(await this.db.from('project_files').select('id')
+      .eq('id', fileId).eq('workspace_id', workspaceId).eq('project_id', projectId).maybeSingle());
+    if (!file) throw new ProjectApiError(404, 'Plan not found.');
+    const scoped = () => this.db.from('project_reading_quotes').select('*')
+      .eq('workspace_id', workspaceId).eq('project_id', projectId).eq('file_id', fileId)
+      .eq('livemode', this.env.STRIPE_MODE === 'live');
+    if (quoteId) {
+      const quote = databaseValue(await scoped().eq('id', quoteId).maybeSingle());
+      return quote ? publicQuote(quote) : null;
+    }
+    // Recover paid/revoked history before a newer abandoned price calculation.
+    // This is a read only view; payment, file hash and attempts remain enforced
+    // by the existing reservation RPC when the estimator explicitly starts AI.
+    let quote = databaseValue(await scoped().in('status', ['paid', 'processing', 'complete', 'failed', 'revoked'])
+      .order('created_at', { ascending: false }).limit(1).maybeSingle());
+    if (!quote) quote = databaseValue(await scoped().eq('status', 'quoted').gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false }).limit(1).maybeSingle());
+    return quote ? publicQuote(quote) : null;
+  }
   async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string) {
     await this.access(userId,workspaceId,projectId);
     if (await isPlatformAdmin(this.db, userId)) {
@@ -137,19 +159,24 @@ export class ProjectPayments {
       p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency.trim().toLowerCase(),p_livemode:event.livemode}));
   }
 }
-export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage: AiPlanObjectStorage): Promise<Response> {
+export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage?: AiPlanObjectStorage): Promise<Response> {
   try {
-    if (request.method !== 'POST') return Response.json({error:'Method not allowed'},{status:405});
+    const url = new URL(request.url);
+    const parts = url.pathname.split('/');
+    const readingQuoteRead = request.method === 'GET' && parts[4] === 'reading-quote';
+    if (request.method !== 'POST' && !readingQuoteRead) return Response.json({error:'Method not allowed'},{status:405});
     const {data,error} = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401,'Sign in to continue.');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400,'Select a company.');
-    const parts = new URL(request.url).pathname.split('/');
     const projectId = parts[3]!;
+    if (readingQuoteRead) return Response.json(await payments.savedQuote(data.user.id, workspaceId, projectId,
+      url.searchParams.get('file_id') ?? '', url.searchParams.get('quote_id') || undefined), { headers: { 'cache-control': 'private, no-store' } });
     const input = await request.json();
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProjectApiError(400,'Invalid request.');
+    if (parts[4] === 'reading-quote' && !storage) throw new ProjectApiError(503, 'Project storage is not configured.');
     const result = parts[4] === 'reading-quote'
-      ? await payments.quote(data.user.id,workspaceId,projectId,input,storage)
+      ? await payments.quote(data.user.id,workspaceId,projectId,input,storage!)
       : await payments.checkout(data.user.id,workspaceId,projectId,String(input.quote_id ?? ''));
     return Response.json(result);
   } catch(error) {
