@@ -135,10 +135,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     if (!serviceRoleKey || !process.env.SUPABASE_URL) return json({error:'Project billing is not configured.'},503);
     try {
       const admin = createClient(process.env.SUPABASE_URL, serviceRoleKey, {auth:{persistSession:false,autoRefreshToken:false}});
+      const payments = new ProjectPayments(admin, process.env);
+      if (request.method === 'GET') return handleProjectPayment(request, client as unknown as SupabaseLike, payments);
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      return handleProjectPayment(request,client as unknown as SupabaseLike,new ProjectPayments(admin,process.env),storage);
+      return handleProjectPayment(request,client as unknown as SupabaseLike,payments,storage);
     } catch { return json({error:'Project billing is not configured.'},503); }
   }
   if (pathname === '/api/billing/checkout' || pathname === '/api/billing/portal' || pathname === '/api/webhooks/stripe') {

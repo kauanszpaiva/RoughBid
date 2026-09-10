@@ -480,6 +480,10 @@ export type ReadingQuote = { id: string; project_id: string; file_id: string; am
 export function getReadingQuote(workspaceId: string, projectId: string, fileId: string, scope: string, trades?: string[]) {
   return request<ReadingQuote>(`/api/projects/${projectId}/reading-quote`,{method:'POST',workspaceId,body:{file_id:fileId,scope,...(trades ? {trades} : {})}});
 }
+export function getSavedReadingQuote(workspaceId: string, projectId: string, fileId: string, quoteId?: string) {
+  const query = new URLSearchParams({ file_id: fileId, ...(quoteId ? { quote_id: quoteId } : {}) });
+  return request<ReadingQuote | null>(`/api/projects/${projectId}/reading-quote?${query}`, { workspaceId });
+}
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
 }

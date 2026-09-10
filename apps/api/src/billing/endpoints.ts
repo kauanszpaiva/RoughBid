@@ -50,12 +50,17 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
     if (path === '/api/webhooks/stripe') {
       const rawBody = await request.text();
       let event: StripeEvent;
+      let validationStage: 'signature' | 'event' | 'mode' = 'signature';
       try {
         verifyStripeWebhook(rawBody, request.headers.get('stripe-signature'), deps.webhookSecret);
+        validationStage = 'event';
         event = JSON.parse(rawBody) as StripeEvent;
         if (!event.id || !event.type || typeof event.livemode !== 'boolean') throw new Error('Malformed Stripe event.');
+        validationStage = 'mode';
         if (event.livemode !== (deps.config.mode === 'live')) throw new Error('Stripe mode mismatch.');
       } catch {
+        // Fixed enum only: never expose payloads, signature headers or secrets.
+        console.warn('Stripe webhook validation failed', { stage: validationStage });
         return json(400, { error: 'Invalid Stripe webhook.' });
       }
       try {

@@ -52,8 +52,8 @@ tenant/path mismatch and proposal row locking. Browser fixtures are explicitly
 synthetic; they are separate from the real supplied PDF used for pilot verification.
 Chromium and WebKit passed the PDF/CSP and React review tests.
 
-The production smoke ledger must be updated after deployment. An old deployment
-being READY does not certify this candidate. A full Stripe TEST Checkout and
+Each deployment is verified against its exact merge commit. An old deployment
+being READY does not certify the next candidate. A full Stripe TEST Checkout and
 signed-webhook cycle, approved membership prices and appropriate LIVE configuration
 are required for paid GA; see the separate Stripe audit.
 
@@ -79,3 +79,53 @@ MAX_TOKENS distinctly, and visibly discloses incomplete coverage. Input/output,
 model, reservation and attempt limits remain unchanged. Its real provider
 acceptance must be verified after deployment in the QA account's second existing
 project using that project's unused normal file/AI allowance. No quota reset.
+
+## Verified bounded pilot run and human review
+
+PR52 merged as `cfc33dd208b1522fe9b12eceff67592ab469abbe`; production deployment
+`dpl_BjnLWNBJ9HqTUBikMwrSd56GViij` was READY at the production alias. The tested
+candidate passed 469 tests, type checks, build, production dependency audit
+(zero reported vulnerabilities), and Chromium/WebKit browser gates. Expired
+cached sessions now perform one safe refresh for protected GETs; definitive
+refresh rejection returns the user to sign-in. Mutations are never replayed.
+
+The second existing QA project `0482d510-d894-4b55-954c-463ea0479ddf` used its
+normal unused file/AI allowance. Its real PDF is the unchanged first ten pages
+of the 23-page 24 Angell architect set, SHA-256
+`ef1be96d0b021534615adb29c33743bdc5ad97606563a950d8366e1ffef0fb05`.
+Job `12845d78-e45f-4fd7-92e6-9ece29599ff9` completed at 17:07:02 UTC with
+11 persisted findings requiring human review. One candidate without usable
+evidence was omitted. The browser rendered the PDF, saved findings and explicit
+partial-coverage warnings. This is not certification of an exhaustive takeoff.
+
+Human review accepted the first-floor unit area of 1,270 SF after checking the
+actual page 7 text. A slab item that confused a 4-inch thickness with a 4-LF
+quantity was rejected. Final state: one accepted, one rejected, nine pending.
+The accepted quantity retained its finding/page provenance and had no invented
+cost. Client PDF, internal PDF, CSV and proposal export remained blocked until
+an estimator supplies verified prices.
+
+The two real QA runs reserved $0.50 in total; their combined token-based estimated
+cost was $0.032152. Actual provider invoiced cost remains unknown. No quota or
+budget was reset. All eight live authorization checks passed again, and a third
+project was refused with HTTP429 without inserting a row.
+
+## Payment-return follow-up candidate
+
+A real Stripe-hosted TEST payment succeeded, but signed delivery initially
+returned HTTP400. The matching existing TEST endpoint signing secret was
+corrected in Vercel Production and requires this candidate's deployment.
+Server diagnostics report only a fixed validation stage, never payloads,
+signatures, keys or freeform error details.
+
+The paid-return fix reads the existing quote through an authenticated, scoped,
+read-only GET. It restores its original trades and scope on reload and separates
+payment refresh from explicit AI start. Unpaid prices may be recalculated after
+rechecking saved state; saved completed readings remain accessible during a
+provider outage. The mode filter prevents historical TEST quotes appearing after
+a LIVE-mode switch. Browser fixtures cover these transitions and verify that
+passive recovery creates no quote, checkout, write or AI request.
+
+Signed payment delivery, duplicate delivery, refund revocation and the real
+payment-return UI must be recorded after this candidate becomes production.
+The Stripe audit records exact TEST object IDs and the remaining commercial gates.

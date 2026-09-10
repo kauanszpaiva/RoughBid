@@ -1,6 +1,7 @@
 # RoughBid Stripe launch audit — 10 September 2026
 
-Verified directly through the Stripe connector at approximately 16:09 UTC. Account:
+Initial inventory verified directly through the Stripe connector at approximately
+16:09 UTC; later controlled TEST evidence is recorded below. Account:
 `acct_1O0CDnDg0iNecPWH`, dashboard name `Nauakk`; the existing RoughBid product metadata
 identifies KSP. The separate BEZ Member Hub sandbox was not used.
 
@@ -8,7 +9,8 @@ identifies KSP. The separate BEZ Member Hub sandbox was not used.
 
 Commercial billing is **not certified for launch**. The existing RoughBid TEST
 webhook was repaired and read back successfully. No real charge, LIVE write,
-price, subscription, customer, or checkout was created during this audit.
+catalog price or subscription was created. The initial inventory below predates
+the controlled TEST Checkout documented later in this audit.
 
 | Surface | Directly verified state |
 | --- | --- |
@@ -200,6 +202,39 @@ No credential was saved in a file or repository. Both dedicated tabs were closed
 This change requires a new deployment. No deployment was triggered by the billing
 agent, and the payment lifecycle remains uncertified until the normal TEST
 Checkout succeeds and its signed webhook grants durable entitlement.
+
+## Hosted TEST payment and signing-secret correction
+
+Production `cfc33dd208b1522fe9b12eceff67592ab469abbe`, deployment
+`dpl_BjnLWNBJ9HqTUBikMwrSd56GViij`, picked up the corrected TEST API credential.
+A fresh normal API quote, `9612d7ae-752a-47f2-85aa-e77af052458c`, uses the same
+QA project and real file above: 1,274 USD cents, ten pages, Framing and explicit
+payment-lifecycle-only scope. Stripe independently confirmed TEST mode and the
+matching quote/workspace/project metadata before submission of its documented
+4242 test card. No real card or funds were used.
+
+- Checkout: `cs_test_a1nQRW8FKQU5VrOTfaMTBWZmaySdFkdayiLpx9Tmp8qMwA8eC5HG6r1jPz`, complete/paid.
+- PaymentIntent: `pi_3UEBXODg0iNecPWH45pASfFC`, succeeded, 1,274 USD cents received in TEST.
+- Charge: `ch_3UEBXODg0iNecPWH4dezlTg0`.
+- Signed event: `evt_1UEBXQDg0iNecPWHrPjf7dB4`, `checkout.session.completed`, `livemode=false`.
+
+The browser returned to `/app/?payment=returned` in the correct QA session. The
+initial signed deliveries at 17:13:28 and 17:13:45 UTC failed with HTTP400.
+The quote consequently remained quoted, with zero attempts and no AI job.
+Stripe payment alone was not treated as application entitlement.
+
+The existing TEST endpoint's signing secret was copied directly through private
+in-memory UI state into the existing Production `STRIPE_WEBHOOK_SECRET`. Its
+Secret type, note, environment scope and all other settings were preserved.
+The endpoint was not recreated or rotated; no secret was written to repository,
+scripts or deliverables. The new deployment must consume this corrected value.
+
+The accompanying application fix restores the saved scoped quote on reload
+without calculating a new price or starting AI. Payment refresh and AI start
+are separate explicit actions. After deployment, resend the original event
+from Stripe, verify durable payment and duplicate idempotence, then refund this
+same TEST payment and verify signed revocation. Record actual responses and
+database/UI evidence; do not write financial state directly.
 
 ## Evidence sources
 

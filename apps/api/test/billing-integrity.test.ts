@@ -71,6 +71,32 @@ test('active state with unpaid invoice does not manufacture payment and unrelate
   assert.equal(verifiedSubscriptionUpdate(sub,['price_Pro123'],1)?.invoicePaid,false);
   assert.equal(verifiedSubscriptionUpdate(sub,['price_other'],1),null);
 });
+
+test('webhook diagnostics identify validation stage without exposing request data or changing payment state', async (t) => {
+  const logs: unknown[][] = [];
+  t.mock.method(console, 'warn', (...values: unknown[]) => { logs.push(values); });
+  const f = fixture();
+  let reconciliations = 0;
+  f.deps.reconcileProjectPayment = async () => { reconciliations++; };
+  const handler = createBillingEndpointHandler(f.deps);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const malformed = '{ PRIVATE_EVENT_PAYLOAD';
+  const signedMalformed = new Request('https://roughbid.test/api/webhooks/stripe', { method: 'POST', body: malformed,
+    headers: { 'stripe-signature': `t=${timestamp},v1=${createHmac('sha256', 'whsec_unit').update(`${timestamp}.${malformed}`).digest('hex')}` } });
+  for (const request of [
+    webhook({ id: 'PRIVATE_EVENT_ID', type: 'checkout.session.completed', livemode: false }, false),
+    signedMalformed,
+    webhook({ id: 'PRIVATE_EVENT_ID', type: 'checkout.session.completed', livemode: true }),
+  ]) {
+    const response = await handler(request);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'Invalid Stripe webhook.' });
+  }
+  assert.deepEqual(logs, ['signature', 'event', 'mode'].map(stage => ['Stripe webhook validation failed', { stage }]));
+  assert.doesNotMatch(JSON.stringify(logs), /PRIVATE|whsec_|stripe-signature/);
+  assert.equal(reconciliations, 0);
+  assert.deepEqual(f.updates, []);
+});
 test('Stripe transport passes the server idempotency key and fails closed on unknown subscription pages',async()=>{
   assert.throws(()=>new StripeHttpGateway('sk_live_unit',fetch,'test'),/mode does not match/);
   const calls:any[]=[];
