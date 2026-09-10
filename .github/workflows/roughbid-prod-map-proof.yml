@@ -1,0 +1,27 @@
+name: RoughBid Production Mapping Proof
+
+on:
+  push:
+    branches:
+      - agent/chat-roughbid-finalize
+    paths:
+      - .github/workflows/roughbid-prod-map-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove-public-mapping:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve production frontend Supabase host without exposing keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$(curl -fsS --retry 2 --max-time 30 https://roughbid.vercel.app/app/)"
+          asset="$(printf '%s' "$html" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -n 1)"
+          test -n "$asset"
+          host="$(curl -fsS --retry 2 --max-time 60 "https://roughbid.vercel.app${asset}" | grep -oE '[a-z]{20}\.supabase\.co' | sort -u | head -n 1)"
+          test -n "$host"
+          echo "production_supabase_host=$host"
+          test "$host" = "piasgpciojstjalaqazu.supabase.co"
