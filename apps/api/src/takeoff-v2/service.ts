@@ -5,6 +5,7 @@ import { runDeepTakeoff, type DeepRunSummary } from './orchestrator.ts';
 import { createPlanSetManifest } from './preflight.ts';
 import type {
   DeepCheckpointRepository,
+  DeepPassDisposition,
   DeepPassProvider,
   DeepPassRequest,
   DeepPassResult,
@@ -12,6 +13,13 @@ import type {
 } from './types.ts';
 
 export const FULL_TAKEOFF_V2_MODE = 'full_v2';
+/**
+ * A claim older than this is treated as abandoned by a crashed run. It is long
+ * enough that a live high-reasoning pass never loses its own claim.
+ */
+export const FULL_TAKEOFF_V2_LEASE_MS = 15 * 60 * 1000;
+export const FULL_TAKEOFF_V2_IN_PROGRESS =
+  'A Full Takeoff run for this plan set is already in progress.';
 export const FULL_TAKEOFF_V2_ORCHESTRATOR_VERSION = 'takeoff-v2.1';
 
 export interface FullTakeoffV2ProviderFactory {
@@ -33,7 +41,14 @@ export interface FullTakeoffV2Persistence {
     fileId: string;
     requestedBy: string;
   }): Promise<{ runId: string; resumed: boolean; checkpoints: DeepCheckpointRepository }>;
-  finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed'>;
+  finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed' | 'processing'>;
+}
+
+/** A claim is live until its lease expires; unparsable or absent stamps are treated as expired. */
+function leaseIsLive(stamp: unknown, now: number): boolean {
+  if (typeof stamp !== 'string') return false;
+  const claimedAt = Date.parse(stamp);
+  return Number.isFinite(claimedAt) && now - claimedAt < FULL_TAKEOFF_V2_LEASE_MS;
 }
 
 function result<T>(value: { data: T; error: { message?: string; code?: string } | null }, message: string): T {
@@ -63,6 +78,7 @@ export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistenc
 
     let run = await findRun();
     const resumed = Boolean(run);
+    let createdHere = false;
     if (!run) {
       const inserted = await this.writer.from('takeoff_runs').insert({
         workspace_id: input.workspaceId,
@@ -74,17 +90,32 @@ export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistenc
         orchestrator_version: FULL_TAKEOFF_V2_ORCHESTRATOR_VERSION,
         requested_by: input.requestedBy,
         started_at: new Date().toISOString(),
+        // Stamped explicitly so the claim never depends on a column default.
+        updated_at: new Date().toISOString(),
       }).select('*').single();
       if (inserted.error?.code === '23505') run = await findRun();
-      else run = result<any>(inserted, 'Could not create the Full Takeoff run.');
+      else {
+        run = result<any>(inserted, 'Could not create the Full Takeoff run.');
+        createdHere = true;
+      }
     }
     if (!run?.id) throw new ProjectApiError(500, 'Full Takeoff run identity is unavailable.');
 
-    result(
-      await this.writer.from('takeoff_runs').update({ status: 'processing', completed_at: null, updated_at: new Date().toISOString() })
-        .eq('id', run.id).eq('workspace_id', input.workspaceId),
-      'Could not resume the Full Takeoff run.',
-    );
+    // Only the caller that created the row already owns it; every other caller
+    // has to win the claim so two simultaneous starts cannot share one run.
+    if (!createdHere) {
+      if (run.status === 'processing' && leaseIsLive(run.updated_at, Date.now())) {
+        throw new ProjectApiError(409, FULL_TAKEOFF_V2_IN_PROGRESS);
+      }
+      const claimed = result<any[]>(
+        await this.writer.from('takeoff_runs')
+          .update({ status: 'processing', completed_at: null, updated_at: new Date().toISOString() })
+          .eq('id', run.id).eq('workspace_id', input.workspaceId)
+          .eq('status', run.status).eq('updated_at', run.updated_at).select('id'),
+        'Could not resume the Full Takeoff run.',
+      );
+      if (!claimed?.length) throw new ProjectApiError(409, FULL_TAKEOFF_V2_IN_PROGRESS);
+    }
 
     const sheetRows = input.manifest.sheets.map(sheet => ({
       takeoff_run_id: run.id,
@@ -125,7 +156,10 @@ export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistenc
     };
   }
 
-  async finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed'> {
+  async finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed' | 'processing'> {
+    // Another run still holds part of this plan set, so its terminal status is
+    // not ours to write.
+    if (summary.claimed > 0 && summary.failed === 0) return 'processing';
     const status = summary.failed > 0 ? 'failed' : 'needs_review';
     result(
       await this.writer.from('takeoff_runs').update({
@@ -165,33 +199,56 @@ class SupabaseDeepCheckpointRepository implements DeepCheckpointRepository {
     return id;
   }
 
-  async begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'> {
+  async begin(request: DeepPassRequest): Promise<DeepPassDisposition> {
     const sheetId = this.sheetId(request);
     const existing = result<any>(
-      await this.writer.from('takeoff_passes').select('status')
+      await this.writer.from('takeoff_passes').select('status, started_at')
         .eq('takeoff_run_id', this.runId).eq('plan_sheet_id', sheetId)
         .eq('pass_type', request.passType).eq('attempt', request.attempt).maybeSingle(),
       'Could not read a Full Takeoff checkpoint.',
     );
     if (existing?.status === 'succeeded') return 'already_succeeded';
     if (existing?.status === 'blocked') return 'already_blocked';
-    result(
-      await this.writer.from('takeoff_passes').upsert({
+
+    const startedAt = new Date().toISOString();
+    const claim = {
+      status: 'processing',
+      idempotency_key: request.idempotencyKey,
+      failure_classification: null,
+      started_at: startedAt,
+      completed_at: null,
+    };
+
+    if (!existing) {
+      // The unique key on (run, sheet, pass_type, attempt) is the arbiter: a
+      // losing insert means another run is already paying for this pass.
+      const inserted = await this.writer.from('takeoff_passes').insert({
         takeoff_run_id: this.runId,
         workspace_id: this.workspaceId,
         project_id: this.projectId,
         plan_sheet_id: sheetId,
         pass_type: request.passType,
         attempt: request.attempt,
-        status: 'processing',
-        idempotency_key: request.idempotencyKey,
-        failure_classification: null,
-        started_at: new Date().toISOString(),
-        completed_at: null,
-      }, { onConflict: 'takeoff_run_id,plan_sheet_id,pass_type,attempt' }),
-      'Could not begin a Full Takeoff checkpoint.',
-    );
-    return 'run';
+        ...claim,
+      }).select('id');
+      if (!inserted.error) return 'run';
+      if (inserted.error.code === '23505') return 'already_claimed';
+      throw new ProjectApiError(500, inserted.error.message ?? 'Could not begin a Full Takeoff checkpoint.');
+    }
+
+    // A live claim owns the pass. Its outcome is unknown, not absent, so it is
+    // never replayed while the lease holds.
+    if (existing.status === 'processing' && leaseIsLive(existing.started_at, Date.now())) return 'already_claimed';
+
+    let reclaim = this.writer.from('takeoff_passes').update(claim)
+      .eq('takeoff_run_id', this.runId).eq('plan_sheet_id', sheetId)
+      .eq('pass_type', request.passType).eq('attempt', request.attempt)
+      .eq('status', existing.status);
+    if (existing.status === 'processing' && typeof existing.started_at === 'string') {
+      reclaim = reclaim.eq('started_at', existing.started_at);
+    }
+    const reclaimed = result<any[]>(await reclaim.select('id'), 'Could not begin a Full Takeoff checkpoint.');
+    return reclaimed?.length ? 'run' : 'already_claimed';
   }
 
   async succeed(request: DeepPassRequest, pass: DeepPassResult): Promise<void> {

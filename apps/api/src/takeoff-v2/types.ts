@@ -65,9 +65,12 @@ export interface DeepPassResult {
   outputTokens?: number;
 }
 
+/** `already_claimed` means a live run owns the pass; it must not be re-run here. */
+export type DeepPassDisposition = 'run' | 'already_succeeded' | 'already_blocked' | 'already_claimed';
+
 export interface DeepPassProvider { runPass(request: DeepPassRequest): Promise<DeepPassResult>; }
 export interface DeepCheckpointRepository {
-  begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'>;
+  begin(request: DeepPassRequest): Promise<DeepPassDisposition>;
   succeed(request: DeepPassRequest, result: DeepPassResult): Promise<void>;
   fail(request: DeepPassRequest, failure: { classification: string; message: string }): Promise<void>;
 }

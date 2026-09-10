@@ -24,27 +24,51 @@ export interface DeepRunSummary {
   succeeded: number;
   blocked: number;
   failed: number;
+  /** Passes another live run already owns. They are never re-billed here. */
+  claimed: number;
   sheets: DeepSheetSummary[];
 }
 
+/** Raised only by this module, so its text is safe to persist and return. */
+export class DeepPassOutputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DeepPassOutputError';
+  }
+}
+
+export const REDACTED_PROVIDER_FAILURE =
+  'The Full Takeoff provider call did not complete. Provider detail was withheld.';
+
+/**
+ * Provider and transport exception text is untrusted and may echo request or
+ * response bodies, so only this module's own validation text survives.
+ */
+export function redactDeepPassFailure(error: unknown): { classification: string; message: string } {
+  if (error instanceof DeepPassOutputError) {
+    return { classification: 'invalid_output', message: error.message.slice(0, 300) };
+  }
+  return { classification: 'provider_or_pipeline_failure', message: REDACTED_PROVIDER_FAILURE };
+}
+
 function validatedPassResult(value: unknown): DeepPassResult {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SyntaxError('Deep pass returned an invalid result object.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DeepPassOutputError('Deep pass returned an invalid result object.');
   const input = value as Record<string, unknown>;
-  if (input.status !== 'succeeded' && input.status !== 'blocked') throw new SyntaxError('Deep pass returned an invalid status.');
+  if (input.status !== 'succeeded' && input.status !== 'blocked') throw new DeepPassOutputError('Deep pass returned an invalid status.');
   if (!input.checkpoint || typeof input.checkpoint !== 'object' || Array.isArray(input.checkpoint)) {
-    throw new SyntaxError('Deep pass returned an invalid checkpoint.');
+    throw new DeepPassOutputError('Deep pass returned an invalid checkpoint.');
   }
   let checkpointBytes: number;
   try { checkpointBytes = new TextEncoder().encode(JSON.stringify(input.checkpoint)).byteLength; }
-  catch { throw new SyntaxError('Deep pass checkpoint is not serializable.'); }
-  if (checkpointBytes > 1_000_000) throw new SyntaxError('Deep pass checkpoint exceeds 1 MB.');
+  catch { throw new DeepPassOutputError('Deep pass checkpoint is not serializable.'); }
+  if (checkpointBytes > 1_000_000) throw new DeepPassOutputError('Deep pass checkpoint exceeds 1 MB.');
   if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 160)) {
-    throw new SyntaxError('Deep pass returned invalid model metadata.');
+    throw new DeepPassOutputError('Deep pass returned invalid model metadata.');
   }
   for (const field of ['inputTokens', 'outputTokens'] as const) {
     const tokenCount = input[field];
     if (tokenCount !== undefined && (!Number.isSafeInteger(tokenCount) || (tokenCount as number) < 0)) {
-      throw new SyntaxError(`Deep pass returned invalid ${field}.`);
+      throw new DeepPassOutputError(`Deep pass returned invalid ${field}.`);
     }
   }
   return value as DeepPassResult;
@@ -63,7 +87,7 @@ export async function runDeepTakeoff(
 ): Promise<DeepRunSummary> {
   if (!runId) throw new TypeError('runId is required.');
   if (manifest.physicalPageCount !== manifest.sheets.length) throw new Error('Manifest page count does not reconcile.');
-  const summary: DeepRunSummary = { attempted: 0, succeeded: 0, blocked: 0, failed: 0, sheets: [] };
+  const summary: DeepRunSummary = { attempted: 0, succeeded: 0, blocked: 0, failed: 0, claimed: 0, sheets: [] };
   for (const sheet of manifest.sheets) {
     const sheetSummary: DeepSheetSummary = {
       physicalPageNumber: sheet.physicalPageNumber,
@@ -80,6 +104,12 @@ export async function runDeepTakeoff(
         reasoningEffort: 'high',
       };
       const disposition = await repository.begin(request);
+      if (disposition === 'already_claimed') {
+        summary.claimed += 1;
+        sheetSummary.status = 'blocked';
+        sheetSummary.blockers.push(`${passType} pass is claimed by another Full Takeoff run.`);
+        break;
+      }
       if (disposition !== 'run') {
         sheetSummary.passesCompleted += 1;
         if (disposition === 'already_blocked') {
@@ -100,13 +130,11 @@ export async function runDeepTakeoff(
           sheetSummary.blockers.push(`${passType} pass is blocked.`);
         } else summary.succeeded += 1;
       } catch (error) {
+        const failure = redactDeepPassFailure(error);
         summary.failed += 1;
         sheetSummary.status = 'blocked';
-        sheetSummary.blockers.push(`${passType}: ${(error instanceof Error ? error.message : 'Unknown failure').slice(0, 300)}`);
-        await repository.fail(request, {
-          classification: error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure',
-          message: (error instanceof Error ? error.message : 'Unknown failure').slice(0, 1000),
-        });
+        sheetSummary.blockers.push(`${passType}: ${failure.message}`);
+        await repository.fail(request, failure);
         break;
       }
     }
