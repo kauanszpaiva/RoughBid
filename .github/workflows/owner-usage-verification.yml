@@ -1,0 +1,44 @@
+name: Owner usage verification
+on:
+  push:
+    branches: [agent/chat-owner-usage-20260910]
+permissions:
+  contents: read
+concurrency:
+  group: owner-usage-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Export exact-source verification fixtures
+        run: |
+          mkdir -p /tmp/owner-usage-evidence
+          git archive --format=tar HEAD > /tmp/owner-usage-evidence/source.tar
+          tar -cf /tmp/owner-usage-evidence/pglite.tar node_modules/@electric-sql/pglite
+          git rev-parse HEAD > /tmp/owner-usage-evidence/commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: owner-usage-source-${{ github.sha }}
+          path: /tmp/owner-usage-evidence/
+          retention-days: 1
+      - name: Typecheck API and worker
+        run: npx tsc --noEmit
+      - name: Typecheck web
+        run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Full tests
+        run: npm test
+      - name: Build with compilation-only configuration
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
