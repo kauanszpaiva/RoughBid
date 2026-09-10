@@ -23,6 +23,10 @@ test('0035 defines a workspace-scoped pricing context and protected human resolu
   assert.match(sql, /resolved_at timestamptz/i);
   assert.match(sql, /unique \(workspace_id, project_id\)/i);
 
+  assert.match(sql, /foreign key \(project_id, workspace_id\)[\s\S]*references public\.projects\(id, workspace_id\) on delete cascade/i);
+  assert.match(sql, /foreign key \(plan_file_id, workspace_id, project_id\)[\s\S]*references public\.project_files\(id, workspace_id, project_id\)/i);
+  assert.match(sql, /foreign key \(plan_job_id, workspace_id, project_id, plan_file_id\)[\s\S]*references public\.plan_reading_jobs\(id, workspace_id, project_id, file_id\)/i);
+
   assert.match(sql, /resolved_by is null and resolved_at is null[\s\S]*resolved_by is not null and resolved_at is not null/i);
   assert.match(sql, /address_status <> 'needs_resolution' or pricing_address is null/i);
   assert.match(sql, /address_status <> 'resolved'[\s\S]*pricing_address is not null[\s\S]*resolved_by is not null[\s\S]*resolved_at is not null/i);
