@@ -21,7 +21,7 @@ price, subscription, customer, or checkout was created during this audit.
 | LIVE portal configuration | An account-wide default exists; its compatibility with RoughBid terms and products was not certified |
 | TEST checkout history | The complete list contained one unrelated KSP Autopilot checkout and zero RoughBid checkouts |
 
-The production database audit in the same release session found nine
+The initial production database audit in the same release session found nine
 `project_reading_quotes`, all with `livemode=false` and `status=quoted`; zero
 `project_payment_events`; zero `stripe_events`; and zero `billing_customers`.
 These database counts agree with the absence of a completed RoughBid payment
@@ -57,7 +57,8 @@ Added the five events already handled by `apps/api/src/billing/stripe.ts` and
 Stripe returned all 12 events, `livemode=false` and `status=enabled` after the
 update. A separate GET of the endpoint confirmed the saved configuration. The
 endpoint ID, URL, API version and description were preserved. Its signing secret
-was neither retrieved nor rotated. No application code changed in this audit.
+was neither retrieved nor rotated. No application code changed for this webhook
+repair; the later checkout diagnostic change is described separately below.
 
 ## Remaining gates
 
@@ -83,11 +84,12 @@ existence, a successful build, `billing:true` or `billingPortal:true` do not pro
 correct credentials, approved prices, portal functionality or paid entitlement.
 Actual runtime configuration must be checked without exposing secret values.
 
-## Prepared TEST payment procedure (not yet executed)
+## TEST payment procedure
 
-This procedure remains pending until the release owner reauthenticates the
-existing non-owner QA account. It does not require creating catalog prices or
-changing commercial flags.
+The release owner subsequently authenticated the existing non-owner QA account.
+The normal API workflow progressed through upload and quote; checkout creation
+failed as documented below. The remaining steps do not require creating catalog
+prices or changing commercial flags.
 
 1. In the QA account, verify the correct workspace/project, write permission and
    absence of active sponsored-pilot entitlement. Keep the owner exempt.
@@ -113,6 +115,43 @@ changing commercial flags.
    TEST payment, confirm the signed refund event revokes the quote, and preserve
    the audit records. Do not start a provider call as part of this payment-only
    test; any AI runtime validation is a separately controlled release step.
+
+## Authenticated TEST attempt at 16:25–16:29 UTC
+
+Normal RoughBid APIs confirmed the existing QA account is not a platform owner
+and has no sponsored pilot enrollment. They created a clearly named billing QA
+workspace and project. No authentication, entitlement or paid-state database
+writes were bypassed.
+
+| Object | Verified identity/state |
+| --- | --- |
+| QA user | `5d315e9d-59d6-4bb9-b901-ac9a9383ca1a`, `projects@kspdominion.group`, `isPlatformAdmin=false`, pilot `active=false,status=none` |
+| Workspace | `048abb46-627d-4afc-b12e-6adae37384a9`, RoughBid Billing QA 2026-09-10, QA role admin |
+| Project | `3f31f962-fc58-4436-8455-b34d8d4647c0`, TEST payment lifecycle — real plan 2026-09-10 |
+| Completed file | `b1b11061-bed2-4e87-a3f7-9c96eea358d0`, ready, 4,853,211 bytes; first ten pages of the actual supplied PDF |
+| File SHA-256 | `ef1be96d0b021534615adb29c33743bdc5ad97606563a950d8366e1ffef0fb05` |
+| Normal API quote | `31f065c5-b178-4752-9950-c135abbb7bca`, 1,274 USD cents, 10 pages, Framing, status quoted, 0 attempts, no job |
+| Mode/expiry | Supabase read confirmed `livemode=false`, matching file SHA; expires `2026-09-10T17:26:49.874432Z` |
+
+Upload used the signed `PUT https://vercel.com/api/blob/` returned by the normal
+upload-url endpoint, followed by normal completion. The project revision was
+saved through the normal project PATCH so the real PDF remains accessible in
+the QA project's UI. A first upload reservation (`a9631f46-6816-4597-84a0-896b56e532d0`)
+remains in uploading state because the local QA URL guard initially rejected
+the legitimate trailing slash; it received no bytes and is not the quoted file.
+
+`POST /api/projects/3f31f962-fc58-4436-8455-b34d8d4647c0/reading-checkout`
+returned **HTTP 502**, `Could not open secure checkout. Please try again.` The
+subsequent complete Stripe TEST session list still contained no RoughBid session.
+No test card was submitted and no AI call was started. The test amount is the
+runtime quote's output, not evidence of approved commercial pricing.
+
+The failing code discarded Stripe's reason. A small server-only diagnostic patch
+now logs HTTP status, request ID, error type/code/parameter and quote ID, while
+keeping the key, full response body and freeform provider message out of logs.
+The focused payment suite passed 11/11, including rejection without payment-state
+mutation or sensitive-message leakage. Deployment and a controlled retry are
+required to learn the actual provider rejection; no cause is presumed yet.
 
 ## Evidence sources
 
