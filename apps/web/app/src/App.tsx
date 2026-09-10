@@ -446,7 +446,7 @@ export default function App() {
   // their costs; never insert invented placeholder prices into a proposal.
   const handleAddQuantityFromAI = (
     item: Omit<QuantityItem, "id" | "itemNumber">,
-    costOverride?: { materialCost: number; laborCost: number }
+    costOverride?: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string }
   ) => {
     if (!canWriteRef.current) return;
     const currentProject = projectsRef.current.find((project) => project.id === activeProject?.id);
@@ -462,6 +462,7 @@ export default function App() {
     const materialCost = costOverride?.materialCost ?? 0;
     const laborCost = costOverride?.laborCost ?? 0;
     const equipmentCost = 0;
+    const pricingStatus = costOverride?.pricingStatus ?? (materialCost > 0 || laborCost > 0 ? "configured" : "missing_price");
 
     const newEstItem = {
       id: `est-${crypto.randomUUID()}`,
@@ -473,6 +474,12 @@ export default function App() {
       laborCost,
       equipmentCost,
       directCost: Number((materialCost + laborCost + equipmentCost).toFixed(2)),
+      findingId: item.findingId,
+      pageNumber: item.pageNumber,
+      area: item.area,
+      sourceExcerpt: item.sourceExcerpt,
+      pricingStatus,
+      pricingSource: costOverride?.pricingSource,
     };
 
     const updated: Project = {
