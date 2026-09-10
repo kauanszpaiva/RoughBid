@@ -23,7 +23,7 @@ export function measureGeminiUsage(usage: unknown, model: string, at = new Date(
     estimatedCostUsd: tariffKnown ? rounded(((input - cached) * 0.75 + cached * 0.075 + (candidates + thoughts) * 3.75) / 1e6) : null };
 }
 export function decodeUsageOperation(operation: unknown) {
-  const match = typeof operation === 'string' ? /^rb1:([^:]+):(generate|count_tokens):(pending|measured|tokens_only|verified_free|counted|unknown|failed_unknown)$/.exec(operation) : null;
+  const match = typeof operation === 'string' ? /^rb1:([^:]+):(generate|count_tokens):(pending|measured|tokens_only|verified_free|counted|unknown|failed_unknown|blocked_spend_limit)$/.exec(operation) : null;
   return match ? { jobId: match[1]!, kind: match[2]!, state: match[3]! } : null;
 }
 export interface UsageDataset { events: UsageRow[]; jobs: UsageRow[]; profiles: UsageRow[]; enrollments: UsageRow[]; invitations: UsageRow[]; cohorts: UsageRow[]; projects: UsageRow[] }

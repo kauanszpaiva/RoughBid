@@ -4,7 +4,7 @@ import { loadObjectStorageConfig } from '../storage/object-storage.ts';
 
 /** Configuration flags only; this never probes a provider or reveals credentials. */
 export function runtimeCapabilities(env: Record<string, string | undefined>) {
-  const flags = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false };
+  const flags = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport: false };
   // Free owner entitlement is deliberately NOT reported here. This endpoint is
   // public and env-only, so a global flag would advertise "free analysis" to
   // every customer workspace. Entitlement is per-workspace and is answered by
@@ -19,6 +19,9 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
     const stripeReady = isConfiguredValue(key) && key.startsWith(live ? 'sk_live_' : 'sk_test_')
       && isConfiguredValue(env.STRIPE_WEBHOOK_SECRET) && isConfiguredValue(env.APP_URL) && new URL(env.APP_URL).protocol === 'https:';
     flags.billingPortal = stripeReady;
+    flags.marketplaceSupplierImport = stripeReady && env.BILLING_MARKETPLACE_ENABLED==='true'
+      && isConfiguredValue(env.STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT)
+      && /^price_[a-zA-Z0-9]+$/.test(env.STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT!);
     if (stripeReady && env.BILLING_MEMBERSHIPS_ENABLED === 'true') {
       const priceReady = (value: string | undefined) => isConfiguredValue(value) && /^price_[a-zA-Z0-9]+$/.test(value);
       flags.membershipStarter = priceReady(env.STRIPE_PRICE_PLAN_STARTER);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runtimeCapabilities } from '../src/http/capabilities.ts';
 import { handleApiRequest } from '../src/http/handler.ts';
 
-const closed = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false };
+const closed = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport:false };
 const configured = {
   PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
   OPENROUTER_API_KEY: 'unit-free-provider-credential',
@@ -74,4 +74,10 @@ test('monthly memberships require separate opt-in and a configured price for eac
   assert.equal(runtimeCapabilities({ ...configured, STRIPE_PRICE_PLAN_PRO:'price_Pro123' }).membershipPro,false);
   const withoutAi=runtimeCapabilities({ ...configured, PAID_PLAN_READINGS_ENABLED:'false', BILLING_MEMBERSHIPS_ENABLED:'true', STRIPE_PRICE_PLAN_PRO:'price_Pro123' });
   assert.equal(withoutAi.billing,false);assert.equal(withoutAi.membershipPro,true);assert.equal(withoutAi.billingPortal,true);
+});
+
+test('Marketplace requires a separate flag and exact approved price configuration',()=>{
+  assert.equal(runtimeCapabilities({...configured,STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT:'price_Supplier123'}).marketplaceSupplierImport,false);
+  assert.equal(runtimeCapabilities({...configured,BILLING_MARKETPLACE_ENABLED:'true',STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT:'price_Supplier123'}).marketplaceSupplierImport,true);
+  assert.equal(runtimeCapabilities({...configured,BILLING_MARKETPLACE_ENABLED:'true',STRIPE_PRICE_MARKETPLACE_SUPPLIER_IMPORT:'[sensitive]'}).marketplaceSupplierImport,false);
 });

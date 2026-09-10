@@ -1,7 +1,8 @@
 import {
-  type BillingConfig, type BillingCustomerUpdate, type StripeEvent,
-  createCheckoutRequest, createPortalRequest, isBillingPriceKey, subscriptionIdFromEvent, verifiedSubscriptionUpdate, verifyStripeWebhook,
-  type StripeSubscription,
+  type BillingConfig, type StripeEvent,
+  chargeIdFromDisputeEvent, createCheckoutRequest, createPortalRequest, invoiceIdFromRevocationEvent, isBillingPriceKey, subscriptionIdFromEvent,
+  verifiedMarketplaceUpdate, verifiedSubscriptionUpdate, verifyStripeWebhook,
+  type StripeReconciliationUpdate, type StripeSubscription,
 } from './stripe.ts';
 
 export type AuthenticatedUser = { id: string; email: string; isPlatformAdmin?: boolean };
@@ -9,8 +10,10 @@ export interface StripeGateway {
   createCheckoutSession(input: ReturnType<typeof createCheckoutRequest>, idempotencyKey?: string): Promise<{ url: string }>;
   createPortalSession(input: ReturnType<typeof createPortalRequest>): Promise<{ url: string }>;
   createCustomer?(user: AuthenticatedUser): Promise<string>;
-  hasBlockingSubscription?(customerId: string): Promise<boolean>;
+  hasBlockingSubscription?(customerId: string, priceIds: readonly string[]): Promise<boolean>;
   retrieveSubscription?(subscriptionId: string): Promise<StripeSubscription>;
+  retrieveInvoiceSubscription?(invoiceId: string): Promise<string | null>;
+  retrieveChargeInvoice?(chargeId:string):Promise<string|null>;
 }
 export interface BillingRepository {
   customerIdForUser(userId: string): Promise<string | null>;
@@ -18,13 +21,15 @@ export interface BillingRepository {
   hasActivePilot?(userId: string): Promise<boolean>;
   saveCustomer?(userId: string, customerId: string): Promise<void>;
   claimCheckout?(userId: string, priceKey: string): Promise<{ id: string; expiresAt: number }>;
+  claimMarketplaceCheckout?(userId: string, workspaceId: string, feedId: string, priceId: string, mode: 'test'|'live'): Promise<{ id: string; expiresAt: number }>;
   beginSubscriptionSync?(subscriptionId: string): Promise<number>;
   /** Must insert stripe_events and apply update in one transaction; false means event_id already exists. */
-  processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: BillingCustomerUpdate | null): Promise<boolean>;
+  processStripeEvent(event: Pick<StripeEvent, 'id' | 'type' | 'livemode'>, update: StripeReconciliationUpdate | null): Promise<boolean>;
 }
 export type BillingEndpointDependencies = {
   config: BillingConfig; webhookSecret: string; stripe: StripeGateway; repository: BillingRepository;
   membershipsEnabled?: boolean;
+  marketplaceEnabled?: boolean;
   reconcileProjectPayment?(event: StripeEvent): Promise<void>;
   authenticate(request: Request): Promise<AuthenticatedUser | null>;
 };
@@ -65,15 +70,29 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
       }
       try {
         await deps.reconcileProjectPayment?.(event);
-        const subscriptionId = subscriptionIdFromEvent(event);
-        let update: BillingCustomerUpdate | null = null;
+        let subscriptionId = subscriptionIdFromEvent(event);
+        let revocationInvoiceId=invoiceIdFromRevocationEvent(event);
+        const disputeChargeId=chargeIdFromDisputeEvent(event);
+        if(!revocationInvoiceId&&disputeChargeId){
+          if(!deps.stripe.retrieveChargeInvoice)throw new Error('Charge reconciliation is unavailable.');
+          revocationInvoiceId=await deps.stripe.retrieveChargeInvoice(disputeChargeId);
+        }
+        if (!subscriptionId && revocationInvoiceId) {
+          if (!deps.stripe.retrieveInvoiceSubscription) throw new Error('Invoice reconciliation is unavailable.');
+          subscriptionId=await deps.stripe.retrieveInvoiceSubscription(revocationInvoiceId);
+        }
+        let update: StripeReconciliationUpdate | null = null;
         if (subscriptionId) {
           if (!deps.stripe.retrieveSubscription || !deps.repository.beginSubscriptionSync) throw new Error('Subscription reconciliation is unavailable.');
           const revision = await deps.repository.beginSubscriptionSync(subscriptionId);
           const subscription = await deps.stripe.retrieveSubscription(subscriptionId);
           if (subscription.id !== subscriptionId) throw new Error('Stripe subscription identity mismatch.');
-          const approved = Object.entries(deps.config.priceIds).filter(([key]) => key.startsWith('plan_')).map(([, price]) => price!);
-          update = verifiedSubscriptionUpdate(subscription, approved, revision);
+          const membershipPrices = Object.entries(deps.config.priceIds).filter(([key]) => key.startsWith('plan_')).map(([, price]) => price!);
+          const marketplacePrices = Object.entries(deps.config.priceIds)
+            .filter(([key,price]) => key.startsWith('marketplace_') && Boolean(price))
+            .map(([priceKey,priceId])=>({priceKey:priceKey as any,priceId:priceId!,feedId:priceKey.replace(/^marketplace_/, '')}));
+          update = verifiedMarketplaceUpdate(subscription, marketplacePrices, revision, event, Boolean(revocationInvoiceId))
+            ?? verifiedSubscriptionUpdate(subscription, membershipPrices, revision);
         }
         const processed = await deps.repository.processStripeEvent(event, update);
         return json(200, { received: true, duplicate: !processed });
@@ -106,8 +125,11 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
         if (priceKey?.startsWith('project_')) return json(409, {error:'Open the project to get its price and pay for the uploaded plan.'});
         if (priceKey ? !deps.config.priceIds[priceKey] : !deps.config.priceId) return json(503, { error: 'Checkout is not configured.' });
         if (!priceKey) return json(400, {error:'Select an available membership or open a project for its price.'});
-        if (!priceKey.startsWith('plan_')) return json(503, { error: 'Marketplace purchases are not available yet.' });
-        if (priceKey?.startsWith('plan_') && !deps.membershipsEnabled) return json(503, {error:'Membership prices are not available yet.'});
+        const marketplace=priceKey.startsWith('marketplace_');
+        if (!marketplace && !priceKey.startsWith('plan_')) return json(400, {error:'Select an available RoughBid product.'});
+        if (marketplace && !deps.marketplaceEnabled) return json(503, { error: 'Marketplace checkout is not enabled.' });
+        if (marketplace && priceKey!=='marketplace_supplier_import') return json(503,{error:'This Marketplace feed is not available yet.'});
+        if (!marketplace && !deps.membershipsEnabled) return json(503, {error:'Membership prices are not available yet.'});
         if (!deps.repository.hasActivePilot) return json(503, { error: 'Pilot billing verification is not configured.' });
         let activePilot: boolean;
         try { activePilot = await deps.repository.hasActivePilot(user.id); }
@@ -115,25 +137,36 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
         if (activePilot) return json(409, { error: 'Your sponsored pilot is active. Membership purchases become available when it ends.' });
         const successUrl = approvedReturnUrl(body.successUrl, deps.config.appUrl);
         const cancelUrl = approvedReturnUrl(body.cancelUrl, deps.config.appUrl);
-        if (!deps.repository.claimCheckout || !deps.repository.saveCustomer || !deps.stripe.createCustomer || !deps.stripe.hasBlockingSubscription) {
-          return json(503, { error: 'Membership checkout safeguards are not configured.' });
+        if (!deps.repository.saveCustomer || !deps.stripe.createCustomer || !deps.stripe.hasBlockingSubscription) {
+          return json(503, { error: 'Checkout safeguards are not configured.' });
         }
-        const attempt = await deps.repository.claimCheckout(user.id, priceKey);
+        const selectedPrice=deps.config.priceIds[priceKey]!;
+        const workspaceId=request.headers.get('x-workspace-id')?.trim() || '';
+        let attempt:{id:string;expiresAt:number};
+        if (marketplace) {
+          if (!workspaceId || !deps.repository.claimMarketplaceCheckout) return json(503,{error:'Marketplace workspace checkout is not configured.'});
+          attempt=await deps.repository.claimMarketplaceCheckout(user.id,workspaceId,'supplier_import',selectedPrice,deps.config.mode);
+        } else {
+          if (!deps.repository.claimCheckout) return json(503,{error:'Membership checkout safeguards are not configured.'});
+          attempt=await deps.repository.claimCheckout(user.id,priceKey);
+        }
         if (!customerId) {
           customerId = await deps.stripe.createCustomer(user);
           await deps.repository.saveCustomer(user.id, customerId);
         }
-        if (await deps.stripe.hasBlockingSubscription(customerId)) {
-          return json(409, { error: 'This account already has a subscription. Manage it in the billing portal.' });
+        const conflictingPrices=marketplace?[selectedPrice]:Object.entries(deps.config.priceIds).filter(([key])=>key.startsWith('plan_')).map(([,value])=>value!);
+        if (await deps.stripe.hasBlockingSubscription(customerId,conflictingPrices)) {
+          return json(409, { error: marketplace?'This Marketplace add-on already has a subscription. Manage it in the billing portal.':'This account already has a membership. Manage it in the billing portal.' });
         }
         const checkoutInput = {
           customerEmail: user.email, customerId, userId: user.id,
           successUrl, cancelUrl, expiresAt: attempt.expiresAt,
+          ...(marketplace?{workspaceId,marketplaceFeedId:'supplier_import'}:{}),
         };
         const session = await deps.stripe.createCheckoutSession(createCheckoutRequest(deps.config, {
           ...checkoutInput,
           ...(priceKey ? { priceKey } : {}),
-        }), `roughbid-membership-${attempt.id}`);
+        }), `roughbid-${marketplace?'marketplace':'membership'}-${attempt.id}`);
         return json(200, { url: session.url });
       }
       if (path === '/api/billing/portal') {

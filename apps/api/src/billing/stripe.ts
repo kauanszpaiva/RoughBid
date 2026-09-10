@@ -54,6 +54,8 @@ export type CheckoutInput = {
   userId?: string;
   customerId?: string | null;
   priceKey?: BillingPriceKey;
+  workspaceId?: string;
+  marketplaceFeedId?: string;
   expiresAt?: number;
 };
 export type PortalInput = { customerId: string; returnUrl: string };
@@ -62,8 +64,8 @@ export type HostedCheckoutRequest = {
   mode: 'subscription' | 'payment'; ui_mode: 'hosted'; customer_email?: string;
   customer?: string; line_items: Array<{ price: string; quantity: 1 }>;
   success_url: string; cancel_url: string; client_reference_id?: string;
-  subscription_data?: { metadata: { user_id: string } };
-  metadata?: { user_id?: string; price_key?: string };
+  subscription_data?: { metadata: { user_id: string; workspace_id?: string; marketplace_feed_id?: string; price_key?: string } };
+  metadata?: { user_id?: string; workspace_id?: string; marketplace_feed_id?: string; price_key?: string };
   expires_at?: number;
 };
 
@@ -111,11 +113,6 @@ function requireHttps(value: string, label: string): string {
 }
 
 export function createCheckoutRequest(config: BillingConfig, input: CheckoutInput): HostedCheckoutRequest {
-  // Marketplace SKUs have no product-grant path yet. They are also one-time
-  // purchases, so the subscription default below would silently create a
-  // recurring charge that grants nothing. Refuse them at the primitive, not
-  // only at the endpoint, so no future caller can reintroduce that path.
-  if (input.priceKey?.startsWith('marketplace_')) throw new Error('Marketplace purchases are not available yet.');
   const selectedPriceId = input.priceKey ? config.priceIds[input.priceKey] : config.priceId;
   if (!selectedPriceId) throw new Error('Checkout is disabled until an approved Stripe price is configured.');
   if (!input.customerId && !input.customerEmail.includes('@')) throw new Error('A valid customer email is required.');
@@ -129,11 +126,14 @@ export function createCheckoutRequest(config: BillingConfig, input: CheckoutInpu
   if (input.expiresAt) request.expires_at = input.expiresAt;
   if (input.userId) {
     request.client_reference_id = input.userId;
+    const metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}),
+      ...(input.workspaceId ? { workspace_id: input.workspaceId } : {}),
+      ...(input.marketplaceFeedId ? { marketplace_feed_id: input.marketplaceFeedId } : {}) };
     if (checkoutMode === 'subscription') {
-      request.subscription_data = { metadata: { user_id: input.userId } };
-      request.metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}) };
+      request.subscription_data = { metadata: input.priceKey?.startsWith('marketplace_') ? metadata : { user_id: input.userId } };
+      request.metadata = metadata;
     }
-    else request.metadata = { user_id: input.userId, ...(input.priceKey ? { price_key: input.priceKey } : {}) };
+    else request.metadata = metadata;
   }
   return request;
 }
@@ -168,11 +168,20 @@ export type BillingCustomerUpdate = {
   invoicePaid?: boolean;
   syncRevision?: number;
 };
+export type MarketplaceBillingUpdate = {
+  kind: 'marketplace'; userId: string; workspaceId: string; feedId: string; priceKey: BillingPriceKey;
+  stripeCustomerId: string; stripeSubscriptionId: string; stripePriceId: string;
+  subscriptionStatus: string; currentPeriodEnd: string | null; invoicePaid: boolean; syncRevision: number;
+  invoiceId: string | null; checkoutSessionId: string | null; amountPaid: number | null; currency: string | null;
+  forceRevoke: boolean;
+};
+export type StripeReconciliationUpdate = BillingCustomerUpdate | MarketplaceBillingUpdate;
 
 export type StripeSubscription = {
   id: string; customer: string | { id: string }; status: string; current_period_end?: number;
-  metadata?: { user_id?: string }; items?: { data?: Array<{ current_period_end?: number; price?: { id?: string } }> };
-  latest_invoice?: string | { status?: string; amount_paid?: number; amount_due?: number } | null;
+  metadata?: { user_id?: string; workspace_id?: string; marketplace_feed_id?: string; price_key?: string };
+  items?: { data?: Array<{ id?: string; current_period_end?: number; price?: { id?: string } }>; has_more?: boolean };
+  latest_invoice?: string | { id?: string; status?: string; amount_paid?: number; amount_due?: number; currency?: string } | null;
 };
 
 const SUBSCRIPTION_EVENTS = new Set(['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'customer.subscription.paused', 'customer.subscription.resumed']);
@@ -196,9 +205,27 @@ export function subscriptionUpdateFromEvent(event: StripeEvent): BillingCustomer
 export function subscriptionIdFromEvent(event: StripeEvent): string | null {
   const object = event.data.object as Record<string, any>;
   if (SUBSCRIPTION_EVENTS.has(event.type)) return typeof object.id === 'string' ? object.id : null;
+  if (['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)) {
+    return typeof object.subscription === 'string' ? object.subscription : object.subscription?.id ?? null;
+  }
   if (!['invoice.paid', 'invoice.payment_failed', 'invoice.payment_action_required'].includes(event.type)) return null;
   const subscription = object.parent?.subscription_details?.subscription ?? object.subscription;
   return typeof subscription === 'string' ? subscription : subscription?.id ?? null;
+}
+
+export function invoiceIdFromRevocationEvent(event: StripeEvent): string | null {
+  if (!['charge.refunded','charge.dispute.created'].includes(event.type)) return null;
+  const object = event.data.object as Record<string,any>;
+  if (event.type==='charge.refunded' && !(typeof object.amount_refunded==='number' && object.amount_refunded>0)) return null;
+  const invoice = object.invoice ?? object.charge?.invoice;
+  return typeof invoice==='string' ? invoice : invoice?.id ?? null;
+}
+
+export function chargeIdFromDisputeEvent(event:StripeEvent):string|null{
+  if(event.type!=='charge.dispute.created')return null;
+  const object=event.data.object as Record<string,any>;
+  const charge=object.charge;
+  return typeof charge==='string'?charge:charge?.id??null;
 }
 
 /** Called with a fresh Stripe read, never with the potentially stale webhook snapshot. */
@@ -209,4 +236,35 @@ export function verifiedSubscriptionUpdate(subscription: StripeSubscription, all
   const invoicePaid = typeof invoice === 'object' && invoice !== null && invoice.status === 'paid'
     && typeof invoice.amount_paid === 'number' && typeof invoice.amount_due === 'number' && invoice.amount_paid >= invoice.amount_due;
   return { ...subscriptionUpdateFromEvent({ id: 'current', type: 'customer.subscription.updated', livemode: false, data: { object: subscription } })!, invoicePaid, syncRevision: revision };
+}
+
+export function verifiedMarketplaceUpdate(
+  subscription: StripeSubscription,
+  approved: ReadonlyArray<{ priceKey: BillingPriceKey; priceId: string; feedId: string }>,
+  revision: number,
+  event: StripeEvent,
+  forceRevoke = false,
+): MarketplaceBillingUpdate | null {
+  const metadata=subscription.metadata;
+  const item=subscription.items?.data?.[0];
+  const priceId=item?.price?.id;
+  const match=approved.find(candidate=>candidate.priceId===priceId && candidate.priceKey===metadata?.price_key && candidate.feedId===metadata?.marketplace_feed_id);
+  if (!match) return null;
+  if (!metadata?.user_id || !metadata.workspace_id || subscription.items?.has_more===true || subscription.items?.data?.length!==1 || !priceId) {
+    throw new Error('Marketplace subscription identity is incomplete.');
+  }
+  const customerId=typeof subscription.customer==='string'?subscription.customer:subscription.customer.id;
+  const periodEnd=item?.current_period_end ?? subscription.current_period_end;
+  const invoice=subscription.latest_invoice;
+  const invoiceObject=typeof invoice==='object' && invoice!==null?invoice:null;
+  const invoicePaid=!forceRevoke && invoiceObject?.status==='paid' && typeof invoiceObject.amount_paid==='number'
+    && typeof invoiceObject.amount_due==='number' && invoiceObject.amount_paid>=invoiceObject.amount_due;
+  const object=event.data.object as Record<string,any>;
+  return {kind:'marketplace',userId:metadata.user_id,workspaceId:metadata.workspace_id,feedId:match.feedId,priceKey:match.priceKey,
+    stripeCustomerId:customerId,stripeSubscriptionId:subscription.id,stripePriceId:priceId,
+    subscriptionStatus:subscription.status,currentPeriodEnd:periodEnd?new Date(periodEnd*1000).toISOString():null,
+    invoicePaid,syncRevision:revision,invoiceId:invoiceObject?.id??null,
+    checkoutSessionId:event.type.startsWith('checkout.session.') && typeof object.id==='string'?object.id:null,
+    amountPaid:typeof invoiceObject?.amount_paid==='number'?invoiceObject.amount_paid:null,
+    currency:typeof invoiceObject?.currency==='string'?invoiceObject.currency.toLowerCase():null,forceRevoke};
 }

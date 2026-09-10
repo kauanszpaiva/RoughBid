@@ -97,7 +97,7 @@ export function getHealth() {
 }
 
 export function getCapabilities() {
-  return request<{ aiReadingAvailable: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean }>("/api/capabilities");
+  return request<{ aiReadingAvailable: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
 }
 
 export type AuthBootstrap = {
@@ -459,9 +459,10 @@ export type BillingPriceKey =
   | "marketplace_labor_benchmarks"
   | "marketplace_supplier_import";
 
-export function createBillingCheckout(priceKey: BillingPriceKey) {
+export function createBillingCheckout(priceKey: BillingPriceKey, workspaceId?: string) {
   return request<{ url: string }>("/api/billing/checkout", {
     method: "POST",
+    ...(workspaceId ? { workspaceId } : {}),
     body: {
       priceKey,
       successUrl: `${window.location.origin}/app/`,
@@ -469,6 +470,11 @@ export function createBillingCheckout(priceKey: BillingPriceKey) {
     },
   });
 }
+
+export type MarketplaceCatalogItem={id:string;priceKey:BillingPriceKey;name:string;priceCents:number;cadence:'month';description:string;
+  availability:'available'|'coming_soon';entitled:boolean;checkoutAvailable:boolean};
+export type MarketplaceCatalog={pricingVersion:string;items:MarketplaceCatalogItem[]};
+export function getMarketplaceCatalog(workspaceId:string){return request<MarketplaceCatalog>('/api/marketplace/catalog',{workspaceId});}
 
 export function createBillingPortal() {
   return request<{ url: string }>("/api/billing/portal", { method: "POST", body: { returnUrl: `${window.location.origin}/app/` } });

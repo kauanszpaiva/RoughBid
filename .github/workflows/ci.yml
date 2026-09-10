@@ -24,8 +24,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit
+        run: npm audit --audit-level=high
       - name: Backend and worker typecheck
         run: npx tsc --noEmit
       - name: Web app typecheck
