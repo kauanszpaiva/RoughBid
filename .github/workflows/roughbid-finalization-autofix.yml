@@ -58,7 +58,7 @@ jobs:
       - name: Verify repaired web typecheck
         run: npx tsc --noEmit -p apps/web/app/tsconfig.json
       - name: Verify focused provenance and responsive regressions
-        run: node --import tsx --test apps/web/test/ai-findings-area-report.test.ts apps/web/test/responsive-layout.test.ts apps/web/test/workspace-access.test.ts
+        run: node --experimental-strip-types --test apps/web/test/ai-findings-area-report.test.ts apps/web/test/responsive-layout.test.ts apps/web/test/workspace-access.test.ts
       - name: Commit repaired source only
         shell: bash
         run: |
