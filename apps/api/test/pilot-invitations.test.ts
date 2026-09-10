@@ -12,7 +12,7 @@ function fixture(options: { user?: string | null; owner?: boolean; rpcError?: st
   const calls: { name: string; args?: Record<string, unknown> }[] = [];
   const db = {
     auth: { getUser: async () => ({ data: { user: options.user === null ? null : { id: options.user ?? 'owner-id' } }, error: null }) },
-    from: () => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: { is_platform_admin: options.owner ?? true }, error: null }) }),
+    from: (table: string) => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: table === 'pilot_cohorts' ? { capacity: 25, budget_cents: 10000, reserved_cents: 0, enabled: true } : { is_platform_admin: options.owner ?? true }, error: null }) }),
     rpc: async (name: string, args?: Record<string, unknown>) => {
       calls.push({ name, args });
       if (options.rpcError) return { data: null, error: { message: options.rpcError } };
@@ -92,7 +92,7 @@ test('redemption calls the authenticated client with a digest instead of the pla
 
 test('owner dashboard sanitizes hashes and exposes server-derived budget data', async () => {
   const { db } = fixture(); const response = await handlePilotRequest(request('/api/pilot/invitations'), db, db, env);
-  const result = await response.json(); assert.equal(result.invitations[0].reserved_cents, 75); assert.equal(result.invitations[0].enrollment_expires_at, '2099-02-01T00:00:00Z'); assert.equal('token_hash' in result.invitations[0], false);
+  const result = await response.json(); assert.equal(result.cohortBudgetCents, 10000); assert.equal(result.capacity, 25); assert.equal(result.invitations[0].reserved_cents, 75); assert.equal(result.invitations[0].enrollment_expires_at, '2099-02-01T00:00:00Z'); assert.equal('token_hash' in result.invitations[0], false);
 });
 
 test('pilot email discloses limits and no automatic charge, with stable provider idempotency', async () => {

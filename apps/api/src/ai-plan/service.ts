@@ -1,3 +1,4 @@
+import { withUsageMeter } from '../owner-usage/meter.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
@@ -272,13 +273,16 @@ export class AiPlanReadingService {
       }
 
       const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
-      const result = await activeReader.read({
+      const result = await withUsageMeter({ writer: this.findingsWriter, userId: this.userId,
+        workspaceId: this.workspaceId, projectId, jobId: job.id,
+        billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
+      }, () => activeReader.read({
         fileBytes,
         mimeType: 'application/pdf',
         sheetName: file.original_name,
         requestedTrades,
         scope,
-      });
+      }));
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
       const pageCount = unquotedPlan ? unquotedPlan.pages : quote.page_count;
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > pageCount))) throw new Error('The reading contains quantities or locations without valid source pages.');

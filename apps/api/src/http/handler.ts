@@ -1,3 +1,4 @@
+import { handleOwnerUsageRequest } from '../owner-usage/routes.ts';
 import { ProjectPayments, handleProjectPayment } from '../billing/project-payments.ts';
 import { createClient } from '@supabase/supabase-js';
 import { handleAuthBootstrapRequest, handleMagicLinkRequest } from '../auth/routes.ts';
@@ -103,6 +104,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
   if (pathname === '/api/auth/bootstrap') {
     return handleAuthBootstrapRequest(request, client as unknown as AuthenticatedSupabaseClient);
+  }
+  if (pathname === '/api/owner-usage') {
+    const key = loadSupabaseServiceRoleKey();
+    if (!key || !process.env.SUPABASE_URL) return Response.json({ error: 'Usage administration is not configured.' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    const admin = createClient(process.env.SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    return handleOwnerUsageRequest(request, client, admin);
   }
   if (pathname.startsWith('/api/pilot/')) {
     const key = loadSupabaseServiceRoleKey();

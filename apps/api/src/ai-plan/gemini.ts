@@ -1,3 +1,4 @@
+import { meterGeminiCall, UsageAccountingError } from '../owner-usage/meter.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
@@ -43,7 +44,7 @@ export async function createGeminiClient(
 ): Promise<GeminiGenerateContentClient> {
   const mod = await loader();
   const client = new mod.GoogleGenAI({ apiKey });
-  return { generateContent: args => client.models.generateContent(args), countTokens: args => client.models.countTokens!(args), files: client.files };
+  return { generateContent: args => meterGeminiCall(args.model, 'generate', () => client.models.generateContent(args)), countTokens: args => meterGeminiCall(args.model, 'count_tokens', () => client.models.countTokens!(args)), files: client.files };
 }
 
 async function preparePlan(input: GeminiPlanReadInput) {
@@ -149,6 +150,7 @@ export class GeminiPlanReader {
           lastFailure=new AiProviderError('provider_empty_output',{provider:'gemini',model,stage,durationMs:Date.now()-started});
           logProviderFailure(lastFailure);
         } catch (error) {
+          if (error instanceof UsageAccountingError) throw error;
           lastFailure=classifyProviderFailure(error,{provider:'gemini',model,stage,durationMs:Date.now()-started},stage==='parse'?'provider_invalid_output':'provider_unknown');
           logProviderFailure(lastFailure);
           // A different model cannot repair these failures. Keep the request

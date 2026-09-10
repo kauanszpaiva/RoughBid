@@ -1,3 +1,4 @@
+import { UsageAccountingError } from '../owner-usage/meter.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { ProjectApiError } from '../projects/service.ts';
@@ -25,6 +26,7 @@ export class MultiProviderPlanReader {
         const result = await read(input);
         if (!result.summary.synthetic && result.findings.length) return result;
       } catch(error) {
+        if (error instanceof UsageAccountingError) throw error;
         if(error instanceof ProjectApiError)lastFailure=error;
         else {
           lastFailure=classifyProviderFailure(error,{provider:name,model:'',stage:'generate',durationMs:Date.now()-started});
