@@ -1,4 +1,4 @@
-import { roughbidEmailHtml } from './brand.ts';
+import { roughbidEmailFrom, roughbidEmailHtml } from './brand.ts';
 
 export type WorkspaceWelcomeInput = {
   to: string;
@@ -30,7 +30,7 @@ export type ProposalNotificationEmailInput = {
 };
 
 export type WorkspaceWelcomeEmail = {
-  from: 'RoughBid <hello@mail.kspdominion.group>';
+  from: string;
   to: string;
   templateAlias: 'roughbid-workspace-welcome';
   variables: {
@@ -39,7 +39,7 @@ export type WorkspaceWelcomeEmail = {
 };
 
 export type WorkspaceInviteEmail = {
-  from: 'RoughBid <hello@mail.kspdominion.group>';
+  from: string;
   to: string;
   templateAlias: 'roughbid-organization-invite';
   variables: {
@@ -50,7 +50,7 @@ export type WorkspaceInviteEmail = {
 };
 
 export type ProposalNotificationEmail = {
-  from: 'RoughBid <hello@mail.kspdominion.group>';
+  from: string;
   to: string;
   templateAlias: 'roughbid-proposal-opened' | 'roughbid-proposal-signed';
   variables: {
@@ -66,12 +66,13 @@ type Fetch = typeof globalThis.fetch;
 
 export type ResendServerConfig = {
   apiKey: string;
+  from?: string;
 };
 
 export function loadResendServerConfig(env: NodeJS.ProcessEnv = process.env): ResendServerConfig {
   const apiKey = env.RESEND_API_KEY?.trim();
   if (!apiKey) throw new Error('RESEND_API_KEY is required on the server.');
-  return { apiKey };
+  return { apiKey, from: roughbidEmailFrom(env) };
 }
 
 export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): WorkspaceWelcomeEmail {
@@ -79,7 +80,7 @@ export function createWorkspaceWelcomeEmail(input: WorkspaceWelcomeInput): Works
   const appUrl = new URL(input.appUrl);
   if (appUrl.protocol !== 'https:') throw new Error('App URL must use HTTPS.');
   return {
-    from: 'RoughBid <hello@mail.kspdominion.group>',
+    from: roughbidEmailFrom(),
     to: input.to,
     templateAlias: 'roughbid-workspace-welcome',
     variables: {
@@ -96,7 +97,7 @@ export function createWorkspaceInviteEmail(input: WorkspaceInviteEmailInput): Wo
   if (!workspaceName) throw new Error('Workspace name is required.');
   const role = input.role.trim() || 'estimator';
   return {
-    from: 'RoughBid <hello@mail.kspdominion.group>',
+    from: roughbidEmailFrom(),
     to: input.to,
     templateAlias: 'roughbid-organization-invite',
     variables: {
@@ -121,7 +122,7 @@ export function createProposalNotificationEmail(
   if (!clientName) throw new Error('Client name is required.');
   if (!projectName) throw new Error('Project name is required.');
   return {
-    from: 'RoughBid <hello@mail.kspdominion.group>',
+    from: roughbidEmailFrom(),
     to: input.to,
     templateAlias,
     variables: {
@@ -158,7 +159,7 @@ async function sendTemplateEmail(
     method: 'POST',
     headers,
     body: JSON.stringify({
-      from: email.from,
+      from: config.from ?? email.from,
       to: [email.to],
       template: {
         id: email.templateAlias,
@@ -194,7 +195,7 @@ export async function sendMagicLinkEmail(
     method: 'POST',
     headers,
     body: JSON.stringify({
-      from: 'RoughBid <hello@mail.kspdominion.group>',
+      from: config.from ?? roughbidEmailFrom(),
       to: [input.to],
       subject: 'Sign in to RoughBid',
       text: `Open RoughBid: ${magicLink.toString()}\n\nIf you did not request this, you can ignore this email.`,

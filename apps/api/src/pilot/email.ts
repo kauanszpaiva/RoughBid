@@ -1,4 +1,4 @@
-import { roughbidEmailHtml } from '../email/brand.ts';
+import { roughbidEmailFrom, roughbidEmailHtml } from '../email/brand.ts';
 
 export const PILOT_PRESETS = {
   sample1: { label: 'Single-project sample', days: 7, projects: '1 project total' },
@@ -18,7 +18,7 @@ export function composePilotEmail(input: { to: string; inviteUrl: string; preset
   const next = 'No credit card is needed. Your access is tied to this email address. When the access period ends, normal RoughBid pricing applies to future paid use. You will not be charged automatically; any purchase requires checkout.';
   const text = `You are invited to RoughBid\n\n${terms}\n\n${next}\n\nOpen your invitation: ${url.toString()}\nSign in with ${input.to} to activate your private workspace.\nActivate before ${expiry.toISOString()}.\n\nIf you did not expect this invitation, ignore this email.`;
   return {
-    from: 'RoughBid <hello@mail.kspdominion.group>', to: [input.to],
+    from: roughbidEmailFrom(), to: [input.to],
     subject: `Your RoughBid invitation — ${preset.label}`, text,
     html: roughbidEmailHtml({ title: 'Your private RoughBid workspace', paragraphs: [terms, next, `Sign in with ${input.to}. Activate before ${expiry.toISOString().slice(0, 10)}.`], action: { label: 'Activate my access', url: url.toString() }, footer: 'If you did not expect this invitation, ignore this email.' }),
   };
