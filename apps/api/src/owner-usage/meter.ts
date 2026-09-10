@@ -35,12 +35,14 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
   }
   const raw = response && typeof response === 'object' ? response as Record<string, unknown> : {};
   const measured = kind === 'generate' ? measureGeminiUsage(raw.usageMetadata, model) : null;
-  const free = context.billing === 'verified_free';
-  const state = kind === 'count_tokens' ? 'counted' : measured ? free ? 'verified_free' : measured.estimatedCostUsd === null ? 'tokens_only' : 'measured' : 'unknown';
+  // Application entitlement never proves that the provider call itself is free.
+  // Owner-complimentary jobs therefore retain the same provider-cost estimate as
+  // pilot/paid jobs unless independent billing reconciliation records actual cost.
+  const state = kind === 'count_tokens' ? 'counted' : measured ? measured.estimatedCostUsd === null ? 'tokens_only' : 'measured' : 'unknown';
   // The old schema requires numeric counters. Only a measured state makes these
   // values reportable; pending/unknown zeros are placeholders, never $0 claims.
   await settle({ operation: `${prefix}${state}`, input_tokens: measured?.inputTokens ?? 0,
-    output_tokens: measured?.outputTokens ?? 0, estimated_cost_usd: free ? 0 : measured?.estimatedCostUsd ?? 0,
+    output_tokens: measured?.outputTokens ?? 0, estimated_cost_usd: measured?.estimatedCostUsd ?? 0,
     actual_cost_usd: null,
     provider_request_id: typeof raw.responseId === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(raw.responseId) ? raw.responseId : null });
   return response;
