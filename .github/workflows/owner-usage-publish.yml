@@ -1,0 +1,55 @@
+name: Apply verified owner usage implementation
+on:
+  push:
+    branches: [agent/chat-owner-usage-20260910]
+    paths: [.github/workflows/owner-usage-publish.yml]
+permissions:
+  contents: write
+concurrency:
+  group: owner-usage-publish
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.repository == 'kauanszpaiva/RoughBid' && github.ref == 'refs/heads/agent/chat-owner-usage-20260910'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and apply exact locally tested patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/owner-usage-transfer/part-{1,2,3,4} > "$RUNNER_TEMP/owner-usage.patch.gz"
+          gzip -dc "$RUNNER_TEMP/owner-usage.patch.gz" > "$RUNNER_TEMP/owner-usage.patch"
+          printf '%s  %s\n' ff98efb3561d754060ac7e943dd96ac3589eb313f23d3b9fea33fd1df4fa782c "$RUNNER_TEMP/owner-usage.patch" | sha256sum -c -
+          git apply --check "$RUNNER_TEMP/owner-usage.patch"
+          git apply --index "$RUNNER_TEMP/owner-usage.patch"
+          git rm -r .github/owner-usage-transfer .github/workflows/owner-usage-publish.yml
+          git diff --cached --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: API and worker typecheck
+        run: npx tsc --noEmit
+      - name: Web typecheck
+        run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Full monorepo tests
+        run: npm test
+      - name: Production compilation without live credentials
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
+      - name: Publish only the isolated feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git ls-remote origin refs/heads/agent/chat-owner-usage-20260910 | cut -f1)"
+          test "$current" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: owner-only API usage, trusted Gemini metering and live pilot budget'
+          git push origin HEAD:refs/heads/agent/chat-owner-usage-20260910
+          printf 'Verified implementation commit: `%s`\n\nNo main merge, production DDL, provider call, budget increase or credit purchase.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
