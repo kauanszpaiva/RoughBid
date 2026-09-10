@@ -1,8 +1,24 @@
 /** Shared production identity for RoughBid transactional email. Never use an
  * authenticated image URL: mail clients must be able to fetch the logo. */
 export const ROUGHBID_EMAIL_LOGO_URL = 'https://roughbid.vercel.app/brand/roughbid-logo-email.png';
+export const ROUGHBID_EMAIL_FROM = 'RoughBid <hello@mail.kspdominion.group>';
+
+export function roughbidEmailFrom(env: NodeJS.ProcessEnv = process.env): string {
+  return env.RESEND_FROM_EMAIL?.trim() || ROUGHBID_EMAIL_FROM;
+}
+
+export function roughbidEmailLogoUrl(env: NodeJS.ProcessEnv = process.env): string {
+  try {
+    const appUrl = new URL(env.APP_URL?.trim() || 'https://roughbid.vercel.app');
+    if (appUrl.protocol === 'https:' && !appUrl.username && !appUrl.password) {
+      return new URL('/brand/roughbid-logo-email.png', appUrl).toString();
+    }
+  } catch { /* Preserve the existing public logo when APP_URL is unavailable. */ }
+  return ROUGHBID_EMAIL_LOGO_URL;
+}
+
 export const escapeEmailHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!));
-export const roughbidEmailLogoHtml = () => `<img src="${ROUGHBID_EMAIL_LOGO_URL}" alt="RoughBid" width="240" height="80" border="0" style="display:block;width:240px;max-width:100%;height:auto;border-width:0;outline:none;text-decoration:none;" />`;
+export const roughbidEmailLogoHtml = (env: NodeJS.ProcessEnv = process.env) => `<img src="${escapeEmailHtml(roughbidEmailLogoUrl(env))}" alt="RoughBid" width="240" height="80" border="0" style="display:block;width:240px;max-width:100%;height:auto;border-width:0;outline:none;text-decoration:none;" />`;
 
 /** Table layout and inline styles work in clients that strip page CSS. All
  * caller content and URLs are escaped here; plaintext email remains separate. */

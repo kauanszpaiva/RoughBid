@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { composePilotReminder } from './email.ts';
+import { roughbidEmailFrom } from '../email/brand.ts';
 
 type Database = { rpc(name: string, args?: Record<string, unknown>): PromiseLike<{ data: any; error: unknown }> };
 type Notice = { id: string; lease_id: string; email: string; kind: 'expires_7d' | 'expires_1d' | 'expired'; expires_at: string };
@@ -23,7 +24,7 @@ export async function handlePilotReminders(request: Request, admin: Database, en
       const response = await fetchImpl('https://api.resend.com/emails', {
         method: 'POST', signal: AbortSignal.timeout(10_000),
         headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': `roughbid-pilot-notice/${notice.id}` },
-        body: JSON.stringify({ from: 'RoughBid <hello@mail.kspdominion.group>', to: [notice.email], ...composed }),
+        body: JSON.stringify({ from: roughbidEmailFrom(env), to: [notice.email], ...composed }),
       });
       if (!response.ok) throw new Error(`Email provider rejected delivery (${response.status}).`);
       const result = await response.json() as { id?: unknown };
