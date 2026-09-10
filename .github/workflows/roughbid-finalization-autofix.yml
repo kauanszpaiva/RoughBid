@@ -52,7 +52,7 @@ jobs:
           replaceExact(
             'apps/web/app/src/components/BlueprintViewer.tsx',
             `    if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;\n    const [x, y, width, height] = box as number[];\n    return width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1 ? box as number[] : null;`,
-            `    if (!Array.isArray(box) || box.length !== 4) return null;\n    const [x, y, width, height] = box;\n    if (x === undefined || y === undefined || width === undefined || height === undefined) return null;\n    if (![x, y, width, height].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;\n    return width > 0 && height > 0 && x + width <= 1 && y + height <= 1 ? [x, y, width, height] : null;`
+            `    if (!Array.isArray(box) || box.length !== 4) return null;\n    const [x, y, width, height] = box;\n    if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') return null;\n    if (![x, y, width, height].every(n => Number.isFinite(n) && n >= 0 && n <= 1)) return null;\n    return width > 0 && height > 0 && x + width <= 1 && y + height <= 1 ? [x, y, width, height] : null;`
           );
           NODE
       - name: Verify repaired web typecheck
