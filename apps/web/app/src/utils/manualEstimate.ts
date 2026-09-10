@@ -92,6 +92,8 @@ export function editEstimateLine(
       unit: patch.unit,
       materialCost, laborCost, equipmentCost,
       directCost: money(materialCost + laborCost + equipmentCost),
+      pricingStatus: materialCost + laborCost + equipmentCost > 0 ? 'configured' : 'missing_price',
+      pricingSource: 'Estimator entered costs',
     } : item),
   };
 }

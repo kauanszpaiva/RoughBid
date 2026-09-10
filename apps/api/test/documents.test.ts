@@ -18,7 +18,7 @@ function fixture(queue: JobQueue | null = null, responseBytes = 15, initialStatu
       eq: (column: string, value: unknown) => { filters.push([column, value]); return query; },
       update: (input: any) => { changes = input; return query; },
       insert: (input: any) => { row = { ...input, page_count: null, metadata: {} }; return query; },
-      single: () => query, maybeSingle: () => query,
+      single: () => query, maybeSingle: () => query, limit: () => query,
       then: (resolve: any, reject: any) => {
         const target = table === 'workspace_members' ? { user_id: 'user-1', workspace_id: 'workspace-1', role: 'admin' } : table === 'projects' ? { id: 'project-1', workspace_id: 'workspace-1' } : row;
         const matches = filters.every(([column, value]) => target[column] === value);

@@ -220,7 +220,7 @@ export class DurableAiPlanReadingService {
 
   async get(jobId: string) {
     const job = dbResult<any>(
-      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings(*)')
+      await this.db.from('plan_reading_jobs').select('*, plan_reading_findings!plan_reading_findings_job_workspace_project_file_fkey(*)')
         .eq('workspace_id', this.workspaceId).eq('id', jobId).maybeSingle(), true,
     );
     if (job.output_summary?.synthetic) throw new ProjectApiError(409, 'This older reading contains simulated quantities. Request a new reading.');

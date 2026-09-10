@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
   X,
@@ -26,7 +26,6 @@ interface AIPlanModalProps {
   onClose: () => void;
   onAddQuantityItem: (
     item: Omit<QuantityItem, "id" | "itemNumber">,
-    costOverride?: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string }
   ) => void;
   initialTab?: "analyze" | "missing" | "explain" | "revisions";
 }
@@ -57,6 +56,9 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [pendingFindingIds, setPendingFindingIds] = useState<Record<string, boolean>>({});
   const [findingActionError, setFindingActionError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const pendingActions = useRef(new Set<string>());
+  const reviewContext = useRef('');
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[0];
@@ -64,11 +66,17 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     ? `${currentRevision.fileName} (Rev ${currentRevision.revisionNumber})`
     : "no uploaded plan";
   const jobId = currentRevision?.aiPlanJobId ?? null;
+  const contextKey = `${isOpen}:${workspaceId}:${project.id}:${jobId}`;
+  reviewContext.current = contextKey;
+  useEffect(() => { reviewContext.current = contextKey; return () => { reviewContext.current = ''; }; }, [contextKey]);
 
   // Poll the real plan-reading job while it's open and still in flight —
   // there is no live-update channel, so short-interval polling is how the
   // estimator sees the worker's progress (queued -> processing -> done).
   useEffect(() => {
+    setJob(null);
+    setFindingActionError(null);
+    setPendingFindingIds({});
     if (!isOpen || !workspaceId || !jobId) {
       setJob(null);
       setJobError(null);
@@ -100,7 +108,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [isOpen, workspaceId, jobId]);
+  }, [isOpen, workspaceId, jobId, reload]);
 
   if (!isOpen) return null;
 
@@ -113,29 +121,14 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   };
 
   const handleAcceptFinding = async (finding: PlanReadingFinding) => {
-    if (!workspaceId) return;
+    const actionKey = `${contextKey}:${finding.id}`;
+    if (!workspaceId || finding.status === 'rejected' || project.quantities.some(item => item.findingId === finding.id) || pendingActions.current.has(actionKey)) return;
+    pendingActions.current.add(actionKey);
     setPendingFindingIds((prev) => ({ ...prev, [finding.id]: true }));
     setFindingActionError(null);
     try {
-      await setPlanReadingFindingStatus(workspaceId, finding.id, "accepted");
-
-      const pricing = (finding.geometry as { pricing?: Array<{ category: "material" | "labor"; cost: number }> })?.pricing;
-      let costOverride: { materialCost: number; laborCost: number; pricingStatus?: "configured" | "missing_price"; pricingSource?: string } | undefined;
-
-      if (Array.isArray(pricing) && pricing.length > 0) {
-        let mat = 0;
-        let lab = 0;
-        for (const p of pricing) {
-          if (p.category === "material") mat += p.cost || 0;
-          if (p.category === "labor") lab += p.cost || 0;
-        }
-        costOverride = {
-          materialCost: Number(mat.toFixed(2)),
-          laborCost: Number(lab.toFixed(2)),
-          pricingStatus: mat > 0 || lab > 0 ? "configured" : "missing_price",
-          pricingSource: "AI Finding Geometry Pricing",
-        };
-      }
+      if (finding.status !== 'accepted') await setPlanReadingFindingStatus(workspaceId, finding.id, "accepted");
+      if (reviewContext.current !== contextKey) return;
 
       const area = (typeof finding.geometry?.area === "string" && finding.geometry.area.trim())
         || (typeof finding.geometry?.room === "string" && finding.geometry.room.trim())
@@ -152,13 +145,15 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           area,
           ...(finding.page_number === null ? {} : { pageNumber: finding.page_number }),
           ...(finding.source_excerpt === null ? {} : { sourceExcerpt: finding.source_excerpt }),
-        },
-        costOverride
+        }
       );
       applyFindingStatus(finding.id, "accepted");
     } catch (error) {
+      if (reviewContext.current !== contextKey) return;
       setFindingActionError(readableError(error, "Could not accept this finding."));
     } finally {
+      pendingActions.current.delete(actionKey);
+      if (reviewContext.current !== contextKey) return;
       setPendingFindingIds((prev) => {
         const next = { ...prev };
         delete next[finding.id];
@@ -168,15 +163,21 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   };
 
   const handleRejectFinding = async (finding: PlanReadingFinding) => {
-    if (!workspaceId) return;
+    const actionKey = `${contextKey}:${finding.id}`;
+    if (!workspaceId || finding.status !== 'needs_review' || pendingActions.current.has(actionKey)) return;
+    pendingActions.current.add(actionKey);
     setPendingFindingIds((prev) => ({ ...prev, [finding.id]: true }));
     setFindingActionError(null);
     try {
       await setPlanReadingFindingStatus(workspaceId, finding.id, "rejected");
+      if (reviewContext.current !== contextKey) return;
       applyFindingStatus(finding.id, "rejected");
     } catch (error) {
+      if (reviewContext.current !== contextKey) return;
       setFindingActionError(readableError(error, "Could not ignore this finding."));
     } finally {
+      pendingActions.current.delete(actionKey);
+      if (reviewContext.current !== contextKey) return;
       setPendingFindingIds((prev) => {
         const next = { ...prev };
         delete next[finding.id];
@@ -218,7 +219,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
       );
     }
     if (jobError) {
-      return <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">{jobError}</div>;
+      return <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs"><p>{jobError}</p><button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Retry loading saved reading</button></div>;
     }
     if (!job) return null;
     if (job.status === "queued" || job.status === "processing") {
@@ -292,7 +293,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                      {finding.status === "accepted" ? (
+                      {finding.status === "accepted" && project.quantities.some(item => item.findingId === finding.id) ? (
                         <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">
                           <Check className="w-3.5 h-3.5" /> Added
                         </span>
@@ -308,13 +309,13 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                             <Plus className="w-3.5 h-3.5" />
                             <span>{isPending ? "Adding…" : "Add Item"}</span>
                           </button>
-                          <button
+                          {finding.status === 'needs_review' && <button
                             onClick={() => handleRejectFinding(finding)}
                             disabled={isPending}
                             className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md text-xs transition disabled:opacity-50"
                           >
                             Ignore
-                          </button>
+                          </button>}
                         </>
                       )}
                     </div>

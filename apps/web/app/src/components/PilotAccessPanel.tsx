@@ -23,6 +23,7 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
+  const [capacity, setCapacity] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -32,7 +33,7 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
   const reload = async () => {
     try {
       const value = await listPilotInvitations();
-      setRows(value.invitations); setConfigured(value.sendingConfigured); setRemindersConfigured(value.remindersConfigured); setDeliveryTrackingConfigured(value.deliveryTrackingConfigured); setBudget(value.cohortBudgetCents); setLoaded(true);
+      setRows(value.invitations); setConfigured(value.sendingConfigured); setRemindersConfigured(value.remindersConfigured); setDeliveryTrackingConfigured(value.deliveryTrackingConfigured); setBudget(value.cohortBudgetCents); setCapacity(value.capacity); setLoaded(true);
     } catch (error) { setError(error instanceof Error ? error.message : 'Access invitations could not be loaded.'); }
   };
   useEffect(() => { if (owner && expanded) void reload(); }, [owner, expanded, userId]);
@@ -83,15 +84,15 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
     <button className="w-full px-4 py-3 text-left text-sm font-semibold text-blue-700 flex justify-between" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><span>Owner dashboard · Limited access invitations</span><span>{expanded ? 'Close' : 'Manage'}</span></button>
     {expanded && <div className="p-4 sm:p-6 pt-0 space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded ? rows.length : '—'} / 25</strong><p className="text-xs text-slate-500 mt-1">Total reserved invitation seats</p></div>
+        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded ? rows.length : '—'} / {capacity ?? '—'}</strong><p className="text-xs text-slate-500 mt-1">Total reserved invitation seats</p></div>
         <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded && reserved !== null && budget !== null ? money(Math.max(0, budget - reserved)) : 'Awaiting usage data'}</strong><p className="text-xs text-slate-500 mt-1">Available AI budget out of {budget === null ? 'Loading budget...' : money(budget)}; conservative reservations included</p></div>
-        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3"><strong>Your account is complimentary</strong><p className="text-xs text-emerald-800 mt-1">Your access is separate from the 25 users and their API budget.</p></div>
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3"><strong>Your account is complimentary</strong><p className="text-xs text-emerald-800 mt-1">Your access is separate from pilot participants and their API budget.</p></div>
       </div>
       <form onSubmit={submit} className="space-y-3 max-w-3xl">
         <p className="text-xs text-slate-600 leading-relaxed">Each invitation creates a private workspace for that email. Access starts when redeemed. Existing invitations keep their original terms; sending again does not extend access or add another seat. All presets allow one PDF up to 10 MiB / 10 pages and one AI attempt per project, within a $5 user budget and the shared {budget === null ? 'configured' : money(budget)} cap.</p>
         <label className="block text-xs font-semibold">Access preset<select value={preset} disabled={busy} onChange={(event) => setPreset(event.target.value as PilotPreset)} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-sm">{Object.entries(presets).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         <label className="block text-xs font-semibold">Email addresses<textarea value={emails} disabled={busy} onChange={(event) => setEmails(event.target.value)} rows={3} placeholder="builder@company.com" className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm" /></label>
-        <p className="text-xs text-slate-500">No card at activation. At expiry, future paid use follows the standard checkout. The final $25 of your $150 ceiling is reserved as a safety margin.</p>
+        <p className="text-xs text-slate-500">No card at activation. At expiry, future paid use requires checkout. The shared reservation cap shown above can stop AI access before the access period ends; it does not represent actual provider charges.</p>
         {loaded && !configured && <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">Invitation sending is not configured yet. Your owner dashboard is available, but email delivery needs to be enabled on the server.</p>}
         <div className="flex flex-wrap gap-3"><button type="submit" disabled={busy || !configured} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Sending invitations…' : 'Send access invitations'}</button><button type="button" disabled={busy} onClick={() => void reload()} className="rounded-md border px-4 py-2 text-sm">Refresh status</button></div>
       </form>

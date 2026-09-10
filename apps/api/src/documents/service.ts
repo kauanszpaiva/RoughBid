@@ -52,9 +52,23 @@ export class DocumentService {
     if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > MAX_DOCUMENT_BYTES) throw new ProjectApiError(413, 'PDF must be no larger than 50 MB');
     const project = await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle();
     if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
+    const originalName = safeName(input.name);
+    // An interrupted request can leave the quota's file row behind before the
+    // browser receives its signed URL. Renew only that caller's identical,
+    // unfinished upload; completed files and another PDF never get a new PUT.
+    const pending = await this.db.from('project_files').select('*')
+      .eq('workspace_id', this.workspaceId).eq('project_id', projectId)
+      .eq('uploaded_by', this.userId).eq('processing_status', 'uploading')
+      .eq('original_name', originalName).eq('mime_type', input.contentType)
+      .eq('byte_size', input.byteSize).limit(1).maybeSingle();
+    if (pending.error) throw new ProjectApiError(503, 'Could not verify an unfinished upload. Try again.');
+    if (pending.data) {
+      assertPlanStoragePath(pending.data.storage_path, this.workspaceId, projectId, pending.data.id);
+      return { file: pending.data, upload: await this.storage.presign('PUT', pending.data.storage_path, { contentType: 'application/pdf', expiresIn: 300, maximumSizeInBytes: input.byteSize }) };
+    }
     const id = crypto.randomUUID();
     const objectKey = `${this.workspaceId}/${projectId}/${id}/source.pdf`;
-    const row = await this.db.from('project_files').insert({ id, workspace_id: this.workspaceId, project_id: projectId, uploaded_by: this.userId, storage_path: objectKey, original_name: safeName(input.name), mime_type: 'application/pdf', byte_size: input.byteSize, processing_status: 'uploading' }).select('*').single();
+    const row = await this.db.from('project_files').insert({ id, workspace_id: this.workspaceId, project_id: projectId, uploaded_by: this.userId, storage_path: objectKey, original_name: originalName, mime_type: 'application/pdf', byte_size: input.byteSize, processing_status: 'uploading' }).select('*').single();
     if (row.error) throw new ProjectApiError(500, row.error.message ?? 'Could not create upload');
     return { file: row.data, upload: await this.storage.presign('PUT', objectKey, { contentType: 'application/pdf', expiresIn: 300, maximumSizeInBytes: input.byteSize }) };
   }

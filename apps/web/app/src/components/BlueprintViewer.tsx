@@ -4,6 +4,7 @@ import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { AlertCircle, Bot, ChevronLeft, ChevronRight, FileText, Layers, MapPin, Maximize2, Sparkles, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { PlanAnnotation, PlanRevision } from "../types";
 import type { PlanReadingFinding } from "../services/api";
+import { findingAreaName as getAreaName, groupAiFindingsByArea } from "../utils/aiFindingReview";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -63,44 +64,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
     return null;
   };
 
-  const getAreaName = (finding: PlanReadingFinding): string => {
-    if (typeof finding.geometry?.area === 'string' && finding.geometry.area.trim()) return finding.geometry.area.trim();
-    if (typeof finding.geometry?.room === 'string' && finding.geometry.room.trim()) return finding.geometry.room.trim();
-    if (finding.finding_type === 'room' && finding.label.trim()) return finding.label.trim();
-    return 'Unknown Area';
-  };
-
-  const areaGroups = React.useMemo(() => {
-    const map = new Map<string, {
-      areaName: string;
-      findings: PlanReadingFinding[];
-      pages: Set<number>;
-      materialCost: number;
-      laborCost: number;
-      unpricedCount: number;
-    }>();
-
-    for (const finding of reviewFindings) {
-      const area = getAreaName(finding);
-      if (!map.has(area)) {
-        map.set(area, { areaName: area, findings: [], pages: new Set(), materialCost: 0, laborCost: 0, unpricedCount: 0 });
-      }
-      const group = map.get(area)!;
-      group.findings.push(finding);
-      if (finding.page_number) group.pages.add(finding.page_number);
-
-      const pricing = (finding.geometry as { pricing?: Array<{ category: 'material' | 'labor'; cost: number }> })?.pricing;
-      if (Array.isArray(pricing) && pricing.length > 0) {
-        for (const item of pricing) {
-          if (item.category === 'material') group.materialCost += item.cost;
-          if (item.category === 'labor') group.laborCost += item.cost;
-        }
-      } else if (finding.quantity !== null && finding.quantity > 0) {
-        group.unpricedCount += 1;
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.areaName.localeCompare(b.areaName));
-  }, [reviewFindings]);
+  const areaGroups = React.useMemo(() => groupAiFindingsByArea(findings), [findings]);
   const focusFinding = (finding: PlanReadingFinding) => {
     if (pdf && finding.page_number && finding.page_number <= pdf.numPages) {
       setPageNumber(finding.page_number); setSelectedFindingId(finding.id); setPendingPoint(null); setAddingNote(false);
@@ -274,15 +238,11 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-emerald-900">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Total Material Cost</p>
-                <strong className="text-base font-semibold">
-                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(areaGroups.reduce((acc, g) => acc + g.materialCost, 0))}
-                </strong>
+                <strong className="text-base font-semibold">Not configured</strong>
               </div>
               <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-lg text-blue-900">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Total Labor Cost</p>
-                <strong className="text-base font-semibold">
-                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(areaGroups.reduce((acc, g) => acc + g.laborCost, 0))}
-                </strong>
+                <strong className="text-base font-semibold">Not configured</strong>
               </div>
               <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg text-amber-900">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Unpriced Takeoffs</p>
@@ -290,6 +250,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
               </div>
             </div>
 
+            <p className="text-xs text-slate-600">This report groups plan evidence. Add accepted quantities to your estimate and enter verified costs there.</p>
             <div className="max-h-56 overflow-y-auto space-y-2">
               {areaGroups.map(group => (
                 <div key={group.areaName} className="border border-slate-200 rounded-lg p-3 bg-white space-y-2">
@@ -299,8 +260,7 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
                       <span className="text-[10px] text-slate-500 block">Sheets: {Array.from(group.pages).sort().join(', ') || 'N/A'} · {group.findings.length} findings</span>
                     </div>
                     <div className="text-right text-xs">
-                      <span className="text-emerald-700 font-semibold mr-3">Mat: ${group.materialCost.toFixed(2)}</span>
-                      <span className="text-blue-700 font-semibold">Labor: ${group.laborCost.toFixed(2)}</span>
+                      <span className="text-slate-600">Costs not configured</span>
                     </div>
                   </div>
                   <div className="space-y-1">
