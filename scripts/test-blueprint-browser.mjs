@@ -130,14 +130,20 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
         assert.equal(await page.getByRole('button', { name, exact: true }).count(), 1, `missing toolbar control ${name}`);
       }
       assert.equal(await page.getByRole('navigation', { name: 'Plan sheets' }).count(), 1);
-      assert.equal(await page.getByLabel('Search sheets', { exact: true }).count(), 1);
-      assert.equal(await page.getByRole('button', { name: 'Open Page 02', exact: true }).count(), 1);
+      const search = page.getByLabel('Search sheets', { exact: true });
+      assert.equal(await search.count(), 1);
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 1);
+      await search.fill('Cover');
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 0, 'sheet search filters displayed physical pages');
+      assert.equal(await page.getByText('COVER', { exact: true }).count(), 1);
+      await search.fill('');
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 1);
       assert.equal(await page.getByText('A1.0', { exact: true }).count(), 0, 'fallback sheet labels must not fabricate architectural sheet numbers');
       assert.equal(await page.locator('[aria-label="PDF page"] option').count(), 23);
       assert.equal(await page.getByLabel('View mode', { exact: true }).count(), 1);
       assert.equal(await canvas.evaluate(c => c.width > 0 && c.height > 0), true);
       const firstPage = await canvas.evaluate(c => c.toDataURL());
-      await page.getByRole('button', { name: 'Open Page 02', exact: true }).click();
+      await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).click();
       await page.waitForFunction(old => {
         const c = document.querySelector('canvas[aria-label^="Uploaded PDF:"]');
         return c && c.offsetParent !== null && c.toDataURL() !== old;
