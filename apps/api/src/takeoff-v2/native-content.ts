@@ -1,9 +1,11 @@
+import { extractPrintedArchitecturalScaleCandidates } from '../ml/architectural-measurement.ts';
 import { classifyNativePageContent, type NativePageContentClassification } from './native-content-classifier.ts';
 
 export type NativePageAnalysis = NativePageContentClassification & {
   textCharacters: number;
   vectorOperations: number;
   imageOperations: number;
+  printedScaleCandidates: string[];
 };
 
 function integerOps(values: Array<number | undefined>): Set<number> {
@@ -39,7 +41,12 @@ export async function analyzePdfNativeContent(fileBytes: Uint8Array): Promise<Re
       const page = await document.getPage(pageNumber);
       try {
         const [textContent, operatorList] = await Promise.all([page.getTextContent(), page.getOperatorList()]);
-        const text = textContent.items.map((item) => ('str' in item && typeof item.str === 'string' ? item.str : '')).join('');
+        // Preserve boundaries between native text items for scale notation while
+        // using whitespace-free text only for quality/count classification.
+        const text = textContent.items
+          .map((item) => ('str' in item && typeof item.str === 'string' ? item.str : ''))
+          .filter(Boolean)
+          .join(' ');
         const compactText = text.replace(/\s/g, '');
         const replacementCharacters = (compactText.match(/\uFFFD/g) ?? []).length;
         let imageOperations = 0;
@@ -54,7 +61,11 @@ export async function analyzePdfNativeContent(fileBytes: Uint8Array): Promise<Re
           imageOperations,
           replacementCharacters,
         };
-        result.set(pageNumber, { ...classifyNativePageContent(stats), ...stats });
+        result.set(pageNumber, {
+          ...classifyNativePageContent(stats),
+          ...stats,
+          printedScaleCandidates: extractPrintedArchitecturalScaleCandidates(text),
+        });
       } finally {
         page.cleanup();
       }
