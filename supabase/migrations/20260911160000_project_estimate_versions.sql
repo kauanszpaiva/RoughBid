@@ -3,7 +3,7 @@
 -- into the production UI.
 create table public.project_estimate_versions (
   id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id uuid not null references public.workspaces(id) on delete restrict,
   project_id uuid not null,
   revision bigint not null check (revision > 0),
   state jsonb not null check (
@@ -17,7 +17,7 @@ create table public.project_estimate_versions (
   created_by uuid not null references auth.users(id) on delete restrict,
   created_at timestamptz not null default now(),
   constraint project_estimate_versions_project_scope_fkey
-    foreign key (project_id, workspace_id) references public.projects(id, workspace_id) on delete cascade,
+    foreign key (project_id, workspace_id) references public.projects(id, workspace_id) on delete restrict,
   unique (workspace_id, project_id, revision),
   unique (workspace_id, project_id, state_sha256)
 );
@@ -32,9 +32,12 @@ grant all on table public.project_estimate_versions to service_role;
 
 create policy project_estimate_versions_select_member
   on public.project_estimate_versions for select to authenticated
-  using (public.has_workspace_access(workspace_id));
+  using (
+    private.has_workspace_access(workspace_id)
+    and private.has_product_access()
+  );
 
-create or replace function public.reject_project_estimate_version_update()
+create or replace function public.reject_project_estimate_version_mutation()
 returns trigger
 language plpgsql
 set search_path = pg_catalog, pg_temp
@@ -44,11 +47,11 @@ begin
 end;
 $$;
 
-revoke all on function public.reject_project_estimate_version_update() from public, anon, authenticated;
+revoke all on function public.reject_project_estimate_version_mutation() from public, anon, authenticated;
 
-create trigger project_estimate_versions_reject_update
-before update on public.project_estimate_versions
-for each row execute function public.reject_project_estimate_version_update();
+create trigger project_estimate_versions_reject_mutation
+before update or delete on public.project_estimate_versions
+for each row execute function public.reject_project_estimate_version_mutation();
 
 create or replace function public.snapshot_project_estimate_state()
 returns trigger
@@ -76,8 +79,8 @@ begin
     return new;
   end if;
 
-  -- Project INSERT/UPDATE owns the project row lock, serializing revision
-  -- allocation for concurrent saves of the same project.
+  -- INSERT/UPDATE holds the project row lock through transaction completion,
+  -- serializing revision allocation for concurrent saves of the same project.
   select coalesce(max(revision), 0) + 1 into next_revision
   from public.project_estimate_versions
   where workspace_id = new.workspace_id and project_id = new.id;
@@ -100,4 +103,4 @@ after insert or update of app_state on public.projects
 for each row execute function public.snapshot_project_estimate_state();
 
 comment on table public.project_estimate_versions is
-  'Immutable estimator-state revisions for deterministic replay and cross-user comparison.';
+  'Immutable estimator-state revisions for deterministic replay and cross-user comparison. Project/workspace deletion is intentionally restricted once history exists; retention-approved removal requires a separately reviewed migration.';

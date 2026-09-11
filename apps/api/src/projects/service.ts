@@ -59,8 +59,12 @@ function postalCode(value: unknown): string {
 
 function permitDate(value: unknown): string {
   const date = requiredText(value, 'permit_date', 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match || match[1] === '0000') {
+    throw new ProjectApiError(400, 'permit_date must be a valid YYYY-MM-DD date');
+  }
   const parsed = new Date(`${date}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== date) {
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== date) {
     throw new ProjectApiError(400, 'permit_date must be a valid YYYY-MM-DD date');
   }
   return date;

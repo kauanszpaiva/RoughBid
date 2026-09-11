@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_PLAN_BYTES, ProjectApiError, ProjectService, validatePlanFile } from '../src/projects/service.ts';
+import { handleProjectRequest } from '../src/projects/routes.ts';
 
 const VALID_PROJECT = {
   name: '24 Angell Street', clientName: 'Authorized client', projectType: 'Custom Residential',
@@ -80,6 +81,21 @@ test('project creation rejects states outside New England and incomplete applica
   assert.equal(insertAttempts, 0);
 });
 
+test('project creation rejects PostgreSQL-incompatible year zero before insertion', async () => {
+  let insertAttempts = 0;
+  const service = new ProjectService({
+    from() {
+      return { insert(row: Record<string, unknown>) {
+        insertAttempts++;
+        return { select: () => ({ single: async () => ({ data: row, error: null }) }) };
+      } };
+    },
+  } as never, 'user-1', 'workspace-1');
+  await assert.rejects(service.create({ ...VALID_PROJECT, permitDate: '0000-01-01' }), (error: unknown) =>
+    error instanceof ProjectApiError && error.status === 400 && error.message === 'permit_date must be a valid YYYY-MM-DD date');
+  assert.equal(insertAttempts, 0);
+});
+
 test('two authorized services read the identical immutable estimate revision and hash', async () => {
   const canonical = {
     id: 'version-1', project_id: 'project-1', revision: 3,
@@ -115,5 +131,26 @@ test('estimate revision lookup rejects malformed revisions before querying the d
   for (const revision of ['', '0', '-1', '1.5', 'latest']) {
     await assert.rejects(service.getEstimateVersion('project-1', revision), (error: unknown) => error instanceof ProjectApiError && error.status === 400);
   }
+  assert.equal(reads, 0);
+});
+
+test('estimate version route rejects an explicitly empty revision parameter instead of listing versions', async () => {
+  let reads = 0;
+  const query: any = {
+    select: () => query,
+    eq: () => query,
+    maybeSingle: async () => ({ data: { id: 'project-1' }, error: null }),
+    order: async () => ({ data: [], error: null }),
+  };
+  const db = {
+    auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
+    from() { reads++; return query; },
+  } as never;
+  const response = await handleProjectRequest(new Request(
+    'https://roughbid.test/api/projects/project-1/estimate-versions?revision=',
+    { headers: { 'x-workspace-id': 'workspace-1' } },
+  ), db);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'revision must be a positive integer' });
   assert.equal(reads, 0);
 });
