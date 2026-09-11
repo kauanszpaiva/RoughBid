@@ -17,3 +17,14 @@ test('estimate snapshots are immutable, tenant scoped, hash addressed and trigge
   assert.match(migration, /before update on public\.project_estimate_versions/);
   assert.doesNotMatch(migration, /grant (insert|update|delete|all) on table public\.project_estimate_versions to authenticated/i);
 });
+
+test('estimate snapshot RLS uses hardened private helpers and requires active product access', () => {
+  assert.match(migration, /private\.has_workspace_access\(workspace_id\)/);
+  assert.match(migration, /private\.has_product_access\(\)/);
+  assert.doesNotMatch(migration, /public\.has_workspace_access\(workspace_id\)/);
+});
+
+test('estimate history is retained when a project delete is attempted', () => {
+  assert.match(migration, /references public\.projects\(id, workspace_id\) on delete restrict/);
+  assert.doesNotMatch(migration, /references public\.projects\(id, workspace_id\) on delete cascade/);
+});
