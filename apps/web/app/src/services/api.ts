@@ -180,6 +180,12 @@ export type RemoteProject = {
   status?: "draft" | "active" | "archived";
   project_number?: string | null;
   address_text?: string | null;
+  client_name?: string | null;
+  project_type?: string | null;
+  jurisdiction_state?: "CT" | "MA" | "ME" | "NH" | "RI" | "VT" | null;
+  municipality?: string | null;
+  postal_code?: string | null;
+  permit_date?: string | null;
   app_state?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;

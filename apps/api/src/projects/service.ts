@@ -2,6 +2,8 @@ export const MAX_PLAN_BYTES = 50 * 1024 * 1024;
 export const PLAN_BUCKET = 'plan-files';
 
 export type ProjectStatus = 'draft' | 'active' | 'archived';
+export const NEW_ENGLAND_STATES = ['CT', 'MA', 'ME', 'NH', 'RI', 'VT'] as const;
+export type NewEnglandState = typeof NEW_ENGLAND_STATES[number];
 
 type DbError = { message?: string; code?: string } | null;
 
@@ -39,6 +41,29 @@ function optionalText(value: unknown, label: string, max: number): string | null
     throw new ProjectApiError(400, `${label} must be at most ${max} characters`);
   }
   return value.trim() || null;
+}
+
+function newEnglandState(value: unknown): NewEnglandState {
+  const state = requiredText(value, 'jurisdiction_state', 2).toUpperCase();
+  if (!NEW_ENGLAND_STATES.includes(state as NewEnglandState)) {
+    throw new ProjectApiError(400, 'jurisdiction_state must be CT, MA, ME, NH, RI, or VT');
+  }
+  return state as NewEnglandState;
+}
+
+function postalCode(value: unknown): string {
+  const postal = requiredText(value, 'postal_code', 10);
+  if (!/^\d{5}(?:-\d{4})?$/.test(postal)) throw new ProjectApiError(400, 'postal_code must be a US ZIP code');
+  return postal;
+}
+
+function permitDate(value: unknown): string {
+  const date = requiredText(value, 'permit_date', 10);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new ProjectApiError(400, 'permit_date must be a valid YYYY-MM-DD date');
+  }
+  return date;
 }
 
 function status(value: unknown): ProjectStatus {
@@ -102,8 +127,14 @@ export class ProjectService {
       workspace_id: this.workspaceId,
       created_by: this.userId,
       name: requiredText(input.name, 'name', 160),
+      client_name: requiredText(input.client_name ?? input.clientName, 'client_name', 160),
+      project_type: requiredText(input.project_type ?? input.projectType, 'project_type', 120),
       project_number: optionalText(input.project_number, 'project_number', 80),
       address_text: optionalText(input.address, 'address', 500),
+      jurisdiction_state: newEnglandState(input.jurisdiction_state ?? input.jurisdictionState),
+      municipality: requiredText(input.municipality, 'municipality', 120),
+      postal_code: postalCode(input.postal_code ?? input.postalCode),
+      permit_date: permitDate(input.permit_date ?? input.permitDate),
       status: input.status == null ? 'draft' : status(input.status),
       app_state: appState(input),
     };
@@ -117,8 +148,14 @@ export class ProjectService {
   async update(projectId: string, input: Record<string, unknown>) {
     const changes: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if ('name' in input) changes.name = requiredText(input.name, 'name', 160);
+    if ('client_name' in input || 'clientName' in input) changes.client_name = requiredText(input.client_name ?? input.clientName, 'client_name', 160);
+    if ('project_type' in input || 'projectType' in input) changes.project_type = requiredText(input.project_type ?? input.projectType, 'project_type', 120);
     if ('project_number' in input) changes.project_number = optionalText(input.project_number, 'project_number', 80);
     if ('address' in input) changes.address_text = optionalText(input.address, 'address', 500);
+    if ('jurisdiction_state' in input || 'jurisdictionState' in input) changes.jurisdiction_state = newEnglandState(input.jurisdiction_state ?? input.jurisdictionState);
+    if ('municipality' in input) changes.municipality = requiredText(input.municipality, 'municipality', 120);
+    if ('postal_code' in input || 'postalCode' in input) changes.postal_code = postalCode(input.postal_code ?? input.postalCode);
+    if ('permit_date' in input || 'permitDate' in input) changes.permit_date = permitDate(input.permit_date ?? input.permitDate);
     if ('status' in input) changes.status = status(input.status);
     if ('app_state' in input || 'appState' in input) changes.app_state = appState(input);
     return dbResult(await this.db.from('projects').update(changes).eq('workspace_id', this.workspaceId).eq('id', projectId).select('*').maybeSingle(), true);

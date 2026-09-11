@@ -23,6 +23,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [clientName, setClientName] = useState<string>("");
   const [address, setAddress] = useState<string>("");
   const [projectType, setProjectType] = useState<string>(initialProjectType);
+  const [jurisdictionState, setJurisdictionState] = useState<Project["jurisdictionState"]>("MA");
+  const [municipality, setMunicipality] = useState<string>("");
+  const [postalCode, setPostalCode] = useState<string>("");
+  const [permitDate, setPermitDate] = useState<string>("");
   const [overheadPct, setOverheadPct] = useState<number>(defaultOverhead);
   const [markupPct, setMarkupPct] = useState<number>(defaultMarkup);
   const [error, setError] = useState<string>("");
@@ -46,6 +50,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       setError("Project address is required.");
       return;
     }
+    if (!jurisdictionState || !municipality.trim() || !/^\d{5}(?:-\d{4})?$/.test(postalCode.trim()) || !permitDate) {
+      setError("State, municipality, valid ZIP code, and permit or pricing date are required.");
+      return;
+    }
 
     if (![overheadPct, markupPct].every((value) => Number.isFinite(value) && value >= 0 && value <= 100)) {
       setError("Overhead and markup must be between 0 and 100%.");
@@ -58,6 +66,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       clientName: clientName.trim(),
       address: address.trim(),
       projectType,
+      jurisdictionState,
+      municipality: municipality.trim(),
+      postalCode: postalCode.trim(),
+      permitDate,
       status: "Planning",
       updatedAt: "Just now",
       overheadPercentage: overheadPct,
@@ -130,6 +142,32 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               <Building2 className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
             </div>
           </div>
+
+          <fieldset className="rounded-lg border border-[#e5e7eb] p-3">
+            <legend className="px-1 text-xs font-bold text-[#374151]">New England jurisdiction *</legend>
+            <p className="mb-3 text-[11px] leading-relaxed text-[#6b7280]">Used to select dated local requirements and regional pricing sources. Confirm with the permitting authority before release.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="jurisdiction-state">State</label>
+                <select id="jurisdiction-state" value={jurisdictionState} onChange={(event) => setJurisdictionState(event.target.value as Project["jurisdictionState"])} className="w-full rounded-lg border border-[#e5e7eb] bg-white px-3 py-2 text-xs" required>
+                  <option value="CT">Connecticut</option><option value="MA">Massachusetts</option><option value="ME">Maine</option>
+                  <option value="NH">New Hampshire</option><option value="RI">Rhode Island</option><option value="VT">Vermont</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="municipality">Municipality</label>
+                <input id="municipality" value={municipality} onChange={(event) => setMunicipality(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" placeholder="e.g., Boston" required />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="postal-code">ZIP code</label>
+                <input id="postal-code" value={postalCode} onChange={(event) => setPostalCode(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" inputMode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="02108" required />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="permit-date">Permit or pricing date</label>
+                <input id="permit-date" type="date" value={permitDate} onChange={(event) => setPermitDate(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" required />
+              </div>
+            </div>
+          </fieldset>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

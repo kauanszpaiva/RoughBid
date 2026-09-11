@@ -78,6 +78,10 @@ export interface Project {
   clientName: string;
   address: string;
   projectType: string;
+  jurisdictionState?: "CT" | "MA" | "ME" | "NH" | "RI" | "VT";
+  municipality?: string;
+  postalCode?: string;
+  permitDate?: string;
   status: ProjectStatus;
   updatedAt: string;
   overheadPercentage: number; // e.g. 12
@@ -130,4 +134,3 @@ export interface UserProfile {
   defaultOverhead: number;
   defaultMarkup: number;
 }
-
