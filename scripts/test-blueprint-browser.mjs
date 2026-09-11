@@ -30,9 +30,17 @@ try {
   await writeFile(path.join(root, 'main.tsx'), `
 import React, { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BlueprintViewer } from '../apps/web/app/src/components/BlueprintViewer';
+import { usePdfDocument } from '../apps/web/app/src/features/plans/hooks/usePdfDocument';
+import { useBlueprintViewport } from '../apps/web/app/src/features/plans/hooks/useBlueprintViewport';
+import { BlueprintPage } from '../apps/web/app/src/features/plans/viewer/BlueprintPage';
+import { BlueprintToolbar } from '../apps/web/app/src/features/plans/viewer/BlueprintToolbar';
+import { SheetNavigator } from '../apps/web/app/src/features/plans/sheets/SheetNavigator';
 function Fixture() {
   const [url, setUrl] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [viewMode, setViewMode] = useState('single');
+  const [focusMode, setFocusMode] = useState(false);
+  const [noteMode, setNoteMode] = useState(false);
   useEffect(() => {
     if (location.search.includes('broken')) { setUrl('/missing.pdf'); return; }
     let active = true; let objectUrl;
@@ -42,7 +50,41 @@ function Fixture() {
     });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, []);
-  return <BlueprintViewer currentRevision={{ id: 'fixture', revisionNumber: '01', fileName: 'synthetic-23-pages.pdf', fileSize: 'fixture', pages: 0, uploadDate: 'test', uploadedBy: 'test', isCurrent: true, notes: '', annotations: [] }} projectName="Synthetic viewer verification" previewUrl={url} isPreviewLoading={!url} onAnnotationsChange={() => {}} canWrite={true} />;
+  const { pdf, status, error } = usePdfDocument(url);
+  const viewport = useBlueprintViewport({ pageWidth: 1440, pageHeight: 1000, totalHorizontalPadding: 32, totalVerticalPadding: 32 });
+  return <section className="border border-slate-200" aria-label="Synthetic viewer verification PDF preview">
+    <BlueprintToolbar
+      pageNumber={pageNumber} totalPages={pdf?.numPages ?? 0} onPageChange={setPageNumber}
+      zoomPercent={viewport.zoomPercent} handTool={viewport.handTool} canWrite={true} noteMode={noteMode}
+      viewMode={viewMode} focusMode={focusMode}
+      onZoomOut={() => viewport.setManualZoom(viewport.zoomPercent - 10)}
+      onZoomIn={() => viewport.setManualZoom(viewport.zoomPercent + 10)}
+      onFitWidth={() => viewport.setFitMode('width')}
+      onFitPage={() => viewport.setFitMode('page')}
+      onActualSize={() => viewport.setManualZoom(100)}
+      onToggleHand={() => viewport.setHandTool(!viewport.handTool)}
+      onToggleLayers={() => {}}
+      onToggleNote={() => setNoteMode(value => !value)}
+      onViewModeChange={setViewMode}
+      onToggleFocus={() => setFocusMode(value => !value)}
+    />
+    {error && <p role="status">{error}</p>}
+    {status === 'loading' && <p role="status">Opening blueprint...</p>}
+    <div style={{ display: 'flex', alignItems: 'stretch' }}>
+      <SheetNavigator pdf={pdf} activePage={pageNumber} onSelectPage={setPageNumber} sheets={[{ page: 1, label: 'COVER', title: 'Cover Sheet' }]} />
+      <div
+        ref={viewport.viewportRef}
+        style={{ width: 800, height: 520, overflow: 'auto' }}
+        onWheel={viewport.onWheel}
+        onPointerDown={viewport.onPointerDown}
+        onPointerMove={viewport.onPointerMove}
+        onPointerUp={viewport.onPointerUp}
+        onPointerCancel={viewport.onPointerUp}
+      >
+        {pdf && <BlueprintPage pdf={pdf} pageNumber={pageNumber} fileName="synthetic-23-pages.pdf" zoomPercent={viewport.zoomPercent} findings={[]} annotations={[]} selectedFindingId={null} selectedAnnotationId={null} showAiMarkers={true} showFindingHighlights={true} showManualNotes={true} />}
+      </div>
+    </div>
+  </section>;
 }
 createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></StrictMode>);
 `);
@@ -80,34 +122,59 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('http://127.0.0.1:4179/');
-      const canvas = page.locator('canvas');
+      const canvas = page.locator('canvas[aria-label^="Uploaded PDF:"]');
       await canvas.waitFor({ state: 'visible', timeout: 30_000 });
       const styled = await page.getByRole('region', { name: 'Synthetic viewer verification PDF preview' }).evaluate(element => parseFloat(getComputedStyle(element).borderTopWidth) > 0);
       assert.equal(styled, true, 'The production stylesheet must be loaded, not an unstyled harness.');
+      for (const name of ['Previous PDF page', 'Next PDF page', 'Zoom out', 'Zoom in', 'Fit width', 'Fit page', 'Actual size', 'Hand tool', 'Layers', 'Add note', 'Focus mode']) {
+        assert.equal(await page.getByRole('button', { name, exact: true }).count(), 1, `missing toolbar control ${name}`);
+      }
+      assert.equal(await page.getByRole('navigation', { name: 'Plan sheets' }).count(), 1);
+      const search = page.getByLabel('Search sheets', { exact: true });
+      assert.equal(await search.count(), 1);
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 1);
+      await search.fill('Cover');
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 0, 'sheet search filters displayed physical pages');
+      assert.equal(await page.getByText('COVER', { exact: true }).count(), 1);
+      await search.fill('');
+      assert.equal(await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).count(), 1);
+      assert.equal(await page.getByText('A1.0', { exact: true }).count(), 0, 'fallback sheet labels must not fabricate architectural sheet numbers');
       assert.equal(await page.locator('[aria-label="PDF page"] option').count(), 23);
+      assert.equal(await page.getByLabel('View mode', { exact: true }).count(), 1);
       assert.equal(await canvas.evaluate(c => c.width > 0 && c.height > 0), true);
       const firstPage = await canvas.evaluate(c => c.toDataURL());
-      await page.getByLabel('PDF page', { exact: true }).selectOption('23');
+      await page.getByRole('button', { name: 'Open PDF page 2', exact: true }).click();
       await page.waitForFunction(old => {
-        const c = document.querySelector('canvas');
+        const c = document.querySelector('canvas[aria-label^="Uploaded PDF:"]');
         return c && c.offsetParent !== null && c.toDataURL() !== old;
       }, firstPage, { timeout: 20_000 });
-      assert.match(await canvas.getAttribute('aria-label'), /page 23/);
+      assert.equal(await canvas.getAttribute('aria-label'), 'Uploaded PDF: synthetic-23-pages.pdf, page 2');
+      const secondPage = await canvas.evaluate(c => c.toDataURL());
+      await page.getByLabel('PDF page', { exact: true }).selectOption('23');
+      await page.waitForFunction(old => {
+        const c = document.querySelector('canvas[aria-label^="Uploaded PDF:"]');
+        return c && c.offsetParent !== null && c.toDataURL() !== old;
+      }, secondPage, { timeout: 20_000 });
+      assert.equal(await canvas.getAttribute('aria-label'), 'Uploaded PDF: synthetic-23-pages.pdf, page 23');
       const width = await canvas.evaluate(c => c.width);
       await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-      await page.waitForFunction(oldWidth => document.querySelector('canvas')?.width > oldWidth, width);
-      const addNote = page.getByRole('button', { name: 'Add note', exact: true });
-      // The canvas dimensions update before React commits renderStatus='ready' on some
-      // engines (notably WebKit). Trial click waits for actionability without mutating UI.
-      await addNote.click({ trial: true });
-      assert.equal(await addNote.isEnabled(), true);
+      await page.waitForFunction(oldWidth => document.querySelector('canvas[aria-label^="Uploaded PDF:"]')?.width > oldWidth, width);
+      const zoomedWidth = await canvas.evaluate(c => c.width);
+      await page.getByRole('button', { name: 'Fit width', exact: true }).click();
+      await page.waitForFunction(oldWidth => document.querySelector('canvas[aria-label^="Uploaded PDF:"]')?.width < oldWidth, zoomedWidth);
+      await page.getByRole('button', { name: 'Hand tool', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Hand tool', exact: true }).getAttribute('aria-pressed'), 'true');
+      await page.getByLabel('View mode', { exact: true }).selectOption('continuous');
+      assert.equal(await page.getByLabel('View mode', { exact: true }).inputValue(), 'continuous');
+      await page.getByRole('button', { name: 'Focus mode', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Focus mode', exact: true }).getAttribute('aria-pressed'), 'true');
       await page.screenshot({ path: path.join(repo, 'test-results', `blueprint-${browserName}.png`), fullPage: true });
       await page.goto('http://127.0.0.1:4179/?broken=1');
       await page.getByRole('status').filter({ hasText: 'Unable to open this PDF (404)' }).waitFor({ state: 'visible' });
       assert.equal(await canvas.isVisible(), false);
       assert.deepEqual(errors, []);
       assert.deepEqual(external, []);
-      console.log(`PASS ${browserName}: actual PDF worker, 23 pages, page navigation, zoom, note availability, and explicit 404 under production CSP`);
+      console.log(`PASS ${browserName}: PDF primitives, professional toolbar, primary sheet navigator, fit/zoom/view/focus state, and explicit 404 under production CSP`);
     } finally { await browser.close(); }
   }
 } finally {
