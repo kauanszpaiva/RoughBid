@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { analyzePdfNativeContent } from '../src/takeoff-v2/native-content.ts';
+import { createPlanSetManifest } from '../src/takeoff-v2/preflight.ts';
 
-test('PDF.js runtime detects native text from a real generated vector PDF', async () => {
+test('PDF.js runtime detects native text and strict printed scale from a real generated vector PDF', async () => {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  page.drawText('A1.1 FLOOR PLAN SCALE 1/4 IN = 1 FT', { x: 72, y: 720, size: 12, font });
+  page.drawText(`A1.1 FLOOR PLAN   SCALE: 1/4" = 1'-0"`, { x: 72, y: 720, size: 12, font });
   page.drawLine({ start: { x: 72, y: 650 }, end: { x: 360, y: 650 }, thickness: 1 });
   const bytes = new Uint8Array(await pdf.save({ useObjectStreams: false }));
 
@@ -18,6 +19,10 @@ test('PDF.js runtime detects native text from a real generated vector PDF', asyn
   assert.equal(first.contentKind, 'vector');
   assert.equal(first.textQuality, 'partial');
   assert.ok(first.textCharacters >= 10, `expected native text characters, got ${first.textCharacters}`);
+  assert.deepEqual(first.printedScaleCandidates, [`1/4" = 1'-0"`]);
+
+  const manifest = await createPlanSetManifest(bytes);
+  assert.deepEqual(manifest.sheets[0]?.nativeScaleCandidates, [`1/4" = 1'-0"`]);
 });
 
 test('native-content runtime rejects empty input before loading PDF.js', async () => {
