@@ -122,6 +122,24 @@ export class ProjectService {
     return dbResult(await this.db.from('projects').select('*').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
   }
 
+  async listEstimateVersions(projectId: string) {
+    await this.get(projectId);
+    return dbResult(await this.db.from('project_estimate_versions')
+      .select('id, project_id, revision, state_sha256, calculation_version, created_by, created_at')
+      .eq('workspace_id', this.workspaceId).eq('project_id', projectId)
+      .order('revision', { ascending: false }));
+  }
+
+  async getEstimateVersion(projectId: string, revision: unknown) {
+    const parsed = typeof revision === 'string' && /^\d+$/.test(revision) ? Number(revision) : NaN;
+    if (!Number.isSafeInteger(parsed) || parsed < 1) throw new ProjectApiError(400, 'revision must be a positive integer');
+    await this.get(projectId);
+    return dbResult(await this.db.from('project_estimate_versions')
+      .select('id, project_id, revision, state, state_sha256, calculation_version, created_by, created_at')
+      .eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('revision', parsed)
+      .maybeSingle(), true);
+  }
+
   async create(input: Record<string, unknown>) {
     const row = {
       workspace_id: this.workspaceId,

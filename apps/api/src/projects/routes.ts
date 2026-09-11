@@ -21,6 +21,10 @@ export async function handleProjectRequest(request: Request, db: SupabaseLike): 
       if (request.method === 'PATCH') return json(await service.update(parts[1], await request.json()));
       if (request.method === 'DELETE') return json(await service.remove(parts[1]));
     }
+    if (parts[0] === 'projects' && parts[1] && parts[2] === 'estimate-versions' && parts.length === 3 && request.method === 'GET') {
+      const revision = url.searchParams.get('revision');
+      return json(revision ? await service.getEstimateVersion(parts[1], revision) : await service.listEstimateVersions(parts[1]));
+    }
     if (parts[0] === 'projects' && parts[1] && parts[2] === 'files' && request.method === 'POST') {
       const file = (await request.formData()).get('file');
       if (!(file instanceof File)) throw new ProjectApiError(400, 'file is required');
