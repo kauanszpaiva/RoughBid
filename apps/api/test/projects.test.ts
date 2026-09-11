@@ -79,3 +79,41 @@ test('project creation rejects states outside New England and incomplete applica
   await assert.rejects(service.create({ ...VALID_PROJECT, permitDate: '2026-02-31' }), (error: unknown) => error instanceof ProjectApiError && error.status === 400);
   assert.equal(insertAttempts, 0);
 });
+
+test('two authorized services read the identical immutable estimate revision and hash', async () => {
+  const canonical = {
+    id: 'version-1', project_id: 'project-1', revision: 3,
+    state: { revisions: [], quantities: [{ id: 'q-1', quantity: 12, unit: 'EA' }], estimateItems: [{ id: 'e-1', materialCost: 100, laborCost: 200, equipmentCost: 0 }] },
+    state_sha256: 'a'.repeat(64), calculation_version: 'calculation-v1-fixed-6dp',
+    created_by: 'estimator-1', created_at: '2026-09-11T16:00:00Z',
+  };
+  const db = {
+    from(table: string) {
+      const query: any = {
+        select: () => query,
+        eq: () => query,
+        order: async () => ({ data: [{ ...canonical, state: undefined }], error: null }),
+        maybeSingle: async () => ({ data: table === 'projects' ? { id: 'project-1' } : canonical, error: null }),
+      };
+      return query;
+    },
+  } as never;
+  const first = new ProjectService(db, 'user-a', 'workspace-1');
+  const second = new ProjectService(db, 'user-b', 'workspace-1');
+  const [left, right] = await Promise.all([
+    first.getEstimateVersion('project-1', '3'),
+    second.getEstimateVersion('project-1', '3'),
+  ]);
+  assert.deepEqual(left, right);
+  assert.equal(left.state_sha256, 'a'.repeat(64));
+  assert.equal(left.calculation_version, 'calculation-v1-fixed-6dp');
+});
+
+test('estimate revision lookup rejects malformed revisions before querying the database', async () => {
+  let reads = 0;
+  const service = new ProjectService({ from() { reads++; return {}; } } as never, 'user-1', 'workspace-1');
+  for (const revision of ['', '0', '-1', '1.5', 'latest']) {
+    await assert.rejects(service.getEstimateVersion('project-1', revision), (error: unknown) => error instanceof ProjectApiError && error.status === 400);
+  }
+  assert.equal(reads, 0);
+});

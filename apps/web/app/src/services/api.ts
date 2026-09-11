@@ -216,6 +216,29 @@ export function deleteProject(workspaceId: string, id: string) {
   return request<RemoteProject>(`/api/projects/${id}`, { method: "DELETE", workspaceId });
 }
 
+export type ProjectEstimateVersionSummary = {
+  id: string;
+  project_id: string;
+  revision: number;
+  state_sha256: string;
+  calculation_version: string;
+  created_by: string;
+  created_at: string;
+};
+
+export type ProjectEstimateVersion = ProjectEstimateVersionSummary & {
+  state: Record<string, unknown>;
+};
+
+/** Immutable, server-canonical revisions available to every authorized workspace user. */
+export function listProjectEstimateVersions(workspaceId: string, projectId: string) {
+  return request<ProjectEstimateVersionSummary[]>(`/api/projects/${projectId}/estimate-versions`, { workspaceId });
+}
+
+export function getProjectEstimateVersion(workspaceId: string, projectId: string, revision: number) {
+  return request<ProjectEstimateVersion>(`/api/projects/${projectId}/estimate-versions?revision=${encodeURIComponent(revision)}`, { workspaceId });
+}
+
 export type PlanProjectAddressEvidence = {
   project_name: string | null;
   street_address: string | null;
