@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["api", "apps/api/src", "packages/domain/src"]
+  "include": ["api", "apps/api/src", "packages/domain/src", "server", "tests"]
 }
