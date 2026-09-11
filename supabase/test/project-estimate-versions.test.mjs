@@ -14,7 +14,7 @@ test('estimate snapshots are immutable, tenant scoped, hash addressed and trigge
   assert.match(migration, /revoke all on table public\.project_estimate_versions from public, anon, authenticated/);
   assert.match(migration, /grant select on table public\.project_estimate_versions to authenticated/);
   assert.match(migration, /after insert or update of app_state on public\.projects/);
-  assert.match(migration, /before update on public\.project_estimate_versions/);
+  assert.match(migration, /before update or delete on public\.project_estimate_versions/);
   assert.doesNotMatch(migration, /grant (insert|update|delete|all) on table public\.project_estimate_versions to authenticated/i);
 });
 
