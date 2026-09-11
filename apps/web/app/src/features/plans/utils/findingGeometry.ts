@@ -5,6 +5,8 @@ function normalizedNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+const stableCoordinate = (value: number) => Number(value.toFixed(12));
+
 export function getValidFindingBox(finding: PlanReadingFinding): NormalizedBox | null {
   const box = finding.geometry?.bbox;
   if (!Array.isArray(box) || box.length !== 4) return null;
@@ -24,7 +26,12 @@ function getRawValidPoint(finding: PlanReadingFinding): NormalizedPoint | null {
 
 export function getValidFindingPoint(finding: PlanReadingFinding): NormalizedPoint | null {
   const box = getValidFindingBox(finding);
-  if (box) return { x: box[0] + box[2] / 2, y: box[1] + box[3] / 2 };
+  if (box) {
+    return {
+      x: stableCoordinate(box[0] + box[2] / 2),
+      y: stableCoordinate(box[1] + box[3] / 2),
+    };
+  }
   return getRawValidPoint(finding);
 }
 
