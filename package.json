@@ -22,7 +22,8 @@
     "react-dom": "^19.0.1"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/mcp/mapify/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs prisma/*.test.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.ts packages/domain/test/*.test.ts apps/api/test/*.test.ts apps/mcp/mapify/*.test.ts apps/web/test/*.test.ts supabase/test/*.test.mjs prisma/*.test.mjs",
+    "test:docusign": "node --experimental-strip-types --test tests/docusign-account-portability.test.ts",
     "test:domain": "node --experimental-strip-types --test packages/domain/test/*.test.ts",
     "test:api": "node --experimental-strip-types --test apps/api/test/*.test.ts",
     "test:web": "node --experimental-strip-types --test apps/web/test/*.test.ts",
