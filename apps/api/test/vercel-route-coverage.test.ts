@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
  * test passes. The entitlement endpoint shipped exactly that way once.
  */
 const bridge = "export { config, default } from '../../_bridge.ts';\n";
-const projectRoutes = ['ai-plan-readings', 'ai-plan-entitlement', 'reading-quote', 'reading-checkout', 'files', 'client-proposals'];
+const projectRoutes = ['ai-plan-readings', 'ai-plan-entitlement', 'reading-quote', 'reading-checkout', 'files', 'client-proposals', 'estimate-versions'];
 
 test('every /api/projects/:id route the handler serves has a deployable function file', () => {
   const handler = readFileSync(new URL('../src/http/handler.ts', import.meta.url), 'utf8');

@@ -180,6 +180,12 @@ export type RemoteProject = {
   status?: "draft" | "active" | "archived";
   project_number?: string | null;
   address_text?: string | null;
+  client_name?: string | null;
+  project_type?: string | null;
+  jurisdiction_state?: "CT" | "MA" | "ME" | "NH" | "RI" | "VT" | null;
+  municipality?: string | null;
+  postal_code?: string | null;
+  permit_date?: string | null;
   app_state?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;
@@ -208,6 +214,29 @@ export function updateProject(workspaceId: string, id: string, patch: unknown) {
 /** DELETE /api/projects/:id */
 export function deleteProject(workspaceId: string, id: string) {
   return request<RemoteProject>(`/api/projects/${id}`, { method: "DELETE", workspaceId });
+}
+
+export type ProjectEstimateVersionSummary = {
+  id: string;
+  project_id: string;
+  revision: number;
+  state_sha256: string;
+  calculation_version: string;
+  created_by: string;
+  created_at: string;
+};
+
+export type ProjectEstimateVersion = ProjectEstimateVersionSummary & {
+  state: Record<string, unknown>;
+};
+
+/** Immutable, server-canonical revisions available to every authorized workspace user. */
+export function listProjectEstimateVersions(workspaceId: string, projectId: string) {
+  return request<ProjectEstimateVersionSummary[]>(`/api/projects/${projectId}/estimate-versions`, { workspaceId });
+}
+
+export function getProjectEstimateVersion(workspaceId: string, projectId: string, revision: number) {
+  return request<ProjectEstimateVersion>(`/api/projects/${projectId}/estimate-versions?revision=${encodeURIComponent(revision)}`, { workspaceId });
 }
 
 export type PlanProjectAddressEvidence = {
