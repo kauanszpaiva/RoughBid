@@ -21,6 +21,43 @@ import {
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 const FINDING_STATUSES: readonly PlanReadingFindingStatus[] = ['needs_review', 'accepted', 'rejected'];
+const CORRECTABLE_FINDING_FIELDS = new Set(['finding_type', 'label', 'value_text', 'quantity', 'unit', 'geometry']);
+const CORRECTABLE_FINDING_TYPES = new Set(['measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material']);
+
+function correctedFindingTarget(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ProjectApiError(400, 'correction must be a non-empty object');
+  }
+  const correction = value as Record<string, unknown>;
+  const keys = Object.keys(correction);
+  if (keys.length === 0) throw new ProjectApiError(400, 'correction must be a non-empty object');
+  for (const key of keys) {
+    if (!CORRECTABLE_FINDING_FIELDS.has(key)) throw new ProjectApiError(400, `correction field ${key} is not supported`);
+  }
+  if ('finding_type' in correction && (typeof correction.finding_type !== 'string' || !CORRECTABLE_FINDING_TYPES.has(correction.finding_type))) {
+    throw new ProjectApiError(400, 'correction.finding_type is invalid');
+  }
+  if ('label' in correction && (typeof correction.label !== 'string' || !correction.label.trim() || correction.label.trim().length > 160)) {
+    throw new ProjectApiError(400, 'correction.label must be a non-empty string up to 160 characters');
+  }
+  if ('value_text' in correction && correction.value_text !== null && typeof correction.value_text !== 'string') {
+    throw new ProjectApiError(400, 'correction.value_text must be a string or null');
+  }
+  if ('quantity' in correction && correction.quantity !== null && (
+    typeof correction.quantity !== 'number' || !Number.isFinite(correction.quantity) || correction.quantity < 0
+  )) {
+    throw new ProjectApiError(400, 'correction.quantity must be a non-negative number or null');
+  }
+  if ('unit' in correction && correction.unit !== null && (
+    typeof correction.unit !== 'string' || correction.unit.length > 40
+  )) {
+    throw new ProjectApiError(400, 'correction.unit must be a string up to 40 characters or null');
+  }
+  if ('geometry' in correction && (!correction.geometry || typeof correction.geometry !== 'object' || Array.isArray(correction.geometry))) {
+    throw new ProjectApiError(400, 'correction.geometry must be an object');
+  }
+  return correction;
+}
 
 export interface AiPlanRequestDependencies {
   findingsWriter: PlanReadingFindingsWriter;
@@ -184,8 +221,33 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     if (request.method === 'PATCH' && parts[0] === 'ai-plan-readings' && parts[1] === 'findings' && parts[2]) {
       const body = await request.json().catch(() => ({})) as Record<string, unknown>;
       const status = body.status;
+      if (status === 'corrected') {
+        if (!db.rpc) throw new ProjectApiError(500, 'Supabase RPC support is required.');
+        const correction = correctedFindingTarget(body.correction);
+        // Use the request-scoped authenticated client, not the service-role
+        // findings writer. The database review RPC depends on auth.uid() and
+        // workspace-role checks to preserve the tenant boundary.
+        const { data: reviewed, error: reviewError } = await db.rpc('review_plan_reading_finding', {
+          p_finding_id: parts[2],
+          p_action: 'corrected',
+          p_correction: correction,
+        });
+        if (reviewError) {
+          const code = reviewError.code;
+          const responseStatus = code === '22023' ? 400 : code === 'P0002' ? 404 : code === '42501' ? 403 : 500;
+          throw new ProjectApiError(responseStatus, reviewError.message ?? 'Could not record the corrected finding.');
+        }
+        const review = Array.isArray(reviewed) ? reviewed[0] : reviewed;
+        if (!review || typeof review !== 'object' || (review as { workspace_id?: string }).workspace_id !== workspaceId) {
+          throw new ProjectApiError(404, 'Finding review not found');
+        }
+        return json({ review });
+      }
       if (typeof status !== 'string' || !FINDING_STATUSES.includes(status as PlanReadingFindingStatus)) {
-        throw new ProjectApiError(400, 'status must be needs_review, accepted, or rejected');
+        throw new ProjectApiError(400, 'status must be needs_review, accepted, rejected, or corrected');
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'correction')) {
+        throw new ProjectApiError(400, 'correction is supported only when status is corrected');
       }
       return json(await service.setFindingStatus(parts[2], status as PlanReadingFindingStatus));
     }
