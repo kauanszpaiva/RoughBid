@@ -97,7 +97,10 @@ export async function runDeepTakeoff(
       try {
         const providerResult = validatedPassResult(await provider.runPass(request));
         const result: DeepPassResult = passType === 'geometry'
-          ? { ...providerResult, checkpoint: enrichGeometryCheckpoint(providerResult.checkpoint) }
+          ? {
+              ...providerResult,
+              checkpoint: enrichGeometryCheckpoint(providerResult.checkpoint, sheet.nativeScaleCandidates ?? []),
+            }
           : providerResult;
         await repository.succeed(request, result);
         sheetSummary.passesCompleted += 1;
