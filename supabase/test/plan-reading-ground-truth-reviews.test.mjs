@@ -21,6 +21,12 @@ test('review history keeps the model prediction and a separate canonical target'
   assert.match(migration, /insert into public\.plan_reading_finding_reviews/);
 });
 
+test('reviewer lifecycle cannot be blocked by the QA ledger', () => {
+  assert.match(migration, /reviewed_by uuid references auth\.users\(id\) on delete set null/);
+  assert.doesNotMatch(migration, /reviewed_by uuid not null/);
+  assert.doesNotMatch(migration, /reviewed_by[\s\S]{0,80}on delete restrict/i);
+});
+
 test('review RPC restricts corrections to approved fields and validates corrected targets', () => {
   assert.match(migration, /array\['finding_type','label','value_text','quantity','unit','geometry'\]/);
   assert.match(migration, /correction contains unsupported fields/);
