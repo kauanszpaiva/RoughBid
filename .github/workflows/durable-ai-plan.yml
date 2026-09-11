@@ -57,6 +57,8 @@ jobs:
           node .browser-tests/node_modules/playwright/cli.js install --with-deps chromium webkit
       - name: Desktop and mobile PDF viewer under production CSP
         run: node scripts/test-blueprint-browser.mjs
+      - name: Full Plans workspace browser verification
+        run: node scripts/test-plans-workspace-browser.mjs
       - name: AI review recovery and pricing evidence boundary
         run: node scripts/test-ai-review-browser.mjs
       - name: Paid return recovery without automatic AI or payment
