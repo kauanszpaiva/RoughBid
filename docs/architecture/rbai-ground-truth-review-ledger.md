@@ -19,11 +19,11 @@ The original `plan_reading_findings` row remains the model prediction. Correctio
 
 `training_eligible` is hard-locked to `false` in this migration. The review ledger is for product QA, benchmarking, error analysis, and future dataset preparation only. Enabling training requires a separately reviewed policy and migration that establishes data provenance, customer/owner rights, retention rules, and explicit training eligibility.
 
-## Security and tenancy
+## Security, tenancy, and lifecycle
 
 Authenticated workspace members can read review records only when existing workspace and product-access policies permit it. Authenticated users receive no direct insert/update/delete privilege on the review table. Writes go through `review_plan_reading_finding`, which requires an authenticated `admin` or `estimator` in the finding's workspace plus active product access.
 
-Project/file/workspace deletion may cascade review rows to preserve the existing privacy/deletion lifecycle. Application code cannot mutate prior review rows directly.
+Project/file/workspace deletion may cascade review rows to preserve the existing privacy/deletion lifecycle. Reviewer identity uses `ON DELETE SET NULL`: deleting an auth account does not delete the QA event and does not let the audit ledger block account removal. The historical review therefore remains usable while the deleted user's identifier is no longer retained in that foreign-key field.
 
 ## Backward compatibility
 
