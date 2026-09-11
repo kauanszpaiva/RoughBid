@@ -23,6 +23,8 @@ const normalizeMarks = (value: string) => value
   .replace(/\u00a0/g, ' ')
   .trim();
 
+const SCALE_CANDIDATE_PATTERN = /(?:\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+)\s*"\s*=\s*\d+(?:\.\d+)?\s*'\s*(?:-\s*)?(?:(?:\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+)\s*")?/g;
+
 function parseUnsignedMagnitude(value: string): number | null {
   const text = value.trim().replace(/\s+/g, ' ');
   if (!text || text.startsWith('-') || text.startsWith('+')) return null;
@@ -88,6 +90,29 @@ export function parsePrintedArchitecturalScale(raw: string): ParsedArchitectural
     realFeet: real.totalFeet,
     drawingFeetPerPdfPoint: real.totalFeet / (paperInches * 72),
   };
+}
+
+/**
+ * Finds isolated architectural scale notations inside a short evidence excerpt.
+ * The scanner is intentionally narrow: contradictory NTS text fails closed and
+ * every candidate must still pass the strict scale parser before it is returned.
+ */
+export function extractPrintedArchitecturalScaleCandidates(raw: string): string[] {
+  if (typeof raw !== 'string') return [];
+  const text = normalizeMarks(raw);
+  if (!text || /\b(?:NTS|NOT\s+TO\s+SCALE)\b/i.test(text)) return [];
+  const matches = text.match(SCALE_CANDIDATE_PATTERN) ?? [];
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  for (const match of matches) {
+    const candidate = match.replace(/\s+/g, ' ').trim();
+    if (!parsePrintedArchitecturalScale(candidate)) continue;
+    const key = candidate.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return candidates;
 }
 
 export function scaleEvidenceFromPrintedScale(raw: string): ArchitecturalScaleEvidence | null {
