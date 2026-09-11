@@ -60,7 +60,7 @@ export async function analyzePdfNativeContent(fileBytes: Uint8Array): Promise<Re
       }
     }
   } finally {
-    await document.destroy();
+    await loadingTask.destroy();
   }
 
   return result;
