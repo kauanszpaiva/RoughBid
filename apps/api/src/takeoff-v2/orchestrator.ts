@@ -1,3 +1,4 @@
+import { enrichGeometryCheckpoint } from './scale-evidence.ts';
 import type { DeepCheckpointRepository, DeepPassProvider, DeepPassRequest, DeepPassResult, DeepPassType, PlanSetManifest } from './types.ts';
 
 export const DEEP_PASS_ORDER: readonly DeepPassType[] = [
@@ -94,7 +95,10 @@ export async function runDeepTakeoff(
       }
       summary.attempted += 1;
       try {
-        const result = validatedPassResult(await provider.runPass(request));
+        const providerResult = validatedPassResult(await provider.runPass(request));
+        const result: DeepPassResult = passType === 'geometry'
+          ? { ...providerResult, checkpoint: enrichGeometryCheckpoint(providerResult.checkpoint) }
+          : providerResult;
         await repository.succeed(request, result);
         sheetSummary.passesCompleted += 1;
         if (result.status === 'blocked') {
