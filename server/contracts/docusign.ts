@@ -18,21 +18,21 @@ export interface SignatureRoutingResult {
 
 export interface DocuSignUserInfoAccount {
   account_id: string;
-  is_default?: boolean;
+  is_default?: boolean | undefined;
   base_uri: string;
-  account_name?: string;
+  account_name?: string | undefined;
 }
 
 export interface DocuSignUserInfoResponse {
-  sub?: string;
-  accounts?: DocuSignUserInfoAccount[];
+  sub?: string | undefined;
+  accounts?: DocuSignUserInfoAccount[] | undefined;
 }
 
 export interface EnvelopeRecipient {
   email: string;
   name: string;
   roleName: string;
-  clientUserId?: string;
+  clientUserId?: string | undefined;
 }
 
 export interface PrepareEnvelopeRequest {
@@ -40,28 +40,23 @@ export interface PrepareEnvelopeRequest {
   templateContentHash: string;
   memberEmail: string;
   memberName: string;
-  clientUserId?: string;
-  accessToken?: string;
+  clientUserId?: string | undefined;
+  accessToken?: string | undefined;
   sendEnvelopeHttpFn?: (params: {
     baseUri: string;
     accountId: string;
     templateId: string;
-    templateRoles: Array<{
-      email: string;
-      name: string;
-      roleName: string;
-      clientUserId?: string;
-    }>;
+    templateRoles: EnvelopeRecipient[];
   }) => Promise<{ envelopeId: string; status: string }>;
 }
 
 export interface PrepareEnvelopeResponse {
   success: boolean;
   routing: SignatureRoutingResult;
-  envelopeId?: string;
-  status?: string;
-  accountResolution?: DocuSignAccountResolution;
-  error?: string;
+  envelopeId?: string | undefined;
+  status?: string | undefined;
+  accountResolution?: DocuSignAccountResolution | undefined;
+  error?: string | undefined;
 }
 
 /**
@@ -85,7 +80,7 @@ export function determineSignatureRouting(request: SignatureRoutingRequest): Sig
  */
 export async function resolveDocuSignAccount(
   options: DocuSignConfigOptions = {},
-  userInfoFetcher?: () => Promise<DocuSignUserInfoResponse>
+  userInfoFetcher?: (() => Promise<DocuSignUserInfoResponse>) | undefined
 ): Promise<DocuSignAccountResolution> {
   const config = getDocuSignConfig(options);
 
@@ -102,8 +97,8 @@ export async function resolveDocuSignAccount(
     try {
       const userInfo = await userInfoFetcher();
       if (userInfo.accounts && userInfo.accounts.length > 0) {
-        const defaultAccount = userInfo.accounts.find((a) => a.is_default) || userInfo.accounts[0];
-        if (defaultAccount.account_id && defaultAccount.base_uri) {
+        const defaultAccount = userInfo.accounts.find((a) => a.is_default) ?? userInfo.accounts[0];
+        if (defaultAccount && defaultAccount.account_id && defaultAccount.base_uri) {
           return {
             accountId: defaultAccount.account_id,
             baseUri: defaultAccount.base_uri,
@@ -195,19 +190,21 @@ export async function prepareAndSendDocuSignEnvelope(
     };
   }
 
-  const templateRoles = [
-    {
-      email: request.memberEmail,
-      name: request.memberName,
-      roleName: config.memberRoleName,
-      clientUserId: request.clientUserId,
-    },
-    {
-      email: config.bezLegalSignerEmail!,
-      name: config.bezLegalSignerName!,
-      roleName: config.bezSignerRoleName,
-    },
-  ];
+  const memberRecipient: EnvelopeRecipient = {
+    email: request.memberEmail,
+    name: request.memberName,
+    roleName: config.memberRoleName,
+    clientUserId: request.clientUserId,
+  };
+
+  const bezSignerRecipient: EnvelopeRecipient = {
+    email: config.bezLegalSignerEmail!,
+    name: config.bezLegalSignerName!,
+    roleName: config.bezSignerRoleName,
+    clientUserId: undefined,
+  };
+
+  const templateRoles: EnvelopeRecipient[] = [memberRecipient, bezSignerRecipient];
 
   if (request.sendEnvelopeHttpFn) {
     try {

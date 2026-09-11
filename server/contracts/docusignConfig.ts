@@ -7,8 +7,8 @@ export interface DocuSignTemplateMapping {
 }
 
 export interface DocuSignAccountResolution {
-  accountId?: string;
-  baseUri?: string;
+  accountId?: string | undefined;
+  baseUri?: string | undefined;
   isExplicit: boolean;
   discovered: boolean;
 }
@@ -29,23 +29,23 @@ export interface DocuSignStatus {
 
 export interface DocuSignResolvedConfig {
   environment: 'demo' | 'production';
-  integrationKey?: string;
-  userId?: string;
+  integrationKey?: string | undefined;
+  userId?: string | undefined;
   hasPrivateKey: boolean;
-  privateKey?: string;
+  privateKey?: string | undefined;
   authServer: string;
-  accountId?: string;
-  baseUri?: string;
+  accountId?: string | undefined;
+  baseUri?: string | undefined;
   accountResolution: DocuSignAccountResolution;
   templateMap: DocuSignTemplateMapping;
-  templateMapRaw?: string;
+  templateMapRaw?: string | undefined;
   templateMapValid: boolean;
-  webhookUrl?: string;
+  webhookUrl?: string | undefined;
   hasHmacSecret: boolean;
   memberRoleName: string;
   bezSignerRoleName: string;
-  bezLegalSignerName?: string;
-  bezLegalSignerEmail?: string;
+  bezLegalSignerName?: string | undefined;
+  bezLegalSignerEmail?: string | undefined;
   templatesCertified: boolean;
   allowRealSend: boolean;
 }
@@ -81,7 +81,7 @@ export function getDocuSignConfig(options: DocuSignConfigOptions = {}): DocuSign
     discovered: false,
   };
 
-  const templateMapRaw = env.DOCUSIGN_BEZ_TEMPLATE_MAP_JSON?.trim();
+  const templateMapRaw = env.DOCUSIGN_BEZ_TEMPLATE_MAP_JSON?.trim() || undefined;
   let templateMap: DocuSignTemplateMapping = {};
   let templateMapValid = false;
 
