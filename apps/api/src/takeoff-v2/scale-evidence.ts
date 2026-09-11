@@ -20,23 +20,32 @@ function ratioKey(evidence: ScaleEvidence): string {
 }
 
 /**
- * Promotes strict printed-scale excerpts from an AI geometry checkpoint into
- * deterministic evidence. Equal ratios are intentionally collapsed because
- * repeated title-block text is not an independent calibration source. Different
- * ratios are preserved so whole-sheet calibration fails closed as conflicting.
+ * Promotes native-PDF and AI-observed printed scales into one deterministic
+ * evidence set. Equal ratios are intentionally collapsed because repeated text
+ * is not an independent calibration source. Different ratios are preserved so
+ * whole-sheet calibration fails closed as conflicting.
  */
-export function deriveDeterministicScaleEvidence(checkpoint: Record<string, unknown>): DeterministicScaleDerivation {
+export function deriveDeterministicScaleEvidence(
+  checkpoint: Record<string, unknown>,
+  nativeScaleCandidates: readonly string[] = [],
+): DeterministicScaleDerivation {
   const observations = Array.isArray(checkpoint.observations) ? checkpoint.observations : [];
   const byRatio = new Map<string, ScaleEvidence>();
 
+  const addCandidate = (candidate: string) => {
+    const evidence = scaleEvidenceFromPrintedScale(candidate);
+    if (!evidence) return;
+    const key = ratioKey(evidence);
+    if (!byRatio.has(key)) byRatio.set(key, evidence as ScaleEvidence);
+  };
+
+  for (const candidate of nativeScaleCandidates) {
+    if (typeof candidate === 'string') addCandidate(candidate);
+  }
+
   for (const observation of observations) {
     if (!isRecord(observation) || typeof observation.source_excerpt !== 'string') continue;
-    for (const candidate of extractPrintedArchitecturalScaleCandidates(observation.source_excerpt)) {
-      const evidence = scaleEvidenceFromPrintedScale(candidate);
-      if (!evidence) continue;
-      const key = ratioKey(evidence);
-      if (!byRatio.has(key)) byRatio.set(key, evidence as ScaleEvidence);
-    }
+    for (const candidate of extractPrintedArchitecturalScaleCandidates(observation.source_excerpt)) addCandidate(candidate);
   }
 
   const evidence = [...byRatio.values()];
@@ -47,9 +56,12 @@ export function deriveDeterministicScaleEvidence(checkpoint: Record<string, unkn
   };
 }
 
-export function enrichGeometryCheckpoint(checkpoint: Record<string, unknown>): Record<string, unknown> {
+export function enrichGeometryCheckpoint(
+  checkpoint: Record<string, unknown>,
+  nativeScaleCandidates: readonly string[] = [],
+): Record<string, unknown> {
   return {
     ...checkpoint,
-    deterministic_scale: deriveDeterministicScaleEvidence(checkpoint),
+    deterministic_scale: deriveDeterministicScaleEvidence(checkpoint, nativeScaleCandidates),
   };
 }

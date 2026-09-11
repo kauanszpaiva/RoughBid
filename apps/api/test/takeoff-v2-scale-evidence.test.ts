@@ -4,7 +4,7 @@ import { runDeepTakeoff } from '../src/takeoff-v2/orchestrator.ts';
 import { deriveDeterministicScaleEvidence } from '../src/takeoff-v2/scale-evidence.ts';
 import type { DeepPassResult, PlanSetManifest } from '../src/takeoff-v2/types.ts';
 
-function manifest(): PlanSetManifest {
+function manifest(nativeScaleCandidates: string[] = []): PlanSetManifest {
   return {
     fileSha256: 'a'.repeat(64),
     physicalPageCount: 1,
@@ -17,6 +17,7 @@ function manifest(): PlanSetManifest {
       rotationDegrees: 0,
       contentKind: 'vector',
       textQuality: 'good',
+      nativeScaleCandidates,
       status: 'review_required',
       statusReason: 'fixture',
     }],
@@ -37,13 +38,17 @@ test('derives one fail-safe scale source from repeated equivalent printed-scale 
   assert.ok(Math.abs(derived.calibration.drawingUnitsPerPoint - 1 / 18) < 1e-12);
 });
 
-test('preserves materially different printed scales as a conflict instead of choosing one', () => {
+test('native PDF scale survives even when the AI geometry checkpoint contains no scale observation', () => {
+  const derived = deriveDeterministicScaleEvidence({ observations: [] }, [`1/4" = 1'-0"`]);
+  assert.equal(derived.evidence.length, 1);
+  assert.equal(derived.evidence[0]?.sourceExcerpt, `1/4" = 1'-0"`);
+  assert.equal(derived.calibration.verificationStatus, 'single_source');
+});
+
+test('preserves materially different native and AI printed scales as a conflict instead of choosing one', () => {
   const derived = deriveDeterministicScaleEvidence({
-    observations: [
-      { source_excerpt: `MAIN: 1/4" = 1'-0"` },
-      { source_excerpt: `DETAIL: 1/8" = 1'-0"` },
-    ],
-  });
+    observations: [{ source_excerpt: `DETAIL: 1/8" = 1'-0"` }],
+  }, [`1/4" = 1'-0"`]);
   assert.equal(derived.evidence.length, 2);
   assert.equal(derived.calibration.verificationStatus, 'conflicting');
   assert.equal(derived.calibration.confidence, 0);
@@ -60,15 +65,12 @@ test('NTS and non-observation content cannot become deterministic scale evidence
   assert.equal(deriveDeterministicScaleEvidence({ observations: [] }).calibration.verificationStatus, 'blocked');
 });
 
-test('deep orchestration enriches only the geometry checkpoint before persistence', async () => {
+test('deep orchestration seeds geometry checkpoint from native scale before persistence', async () => {
   const saved = new Map<string, DeepPassResult>();
-  await runDeepTakeoff('run-scale', manifest(), {
+  await runDeepTakeoff('run-scale', manifest([`1/4" = 1'-0"`]), {
     async runPass(request) {
       return request.passType === 'geometry'
-        ? {
-            status: 'succeeded' as const,
-            checkpoint: { observations: [{ source_excerpt: `SCALE: 1/4" = 1'-0"` }] },
-          }
+        ? { status: 'succeeded' as const, checkpoint: { observations: [] } }
         : { status: 'succeeded' as const, checkpoint: { pass: request.passType } };
     },
   }, {

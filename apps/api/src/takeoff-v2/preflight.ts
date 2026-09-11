@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { analyzePdfNativeContent } from './native-content.ts';
 import type { PlanSetManifest } from './types.ts';
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -11,6 +12,10 @@ export async function createPlanSetManifest(fileBytes: Uint8Array): Promise<Plan
   if (!(fileBytes instanceof Uint8Array) || fileBytes.byteLength === 0) throw new TypeError('A non-empty PDF is required.');
   const source = await PDFDocument.load(fileBytes, { ignoreEncryption: false, updateMetadata: false });
   if (source.getPageCount() < 1) throw new RangeError('The PDF has no physical pages.');
+
+  // Native PDF inspection is best-effort. It improves routing for vector/mixed/
+  // raster pages, but an analyzer failure must not make a valid plan unreadable.
+  const nativeContent = await analyzePdfNativeContent(fileBytes).catch(() => new Map());
   const sheets = [];
   for (let index = 0; index < source.getPageCount(); index += 1) {
     const page = source.getPage(index);
@@ -21,6 +26,7 @@ export async function createPlanSetManifest(fileBytes: Uint8Array): Promise<Plan
     const { width, height } = page.getSize();
     const rotation = page.getRotation().angle;
     const rotationDegrees = ([0, 90, 180, 270].includes(rotation) ? rotation : 0) as 0 | 90 | 180 | 270;
+    const native = nativeContent.get(index + 1);
     sheets.push({
       physicalPageNumber: index + 1,
       pageSha256: await sha256(pageBytes),
@@ -28,10 +34,13 @@ export async function createPlanSetManifest(fileBytes: Uint8Array): Promise<Plan
       heightPoints: Number(height.toFixed(6)),
       orientation: width === height ? 'square' as const : width > height ? 'landscape' as const : 'portrait' as const,
       rotationDegrees,
-      contentKind: 'unknown' as const,
-      textQuality: 'unknown' as const,
+      contentKind: native?.contentKind ?? 'unknown' as const,
+      textQuality: native?.textQuality ?? 'unknown' as const,
+      nativeScaleCandidates: native?.printedScaleCandidates ?? [],
       status: 'review_required' as const,
-      statusReason: 'Physical page accounted for; classification has not run.',
+      statusReason: native
+        ? `Physical page accounted for; native content detected as ${native.contentKind} with ${native.textQuality} text.`
+        : 'Physical page accounted for; native content inspection was unavailable and classification has not run.',
     });
   }
   return { fileSha256: await sha256(fileBytes), physicalPageCount: sheets.length, sheets };
