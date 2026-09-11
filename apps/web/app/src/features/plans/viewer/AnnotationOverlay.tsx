@@ -7,7 +7,7 @@ type Props = {
   selectedAnnotationId: string | null;
   showManualNotes: boolean;
   pendingNote?: NormalizedPoint | null;
-  onSelectAnnotation?: (annotationId: string) => void;
+  onSelectAnnotation?: ((annotationId: string) => void) | undefined;
 };
 
 const validCoordinate = (value: number) => Number.isFinite(value) && value >= 0 && value <= 1;
