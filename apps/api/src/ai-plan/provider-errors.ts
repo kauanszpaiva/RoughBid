@@ -53,7 +53,7 @@ export function classifyProviderFailure(error:unknown, context:{provider:string;
   const timedOut=['TimeoutError','AbortError'].includes(input.name)||['ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT'].includes(input.code);
   let code:AiFailureCode=fallback;
   if(reason?.startsWith('API_KEY_')||status===401||reason==='UNAUTHENTICATED')code='provider_credentials';
-  else if(status===403||['PERMISSION_DENIED','SERVICE_DISABLED','BILLING_DISABLED'].includes(reason??''))code='provider_permissions';
+  else if(status===402||status===403||['PERMISSION_DENIED','SERVICE_DISABLED','BILLING_DISABLED'].includes(reason??''))code='provider_permissions';
   else if(status===429||['RESOURCE_EXHAUSTED','RATE_LIMIT_EXCEEDED','QUOTA_EXCEEDED'].includes(reason??''))code='provider_quota';
   else if(status===404||reason==='NOT_FOUND')code='provider_model_unavailable';
   else if(timedOut||status===408||status===504||reason==='DEADLINE_EXCEEDED')code='provider_timeout';

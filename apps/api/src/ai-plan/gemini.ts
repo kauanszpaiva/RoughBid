@@ -11,6 +11,8 @@ export interface GeminiPlanReadInput {
   sheetName: string;
   requestedTrades: readonly string[];
   scope: string | null;
+  /** Deep orchestrators opt into HIGH per-sheet reasoning; Quick/Pilot remains LOW. */
+  reasoningEffort?: 'low' | 'high';
 }
 
 /** The subset of @google/genai's client this reader needs — narrow enough to fake in tests. */
@@ -132,7 +134,7 @@ export class GeminiPlanReader {
               systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
               responseMimeType: 'application/json',
               // Preserve the model-family settings verified by the existing tests.
-              ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'LOW' } } : { temperature: 0.1 }),
+              ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: input.reasoningEffort === 'high' ? 'HIGH' : 'LOW' } } : { temperature: 0.1 }),
               maxOutputTokens: 8000,
               httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
             },

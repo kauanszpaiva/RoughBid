@@ -21,7 +21,7 @@ test('only persisted review-ready states are presented as complete', () => {
     const presented = presentAiPlanStatus(status);
     assert.equal(presented.finished, true);
     assert.match(presented.notice, /ready to review/i);
-    assert.match(presented.revisionNote ?? '', /complete/i);
+    assert.match(presented.revisionNote ?? '', /complete takeoff coverage is not verified/i);
   }
 
   const failed = presentAiPlanStatus('failed');
@@ -48,4 +48,14 @@ test('platform-owner AI testing keeps workspace consent explicit and billing com
   assert.match(billing, /Complimentary full access/);
   assert.match(billing, /disabled=\{platformAdmin \|\| busy \|\| !memberships\[tier\]\}/);
   assert.match(billing, /starter: capabilities\.membershipStarter, pro: capabilities\.membershipPro, team: capabilities\.membershipTeam/);
+});
+
+test('saved results never advertise a complete plan reading without a coverage audit', () => {
+  for (const status of ['needs_review', 'ready'] as const) {
+    const result = presentAiPlanStatus(status);
+    assert.equal(result.finished, true);
+    assert.doesNotMatch(result.notice, /plan reading complete/i);
+    assert.match(result.notice, /partial/i);
+    assert.match(result.revisionNote ?? '', /not verified/i);
+  }
 });

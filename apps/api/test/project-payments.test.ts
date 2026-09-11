@@ -47,6 +47,7 @@ test('unpaid and unrelated Stripe events never grant a project reading',async()=
 function checkoutFixture(env: Record<string, string | undefined>, pilot: any = { active: false, status: 'none' }, gatewayResponse?: Response) {
   const mutations: string[] = [];
   const requests: string[] = [];
+  const requestBodies: string[] = [];
   const quote = { id: 'quote-1', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1',
     status: 'quoted', expires_at: new Date(Date.now() + 60 * 60_000).toISOString(), livemode: false,
     amount_cents: 500, currency: 'usd', page_count: 1 };
@@ -60,11 +61,12 @@ function checkoutFixture(env: Record<string, string | undefined>, pilot: any = {
     };
     return query;
   }, rpc: async (fn: string) => { if (fn === 'get_pilot_access') return { data: pilot, error: null }; mutations.push('rpc'); return { data: null, error: null }; } };
-  const fetcher = (async (input: string | URL | Request) => {
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(String(input));
+    if (init?.body instanceof URLSearchParams) requestBodies.push(init.body.toString());
     return gatewayResponse ?? Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
   }) as typeof fetch;
-  return { payments: new ProjectPayments(db, env, fetcher), mutations, requests };
+  return { payments: new ProjectPayments(db, env, fetcher), mutations, requests, requestBodies };
 }
 
 test('disabled or incomplete Gemini configuration blocks quotes and checkout before spending or reserving', async () => {
@@ -103,6 +105,7 @@ test('deliberately configured paid checkout still works with an injected test ga
   assert.equal(checkout.url, 'https://checkout.stripe.test/session');
   assert.deepEqual(f.requests, ['https://api.stripe.com/v1/checkout/sessions']);
   assert.deepEqual(f.mutations, ['project_reading_quotes']);
+  assert.doesNotMatch(f.requestBodies[0]!, /payment_method_types/);
 });
 
 test('active pilot cannot pay around its limits and unknown pilot status fails closed', async () => {

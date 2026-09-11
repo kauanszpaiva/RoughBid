@@ -34,6 +34,7 @@
  */
 import { supabase } from "./supabaseClient";
 import { ApiError, createAuthenticatedFetch } from "./authenticatedFetch";
+import type { TakeoffV2Coverage } from "../utils/takeoffCoverage";
 export { ApiError } from "./authenticatedFetch";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
@@ -99,7 +100,7 @@ export function getHealth() {
 }
 
 export function getCapabilities() {
-  return request<{ aiReadingAvailable: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
+  return request<{ aiReadingAvailable: boolean; fullTakeoffV2: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
 }
 
 export type AuthBootstrap = {
@@ -310,10 +311,14 @@ export type PlanReadingJob = {
   status: PlanReadingJobStatus;
   processing_error: string | null;
   output_summary: {
+    page_strategy?: 'sheet-v1';
+    physical_page_number?: number;
+    physical_page_count?: number;
     sheet_count?: number;
     detected_trade_scope?: string[];
     scale_status?: "detected" | "missing" | "conflicting";
     pricing?: { materialCost: number; laborCost: number; directCost: number; pricedFindings: number; unpricedFindings: number };
+    takeoff_v2?: TakeoffV2Coverage;
   };
   plan_reading_findings: PlanReadingFinding[];
 };
@@ -334,7 +339,7 @@ export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
   return request<{ freeReadingAvailable: boolean; pilotActive?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
-export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed"; trades?: string[]; scope?: string }) {
+export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed" | "full_v2"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
     method: "POST",
     workspaceId,
@@ -500,4 +505,22 @@ export function getSavedReadingQuote(workspaceId: string, projectId: string, fil
 }
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
+}
+
+export type PageReviewInventory = {
+  strategy: 'sheet-v1'; fileId: string; sourceSha256: string; totalPages: number;
+  scope: string; trades: string[]; completeTakeoffVerified: false;
+  pages: Array<{ pageNumber: number; jobId: string | null; status: PlanReadingJobStatus | 'not_started'; processingError: string | null; findingCount: number | null }>;
+};
+/** Read-only: checks the actual PDF and restores persisted page reviews. */
+export function getPageReviewInventory(workspaceId: string, projectId: string, fileId: string, scope: string, trades: string[]) {
+  const query = new URLSearchParams({ file_id: fileId, scope });
+  trades.forEach(trade => query.append('trade', trade));
+  return request<PageReviewInventory>(`/api/projects/${projectId}/ai-plan-readings?${query}`, { workspaceId });
+}
+/** One explicit, metered physical-page request. No automatic POST retry. */
+export function startPhysicalPageReading(workspaceId: string, projectId: string, inventory: PageReviewInventory, pageNumber: number) {
+  return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, { method: 'POST', workspaceId,
+    body: { file_id: inventory.fileId, source_sha256: inventory.sourceSha256, page_number: pageNumber,
+      mode: 'detailed', scope: inventory.scope, trades: inventory.trades } });
 }

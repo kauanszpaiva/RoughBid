@@ -115,7 +115,7 @@ export class ProjectPayments {
       return {url:session.url};
     }
     if (Date.parse(q.expires_at) < Date.now()+30*60_000) throw new ProjectApiError(409,'Refresh the project price before paying.');
-    const params = new URLSearchParams({ mode:'payment', 'payment_method_types[0]':'card',
+    const params = new URLSearchParams({ mode:'payment',
       'line_items[0][price_data][currency]':q.currency, 'line_items[0][price_data][unit_amount]':String(q.amount_cents),
       'line_items[0][price_data][product_data][name]':`RoughBid — ${q.page_count} page plan reading`, 'line_items[0][quantity]':'1',
       'metadata[roughbid_quote_id]':q.id, 'metadata[workspace_id]':workspaceId, 'metadata[project_id]':projectId,

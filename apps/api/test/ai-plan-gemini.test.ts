@@ -103,6 +103,14 @@ test('Gemini 3 requests use supported thinking settings without legacy sampling 
   assert.equal((await reader.read(baseInput)).findings.length, 1);
 });
 
+test('deep sheet orchestration explicitly opts into high Gemini reasoning', async () => {
+  const reader = new GeminiPlanReader({ generateContent: async ({config}) => {
+    assert.deepEqual(config.thinkingConfig, { thinkingLevel: 'HIGH' });
+    return { text: JSON.stringify({ summary: { sheet_count: 1 }, findings: [{ page_number: 1, finding_type: 'room', label: 'Kitchen', source_excerpt: 'KITCHEN' }] }) };
+  } }, ['gemini-3.8-flash']);
+  assert.equal((await reader.read({ ...baseInput, reasoningEffort: 'high' })).findings.length, 1);
+});
+
 test('tries the next candidate model when the first returns no findings, before falling back', async () => {
   const attempts: string[] = [];
   const client = {

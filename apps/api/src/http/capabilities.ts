@@ -4,7 +4,7 @@ import { loadObjectStorageConfig } from '../storage/object-storage.ts';
 
 /** Configuration flags only; this never probes a provider or reveals credentials. */
 export function runtimeCapabilities(env: Record<string, string | undefined>) {
-  const flags = { aiReadingAvailable: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport: false };
+  const flags = { aiReadingAvailable: false, fullTakeoffV2: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport: false };
   // Free owner entitlement is deliberately NOT reported here. This endpoint is
   // public and env-only, so a global flag would advertise "free analysis" to
   // every customer workspace. Entitlement is per-workspace and is answered by
@@ -38,6 +38,9 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
     if (!flags.aiReadingAvailable || !stripeReady) return flags;
     quoteProject(1, 1, 'standard', env);
     flags.billing = true;
+    flags.fullTakeoffV2 = env.TAKEOFF_V2_ENABLED === 'true'
+      && env.TAKEOFF_V2_WORKER_ENABLED === 'true'
+      && env.TAKEOFF_V2_SCHEMA_VERSION === 'takeoff-v2-foundation-v1';
   } catch {
     // Optional paid features remain unavailable until all their prerequisites exist.
   }

@@ -1,0 +1,37 @@
+name: V2 offline verification bundle
+on:
+  push:
+    branches: [chat/v2-integration-20260910]
+    paths: [.github/workflows/v2-offline-verification.yml]
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - name: Package tracked source and dependency runtime, never credentials or git config
+        run: |
+          mkdir -p /tmp/roughbid-verify
+          git archive HEAD | tar -x -C /tmp/roughbid-verify
+          cp -a node_modules /tmp/roughbid-verify/
+          mkdir -p /tmp/roughbid-verify/verification-runtime
+          cp "$(command -v node)" /tmp/roughbid-verify/verification-runtime/node
+          git rev-parse HEAD > /tmp/roughbid-verify/verification-runtime/source-sha.txt
+          find /tmp/roughbid-verify -name .git -type d -prune -exec rm -rf '{}' +
+          find /tmp/roughbid-verify -type f \( -name '.env' -o -name '.env.local' -o -name '.env.production' -o -name '.npmrc' \) -delete
+          tar -czf /tmp/roughbid-offline-verification.tar.gz -C /tmp/roughbid-verify .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roughbid-offline-verification
+          path: /tmp/roughbid-offline-verification.tar.gz
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
