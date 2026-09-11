@@ -32,18 +32,26 @@ export interface FullTakeoffV2Persistence {
     projectId: string;
     fileId: string;
     requestedBy: string;
-  }): Promise<{ runId: string; resumed: boolean; checkpoints: DeepCheckpointRepository }>;
+  }): Promise<{
+    runId: string;
+    resumed: boolean;
+    checkpoints: DeepCheckpointRepository;
+    completedStatus?: 'needs_review' | 'ready';
+  }>;
   finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed'>;
 }
 
 function result<T>(value: { data: T; error: { message?: string; code?: string } | null }, message: string): T {
-  if (value.error) throw new ProjectApiError(500, value.error.message ?? message);
+  if (value.error) throw new ProjectApiError(500, message);
   return value.data;
 }
 
 /** Service-role persistence for the additive V2 tables. Browser roles remain read-only. */
 export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistence {
   private readonly writer: PlanReadingFindingsWriter;
+  private readonly ownedRuns = new Map<string, {
+    workspaceId: string; projectId: string; fileId: string; fileSha256: string; updatedAt: string;
+  }>();
   constructor(writer: PlanReadingFindingsWriter) { this.writer = writer; }
 
   async prepare(input: {
@@ -62,8 +70,9 @@ export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistenc
     );
 
     let run = await findRun();
-    const resumed = Boolean(run);
+    let createdHere = false;
     if (!run) {
+      const now = new Date().toISOString();
       const inserted = await this.writer.from('takeoff_runs').insert({
         workspace_id: input.workspaceId,
         project_id: input.projectId,
@@ -73,93 +82,126 @@ export class SupabaseFullTakeoffV2Persistence implements FullTakeoffV2Persistenc
         file_sha256: input.manifest.fileSha256,
         orchestrator_version: FULL_TAKEOFF_V2_ORCHESTRATOR_VERSION,
         requested_by: input.requestedBy,
-        started_at: new Date().toISOString(),
+        started_at: now,
+        updated_at: now,
       }).select('*').single();
       if (inserted.error?.code === '23505') run = await findRun();
-      else run = result<any>(inserted, 'Could not create the Full Takeoff run.');
+      else {
+        run = result<any>(inserted, 'Could not create the Full Takeoff run.');
+        createdHere = true;
+      }
     }
     if (!run?.id) throw new ProjectApiError(500, 'Full Takeoff run identity is unavailable.');
 
-    result(
-      await this.writer.from('takeoff_runs').update({ status: 'processing', completed_at: null, updated_at: new Date().toISOString() })
-        .eq('id', run.id).eq('workspace_id', input.workspaceId),
-      'Could not resume the Full Takeoff run.',
-    );
+    // The successful unique INSERT owns this run. Time passing is not evidence
+    // that a previous provider call was free or stopped. Never reclaim a failed,
+    // queued, cancelled, or uncertain processing run through this endpoint.
+    let completedStatus: 'needs_review' | 'ready' | undefined;
+    if (!createdHere) {
+      if (run.status !== 'needs_review' && run.status !== 'ready') {
+        throw new ProjectApiError(409, 'Full Takeoff run is in progress or requires reconciliation. No repeat run was started.');
+      }
+      completedStatus = run.status;
+    } else if (typeof run.updated_at !== 'string' || !Number.isFinite(Date.parse(run.updated_at))) {
+      throw new ProjectApiError(500, 'Full Takeoff run claim could not be verified.');
+    }
 
-    const sheetRows = input.manifest.sheets.map(sheet => ({
-      takeoff_run_id: run.id,
-      workspace_id: input.workspaceId,
-      project_id: input.projectId,
-      file_id: input.fileId,
-      physical_page_number: sheet.physicalPageNumber,
-      page_sha256: sheet.pageSha256,
-      width_points: sheet.widthPoints,
-      height_points: sheet.heightPoints,
-      rotation_degrees: sheet.rotationDegrees,
-      content_kind: sheet.contentKind,
-      text_quality: sheet.textQuality,
-      status: sheet.status,
-      status_reason: sheet.statusReason,
-    }));
-    result(
-      await this.writer.from('plan_sheets').upsert(sheetRows, { onConflict: 'takeoff_run_id,physical_page_number' }),
-      'Could not persist the physical-page manifest.',
-    );
+    if (createdHere) {
+      const sheetRows = input.manifest.sheets.map(sheet => ({
+        takeoff_run_id: run.id,
+        workspace_id: input.workspaceId,
+        project_id: input.projectId,
+        file_id: input.fileId,
+        physical_page_number: sheet.physicalPageNumber,
+        page_sha256: sheet.pageSha256,
+        width_points: sheet.widthPoints,
+        height_points: sheet.heightPoints,
+        rotation_degrees: sheet.rotationDegrees,
+        content_kind: sheet.contentKind,
+        text_quality: sheet.textQuality,
+        status: sheet.status,
+        status_reason: sheet.statusReason,
+      }));
+      result(
+        await this.writer.from('plan_sheets').insert(sheetRows),
+        'Could not persist the physical-page manifest.',
+      );
+    }
+    // Completed runs are read-only: do not reset human classifications, review
+    // decisions, timestamps, or checkpoints while reconstructing their summary.
     const persistedSheets = result<any[]>(
       await this.writer.from('plan_sheets').select('id, physical_page_number')
-        .eq('takeoff_run_id', run.id).eq('workspace_id', input.workspaceId),
+        .eq('takeoff_run_id', run.id).eq('workspace_id', input.workspaceId).eq('project_id', input.projectId),
       'Could not read the physical-page manifest.',
     );
-    if (persistedSheets.length !== input.manifest.physicalPageCount) {
+    if (!Array.isArray(persistedSheets) || persistedSheets.length !== input.manifest.physicalPageCount) {
       throw new ProjectApiError(409, 'The persisted Full Takeoff manifest does not account for every physical page.');
     }
-    const sheetIds = new Map<number, string>(persistedSheets.map(sheet => [Number(sheet.physical_page_number), String(sheet.id)]));
-    if (sheetIds.size !== input.manifest.physicalPageCount || [...sheetIds.values()].some(id => !id)) {
+    const sheetIds = new Map<number, string>(persistedSheets.map(sheet => [Number(sheet.physical_page_number), String(sheet.id ?? '')]));
+    if (sheetIds.size !== input.manifest.physicalPageCount || [...sheetIds.values()].some(id => !id)
+      || input.manifest.sheets.some(sheet => !sheetIds.has(sheet.physicalPageNumber))) {
       throw new ProjectApiError(409, 'The persisted Full Takeoff manifest contains duplicate or invalid page identities.');
     }
-
+    if (createdHere) {
+      this.ownedRuns.set(String(run.id), {
+        workspaceId: input.workspaceId, projectId: input.projectId, fileId: input.fileId,
+        fileSha256: input.manifest.fileSha256, updatedAt: run.updated_at,
+      });
+    }
     return {
       runId: String(run.id),
-      resumed,
-      checkpoints: new SupabaseDeepCheckpointRepository(this.writer, String(run.id), input.workspaceId, input.projectId, sheetIds),
+      resumed: !createdHere,
+      ...(completedStatus ? { completedStatus } : {}),
+      checkpoints: new SupabaseDeepCheckpointRepository(this.writer, String(run.id), input.workspaceId, input.projectId, sheetIds, !createdHere),
     };
   }
 
   async finish(runId: string, summary: DeepRunSummary): Promise<'needs_review' | 'failed'> {
+    const claim = this.ownedRuns.get(runId);
+    if (!claim) throw new ProjectApiError(409, 'This execution does not own the Full Takeoff run.');
     const status = summary.failed > 0 ? 'failed' : 'needs_review';
-    result(
+    const updated = result<{ id: string } | null>(
       await this.writer.from('takeoff_runs').update({
         status,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }).eq('id', runId),
+      }).eq('id', runId).eq('workspace_id', claim.workspaceId).eq('project_id', claim.projectId)
+        .eq('file_id', claim.fileId).eq('file_sha256', claim.fileSha256)
+        .eq('mode', 'full').eq('orchestrator_version', FULL_TAKEOFF_V2_ORCHESTRATOR_VERSION)
+        .eq('status', 'processing').eq('updated_at', claim.updatedAt).select('id').maybeSingle(),
       'Could not finish the Full Takeoff run.',
     );
+    if (!updated) throw new ProjectApiError(409, 'Full Takeoff run ownership changed. Its saved state was not overwritten.');
+    this.ownedRuns.delete(runId);
     return status;
   }
 }
 
-class SupabaseDeepCheckpointRepository implements DeepCheckpointRepository {
+export class SupabaseDeepCheckpointRepository implements DeepCheckpointRepository {
   private readonly writer: PlanReadingFindingsWriter;
   private readonly runId: string;
   private readonly workspaceId: string;
   private readonly projectId: string;
   private readonly sheetIds: ReadonlyMap<number, string>;
+  private readonly readOnly: boolean;
   constructor(
     writer: PlanReadingFindingsWriter,
     runId: string,
     workspaceId: string,
     projectId: string,
     sheetIds: ReadonlyMap<number, string>,
+    readOnly = false,
   ) {
     this.writer = writer;
     this.runId = runId;
     this.workspaceId = workspaceId;
     this.projectId = projectId;
     this.sheetIds = sheetIds;
+    this.readOnly = readOnly;
   }
 
   private sheetId(request: DeepPassRequest): string {
+    if (request.runId !== this.runId) throw new ProjectApiError(409, 'Checkpoint does not belong to this Full Takeoff run.');
     const id = this.sheetIds.get(request.sheet.physicalPageNumber);
     if (!id) throw new ProjectApiError(409, `Physical page ${request.sheet.physicalPageNumber} is absent from the manifest.`);
     return id;
@@ -167,57 +209,81 @@ class SupabaseDeepCheckpointRepository implements DeepCheckpointRepository {
 
   async begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'> {
     const sheetId = this.sheetId(request);
-    const existing = result<any>(
-      await this.writer.from('takeoff_passes').select('status')
-        .eq('takeoff_run_id', this.runId).eq('plan_sheet_id', sheetId)
-        .eq('pass_type', request.passType).eq('attempt', request.attempt).maybeSingle(),
+    const readExisting = async () => result<{ status: string; idempotency_key: string } | null>(
+      await this.writer.from('takeoff_passes').select('status, idempotency_key')
+        .eq('takeoff_run_id', this.runId).eq('workspace_id', this.workspaceId).eq('project_id', this.projectId)
+        .eq('plan_sheet_id', sheetId).eq('pass_type', request.passType).eq('attempt', request.attempt).maybeSingle(),
       'Could not read a Full Takeoff checkpoint.',
     );
-    if (existing?.status === 'succeeded') return 'already_succeeded';
-    if (existing?.status === 'blocked') return 'already_blocked';
-    result(
-      await this.writer.from('takeoff_passes').upsert({
-        takeoff_run_id: this.runId,
-        workspace_id: this.workspaceId,
-        project_id: this.projectId,
-        plan_sheet_id: sheetId,
-        pass_type: request.passType,
-        attempt: request.attempt,
-        status: 'processing',
-        idempotency_key: request.idempotencyKey,
-        failure_classification: null,
-        started_at: new Date().toISOString(),
-        completed_at: null,
-      }, { onConflict: 'takeoff_run_id,plan_sheet_id,pass_type,attempt' }),
-      'Could not begin a Full Takeoff checkpoint.',
-    );
+    const reuse = (existing: { status: string; idempotency_key: string } | null): 'already_succeeded' | 'already_blocked' => {
+      if (!existing || existing.idempotency_key !== request.idempotencyKey) {
+        throw new ProjectApiError(409, 'Full Takeoff checkpoint identity conflicts with the saved attempt.');
+      }
+      if (existing.status === 'succeeded') return 'already_succeeded';
+      if (existing.status === 'blocked') return 'already_blocked';
+      // Processing and uncertain/failed outcomes may already have spent money.
+      // No lease expiry, retry, or overwrite is safe without reconciliation.
+      throw new ProjectApiError(409, 'Full Takeoff checkpoint is in progress or requires reconciliation. No repeat call was started.');
+    };
+    const existing = await readExisting();
+    if (existing) return reuse(existing);
+    if (this.readOnly) throw new ProjectApiError(409, 'A completed Full Takeoff run has a missing checkpoint. No new call was started.');
+
+    // INSERT, never UPSERT: the existing database unique keys elect exactly one
+    // caller. A stale concurrent read must not grant a second provider dispatch.
+    const inserted = await this.writer.from('takeoff_passes').insert({
+      takeoff_run_id: this.runId,
+      workspace_id: this.workspaceId,
+      project_id: this.projectId,
+      plan_sheet_id: sheetId,
+      pass_type: request.passType,
+      attempt: request.attempt,
+      status: 'processing',
+      idempotency_key: request.idempotencyKey,
+      failure_classification: null,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+    });
+    if (inserted.error?.code === '23505') return reuse(await readExisting());
+    result(inserted, 'Could not begin a Full Takeoff checkpoint.');
     return 'run';
   }
 
   async succeed(request: DeepPassRequest, pass: DeepPassResult): Promise<void> {
-    result(
+    if (this.readOnly) throw new ProjectApiError(409, 'Completed Full Takeoff checkpoints are read-only.');
+    const sheetId = this.sheetId(request);
+    const updated = result<{ id: string } | null>(
       await this.writer.from('takeoff_passes').update({
         status: pass.status === 'blocked' ? 'blocked' : 'succeeded',
         checkpoint: pass.checkpoint,
+        provider: pass.provider ?? null,
         model: pass.model ?? null,
         input_tokens: pass.inputTokens ?? null,
         output_tokens: pass.outputTokens ?? null,
         completed_at: new Date().toISOString(),
-      }).eq('takeoff_run_id', this.runId).eq('idempotency_key', request.idempotencyKey),
+      }).eq('takeoff_run_id', this.runId).eq('workspace_id', this.workspaceId).eq('project_id', this.projectId)
+        .eq('plan_sheet_id', sheetId).eq('pass_type', request.passType).eq('attempt', request.attempt)
+        .eq('idempotency_key', request.idempotencyKey).eq('status', 'processing').select('id').maybeSingle(),
       'Could not save a Full Takeoff checkpoint.',
     );
+    if (!updated) throw new ProjectApiError(409, 'Full Takeoff checkpoint is no longer processing. Its saved result was not overwritten.');
   }
 
   async fail(request: DeepPassRequest, failure: { classification: string; message: string }): Promise<void> {
-    result(
+    if (this.readOnly) throw new ProjectApiError(409, 'Completed Full Takeoff checkpoints are read-only.');
+    const sheetId = this.sheetId(request);
+    const updated = result<{ id: string } | null>(
       await this.writer.from('takeoff_passes').update({
         status: 'failed',
         failure_classification: failure.classification,
         checkpoint: { error: failure.message },
         completed_at: new Date().toISOString(),
-      }).eq('takeoff_run_id', this.runId).eq('idempotency_key', request.idempotencyKey),
+      }).eq('takeoff_run_id', this.runId).eq('workspace_id', this.workspaceId).eq('project_id', this.projectId)
+        .eq('plan_sheet_id', sheetId).eq('pass_type', request.passType).eq('attempt', request.attempt)
+        .eq('idempotency_key', request.idempotencyKey).eq('status', 'processing').select('id').maybeSingle(),
       'Could not save a failed Full Takeoff checkpoint.',
     );
+    if (!updated) throw new ProjectApiError(409, 'Full Takeoff checkpoint is no longer processing. Its saved result was not overwritten.');
   }
 }
 
@@ -298,11 +364,14 @@ export class FullTakeoffV2Service {
       fileId,
       requestedBy: this.userId,
     });
-    const provider = await this.providerFactory.create({ fileBytes, manifest, runId: prepared.runId,
-      workspaceId: this.workspaceId, projectId, fileId });
+    // Rebuilding a completed summary must not initialize or contact a provider.
+    const provider: DeepPassProvider = prepared.completedStatus
+      ? { runPass: async () => { throw new ProjectApiError(409, 'Completed Full Takeoff cannot start another provider call.'); } }
+      : await this.providerFactory.create({ fileBytes, manifest, runId: prepared.runId,
+        workspaceId: this.workspaceId, projectId, fileId });
     if (!provider || typeof provider.runPass !== 'function') throw new ProjectApiError(503, 'Full Takeoff provider is not configured.');
     const summary = await runDeepTakeoff(prepared.runId, manifest, provider, prepared.checkpoints);
-    const status = await this.persistence.finish(prepared.runId, summary);
+    const status = prepared.completedStatus ?? await this.persistence.finish(prepared.runId, summary);
     const releaseStatus = summary.failed > 0 || summary.blocked > 0
       || summary.sheets.some(sheet => sheet.passesCompleted !== sheet.passesTotal || sheet.status === 'blocked')
       ? 'blocked' as const

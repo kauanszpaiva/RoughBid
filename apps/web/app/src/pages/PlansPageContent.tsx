@@ -42,6 +42,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [quoteRecoveryError, setQuoteRecoveryError] = useState(false);
   const [quoteRecoveryRetry, setQuoteRecoveryRetry] = useState(0);
   const quoteRefreshId = useRef<string | undefined>(undefined);
+  // Shared by upload, included analysis, quotes, and Checkout. React state alone
+  // cannot exclude a second event before the next render commits.
   const paidActionInFlight = useRef(false);
   const [selectedTrades, setSelectedTrades] = useState(PLAN_TRADES);
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
@@ -207,12 +209,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     };
   }, [workspaceId, currentRevision?.id, currentRevision?.fileUrl, currentRevision?.remoteFileId]);
   const handlePay = async () => {
-    if (!canWrite) return;
+    if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
     if (!workspaceId || !project.remoteId || !readingQuote) return;
+    paidActionInFlight.current = true;
     setIsPaying(true);
     try { const checkout = await payForReading(workspaceId, project.remoteId, readingQuote.id); if (contextRef.current === contextKey) window.location.assign(checkout.url); }
     catch (error) { setPlanNotice(readableApiError(error)); }
-    finally { setIsPaying(false); }
+    finally { paidActionInFlight.current = false; setIsPaying(false); }
   };
 
   // Handle uploading a new plan revision
@@ -234,7 +237,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canWrite) return;
+    if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
     const input = e.currentTarget;
     const file = e.target.files?.[0];
     if (!file) return;
@@ -254,6 +257,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       return;
     }
 
+    paidActionInFlight.current = true;
     setIsUploading(true);
     setPlanNotice(null);
     try {
@@ -305,6 +309,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     } catch (error) {
       setPlanNotice(error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError") ? "The upload timed out. Check your connection and try again." : readableApiError(error));
     } finally {
+      paidActionInFlight.current = false;
       setIsUploading(false);
       input.value = "";
     }
@@ -316,11 +321,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
    * re-checks the allowlist, so a customer reaching here still gets 403.
    */
   const handleStartFreeReading = async () => {
-    if (!canWrite) return;
+    if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
     if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
     }
+    paidActionInFlight.current = true;
     setIsStartingAi(true);
     setPlanNotice(null);
     setNeedsAiConsent(false);
@@ -349,12 +355,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         setPlanNotice(readableApiError(error));
       }
     } finally {
+      paidActionInFlight.current = false;
       if (contextRef.current === contextKey) setIsStartingAi(false);
     }
   };
 
   const handleStartAiReading = async () => {
-    if (!canWrite || !quoteRecoveryReady || paidActionInFlight.current) return;
+    if (!canWrite || !quoteRecoveryReady || paidActionInFlight.current || isUploading || isPaying) return;
     if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
@@ -417,7 +424,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   };
 
   const handleRecalculateQuote = async () => {
-    if (!canWrite || !quoteRecoveryReady || !readingQuote || !workspaceId || !project.remoteId || paidActionInFlight.current) return;
+    if (!canWrite || !quoteRecoveryReady || !readingQuote || !workspaceId || !project.remoteId || paidActionInFlight.current || isUploading || isPaying) return;
     paidActionInFlight.current = true;
     setIsStartingAi(true);
     setPlanNotice(null);
@@ -504,9 +511,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         <p className="text-xs text-slate-600">Includes one completed reading and up to two attempts if processing fails. Changes to the plan or scope need a new price. Membership savings are included when active.</p>
         <p className="text-sm">{readingQuote.status === 'quoted' ? 'Awaiting payment' : readingQuote.status === 'complete' ? 'Reading ready to review' : readingQuote.status === 'processing' ? 'Reading in progress' : readingQuote.status === 'failed' ? 'Reading failed — no substitute quantities were generated' : readingQuote.status === 'revoked' ? 'Payment access revoked' : 'Payment confirmed'}</p>
         <div className="flex gap-3 flex-wrap">
-          {readingQuote.status === 'quoted' && <><button onClick={handlePay} disabled={!canWrite || !billingAvailable || isPaying || isStartingAi} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button><button onClick={handleRecalculateQuote} disabled={!canWrite || isStartingAi || isPaying} className="rounded-lg border px-4 py-2 disabled:opacity-50">Recalculate project price</button></>}
-          <button onClick={refreshSavedQuote} disabled={isStartingAi || isPaying} className="rounded-lg border px-4 py-2 disabled:opacity-50">Refresh payment status</button>
-          {!['quoted', 'revoked'].includes(readingQuote.status) && <button onClick={handleStartAiReading} disabled={!canWrite || (!aiReadingAvailable && !['processing', 'complete'].includes(readingQuote.status)) || isStartingAi || (readingQuote.status === 'failed' && readingQuote.attempts >= readingQuote.max_attempts)} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : ['processing', 'complete'].includes(readingQuote.status) ? 'Open saved reading' : readingQuote.status === 'failed' ? 'Retry paid analysis' : 'Start paid analysis'}</button>}
+          {readingQuote.status === 'quoted' && <><button onClick={handlePay} disabled={!canWrite || !billingAvailable || isPaying || isStartingAi || isUploading} className="rounded-lg bg-blue-600 text-white px-4 py-2 disabled:opacity-50">{isPaying ? 'Opening checkout…' : 'Pay securely with Stripe'}</button><button onClick={handleRecalculateQuote} disabled={!canWrite || isStartingAi || isPaying || isUploading} className="rounded-lg border px-4 py-2 disabled:opacity-50">Recalculate project price</button></>}
+          <button onClick={refreshSavedQuote} disabled={isStartingAi || isPaying || isUploading} className="rounded-lg border px-4 py-2 disabled:opacity-50">Refresh payment status</button>
+          {!['quoted', 'revoked'].includes(readingQuote.status) && <button onClick={handleStartAiReading} disabled={!canWrite || (!aiReadingAvailable && !['processing', 'complete'].includes(readingQuote.status)) || isStartingAi || isPaying || isUploading || (readingQuote.status === 'failed' && readingQuote.attempts >= readingQuote.max_attempts)} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : ['processing', 'complete'].includes(readingQuote.status) ? 'Open saved reading' : readingQuote.status === 'failed' ? 'Retry paid analysis' : 'Start paid analysis'}</button>}
         </div>
       </section>}
       {/* Title & Subtitle */}
@@ -565,7 +572,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                   accept=".pdf,application/pdf"
                   onChange={handleFileUpload}
                   className="hidden"
-                  disabled={!canWrite || isUploading || !workspaceId || !project.remoteId}
+                  disabled={!canWrite || isUploading || isStartingAi || isPaying || !workspaceId || !project.remoteId}
                 />
               </label>
             </div>
@@ -656,7 +663,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <h3 className="text-xs font-bold text-[#111827] mb-3 uppercase tracking-wider">
               Actions
             </h3>
-            <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying} className="pb-3 border-b border-slate-200">
+            <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying || isUploading} className="pb-3 border-b border-slate-200">
               <legend className="text-xs font-semibold mb-2">Analysis scope</legend>
               <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => { setSelectedTrades(previous => e.target.checked ? [...previous, trade] : previous.filter(value => value !== trade)); setReadingQuote(null); }} />{trade}</label>)}</div>
             </fieldset>
@@ -675,7 +682,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 accept=".pdf,application/pdf"
                 onChange={handleFileUpload}
                 className="hidden"
-                disabled={!canWrite || isUploading || !workspaceId || !project.remoteId}
+                disabled={!canWrite || isUploading || isStartingAi || isPaying || !workspaceId || !project.remoteId}
               />
             </label>
 
@@ -683,7 +690,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {entitlementReady && freeReadingAvailable && (
               <button
                 onClick={handleStartFreeReading}
-                disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+                disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
                 className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-center gap-2">
@@ -696,7 +703,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             {paidReading && !readingQuote && <button
               onClick={handleStartAiReading}
-              disabled={!canWrite || !quoteRecoveryReady || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi}
+              disabled={!canWrite || !quoteRecoveryReady || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
               className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">

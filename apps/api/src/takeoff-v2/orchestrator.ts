@@ -38,8 +38,11 @@ function validatedPassResult(value: unknown): DeepPassResult {
   try { checkpointBytes = new TextEncoder().encode(JSON.stringify(input.checkpoint)).byteLength; }
   catch { throw new SyntaxError('Deep pass checkpoint is not serializable.'); }
   if (checkpointBytes > 1_000_000) throw new SyntaxError('Deep pass checkpoint exceeds 1 MB.');
-  if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 160)) {
-    throw new SyntaxError('Deep pass returned invalid model metadata.');
+  for (const field of ['provider', 'model'] as const) {
+    const metadata = input[field];
+    if (metadata !== undefined && (typeof metadata !== 'string' || !metadata.trim() || metadata.length > 160)) {
+      throw new SyntaxError(`Deep pass returned invalid ${field} metadata.`);
+    }
   }
   for (const field of ['inputTokens', 'outputTokens'] as const) {
     const tokenCount = input[field];
@@ -102,11 +105,14 @@ export async function runDeepTakeoff(
       } catch (error) {
         summary.failed += 1;
         sheetSummary.status = 'blocked';
-        sheetSummary.blockers.push(`${passType}: ${(error instanceof Error ? error.message : 'Unknown failure').slice(0, 300)}`);
-        await repository.fail(request, {
-          classification: error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure',
-          message: (error instanceof Error ? error.message : 'Unknown failure').slice(0, 1000),
-        });
+        // Provider/transport/database exceptions may contain private plan text,
+        // signed URLs or credentials. Persist and return only fixed diagnostics.
+        const classification = error instanceof SyntaxError ? 'invalid_output' : 'provider_or_pipeline_failure';
+        const message = classification === 'invalid_output'
+          ? 'The Full Takeoff pass returned invalid output. Review is required before another attempt.'
+          : 'The Full Takeoff pass could not be completed. Reconciliation is required before another attempt.';
+        sheetSummary.blockers.push(`${passType}: ${message}`);
+        await repository.fail(request, { classification, message });
         break;
       }
     }

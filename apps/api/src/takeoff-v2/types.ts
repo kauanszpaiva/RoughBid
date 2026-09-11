@@ -60,6 +60,7 @@ export interface DeepPassRequest {
 export interface DeepPassResult {
   status: 'succeeded' | 'blocked';
   checkpoint: Record<string, unknown>;
+  provider?: string;
   model?: string;
   inputTokens?: number;
   outputTokens?: number;
