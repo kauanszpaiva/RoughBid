@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  extractPrintedArchitecturalScaleCandidates,
   parseArchitecturalLength,
   parsePrintedArchitecturalScale,
   scaleEvidenceFromExplicitDimension,
@@ -37,6 +38,19 @@ test('parses common architectural printed scales into real feet per PDF point', 
   const engineeringLike = parsePrintedArchitecturalScale(`1" = 10'-0"`);
   assert.ok(engineeringLike);
   assert.ok(Math.abs(engineeringLike.drawingFeetPerPdfPoint - 10 / 72) < 1e-12);
+});
+
+test('extracts strict printed-scale candidates from bounded evidence text and deduplicates them', () => {
+  assert.deepEqual(
+    extractPrintedArchitecturalScaleCandidates(`SCALE: 1/4" = 1'-0" | DETAIL SCALE 1/4" = 1'-0"`),
+    [`1/4" = 1'-0"`],
+  );
+  assert.deepEqual(
+    extractPrintedArchitecturalScaleCandidates(`DETAIL A: 3/16" = 1'-0"; SITE: 1" = 10'-0"`),
+    [`3/16" = 1'-0"`, `1" = 10'-0"`],
+  );
+  assert.deepEqual(extractPrintedArchitecturalScaleCandidates(`NTS — reference note also says 1/4" = 1'-0"`), []);
+  assert.deepEqual(extractPrintedArchitecturalScaleCandidates(`scale is approximately one quarter inch per foot`), []);
 });
 
 test('NTS and malformed scale strings fail closed', () => {
