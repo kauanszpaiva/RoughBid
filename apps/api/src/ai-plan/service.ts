@@ -1,3 +1,5 @@
+import { PDFDocument } from 'pdf-lib';
+import { summarizeReadingCoverage, INCOMPLETE_TAKEOFF_NOTICE } from '../../../../packages/domain/src/reading-coverage.ts';
 import { withUsageMeter } from '../owner-usage/meter.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
@@ -18,11 +20,12 @@ export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'read
  * new analysis rather than a silent re-use of the previous result.
  */
 export async function requestFingerprint(parts: {
-  trades: string[]; scope: string; model: string; mode: string; sha256: string;
+  trades: string[]; scope: string; model: string; mode: string; sha256: string; physicalPage?: number;
 }): Promise<string> {
   const canonical = JSON.stringify({
     trades: [...parts.trades].sort(), scope: parts.scope.trim(),
     model: parts.model, mode: parts.mode, sha256: parts.sha256,
+    ...(parts.physicalPage !== undefined ? { pageStrategy: 'sheet-v1', physicalPage: parts.physicalPage } : {}),
   });
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -107,6 +110,16 @@ export class AiPlanReadingService {
   }
 
   async create(projectId: string, input: Record<string, unknown>) {
+    const pageRequest = Object.prototype.hasOwnProperty.call(input, 'page_number');
+    const requestedPage = pageRequest ? input.page_number : null;
+    if (pageRequest && !this.platformAdmin) throw new ProjectApiError(403, 'Page-by-page review is available only to the platform owner.');
+    if (pageRequest && (typeof requestedPage !== 'number' || !Number.isInteger(requestedPage) || requestedPage < 1 || requestedPage > 200)) {
+      throw new ProjectApiError(400, 'Select a physical PDF page between 1 and 200.');
+    }
+    if (pageRequest && (typeof input.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.source_sha256))) {
+      throw new ProjectApiError(400, 'Load the verified PDF page inventory before starting page review.');
+    }
+    let selectedPageBytes: Uint8Array | null = null;
     const fileId = typeof input.file_id === 'string' ? input.file_id : '';
     if (!fileId) throw new ProjectApiError(400, 'file_id is required');
 
@@ -173,11 +186,21 @@ export class AiPlanReadingService {
       scope = normalized.scope;
       const model = process.env.GEMINI_MODEL || 'gemini';
       unquotedPlan = await this.loadPlanBytes(file, projectId, fileId);
+      if (pageRequest) {
+        if (input.source_sha256 !== unquotedPlan.sha256) throw new ProjectApiError(409, 'The source PDF changed. Reload the page inventory; no analysis was started.');
+        if (Number(requestedPage) > unquotedPlan.pages || unquotedPlan.pages > 200) throw new ProjectApiError(400, 'The selected page is outside the supported physical PDF inventory.');
+        const source = await PDFDocument.load(unquotedPlan.bytes);
+        const single = await PDFDocument.create();
+        const [page] = await single.copyPages(source, [Number(requestedPage) - 1]);
+        single.addPage(page!);
+        selectedPageBytes = await single.save();
+      }
       const fingerprint = await requestFingerprint({
         trades: requestedTrades,
         scope,
         model,
-        mode: typeof input.mode === 'string' ? input.mode : 'quick',
+        mode: pageRequest ? 'detailed' : typeof input.mode === 'string' ? input.mode : 'quick',
+        ...(pageRequest ? { physicalPage: Number(requestedPage) } : {}),
         sha256: unquotedPlan.sha256,
       });
       const reserved = await this.findingsWriter.rpc('reserve_platform_admin_reading', {
@@ -261,6 +284,16 @@ export class AiPlanReadingService {
     }
 
     try {
+      if (pageRequest) {
+        // Persist the exact physical-page identity BEFORE a billable request.
+        // A crashed/failed page keeps its processing reservation for reconciliation.
+        const tagged = await this.findingsWriter.from('plan_reading_jobs').update({
+          input_summary: { ...job.input_summary, page_strategy: 'sheet-v1', physical_page_number: requestedPage,
+            physical_page_count: unquotedPlan!.pages },
+        }).eq('id', job.id).eq('workspace_id', this.workspaceId).eq('project_id', projectId)
+          .eq('file_id', fileId).eq('requested_by', this.userId).eq('status', 'processing').select('id').maybeSingle();
+        if (tagged.error || !tagged.data) throw new ProjectApiError(503, 'Page identity could not be saved. No provider request was started.');
+      }
       // Complimentary paths pre-fetch and digest the plan to create their
       // idempotency key. Reusing those bytes guarantees the provider receives
       // exactly the bytes that were authorized by the reservation.
@@ -279,17 +312,39 @@ export class AiPlanReadingService {
         workspaceId: this.workspaceId, projectId, jobId: job.id,
         billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
       }, () => activeReader.read({
-        fileBytes,
+        fileBytes: selectedPageBytes ?? fileBytes,
         mimeType: 'application/pdf',
-        sheetName: file.original_name,
+        sheetName: pageRequest
+          ? `${file.original_name} - source page ${requestedPage}. Only ONE physical page is attached. Return page_number 1 for its evidence; the server restores original numbering. Enumerate every visible labeled room, note, schedule, opening and material relevant to the scope; disclose illegible content and missing dimensions. Do not infer wall drywall SF from room floor SF.`
+          : file.original_name,
         requestedTrades,
         scope,
+        ...(pageRequest ? { reasoningEffort: 'high' as const } : {}),
       }));
+      if (pageRequest) {
+        if (result.findings.some(f => f.page_number !== 1)) throw new ProjectApiError(502, 'Single-page output contains missing or conflicting page identities. It was not accepted.');
+        result.findings = result.findings.map(f => ({ ...f, page_number: Number(requestedPage) }));
+        if (result.summary.project_address) {
+          if (result.summary.project_address.page_number !== 1) throw new ProjectApiError(502, 'Address source page conflicts with the supplied page.');
+          result.summary.project_address = { ...result.summary.project_address, page_number: Number(requestedPage) };
+        }
+      }
       if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
       const pageCount = unquotedPlan ? unquotedPlan.pages : quote.page_count;
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > pageCount))) throw new Error('The reading contains quantities or locations without valid source pages.');
 
-      await persistPlanPricingContext({
+      // Count pages from the previously authorized PDF preflight, never from the
+      // model's sheet_count. A completed request does not certify full takeoff.
+      const auditedSummary = {
+        ...result.summary,
+        physical_page_count: pageCount,
+        finding_count: result.findings.length,
+        ...(pageRequest ? { page_strategy: 'sheet-v1', physical_page_number: requestedPage } : {}),
+        reading_coverage: summarizeReadingCoverage({ physical_page_count: pageCount }, result.findings),
+        limitations: [...new Set([INCOMPLETE_TAKEOFF_NOTICE, ...(Array.isArray(result.summary.limitations) ? result.summary.limitations.filter(value => typeof value === 'string') : [])])],
+      };
+
+      if (!pageRequest || result.summary.project_address) await persistPlanPricingContext({
         writer: this.findingsWriter,
         workspaceId: this.workspaceId,
         projectId,
@@ -319,25 +374,34 @@ export class AiPlanReadingService {
 
       const finished = accessMode === 'pilot'
         ? await this.findingsWriter.rpc('finish_pilot_reading', {
-            p_job_id: job.id, p_user_id: this.userId, p_error: null, p_findings: findingsRows, p_summary: result.summary,
+            p_job_id: job.id, p_user_id: this.userId, p_error: null, p_findings: findingsRows, p_summary: auditedSummary,
           })
         : accessMode === 'platform_admin'
         ? await this.findingsWriter.rpc('finish_platform_admin_reading', {
             p_job_id: job.id, p_user_id: this.userId, p_error: null,
-            p_findings: findingsRows, p_summary: result.summary,
+            p_findings: findingsRows, p_summary: auditedSummary,
           })
         : accessMode === 'owner_free'
           ? await this.findingsWriter.rpc('finish_owner_free_reading', {
               p_job_id: job.id, p_user_id: this.userId, p_error: null,
-              p_findings: findingsRows, p_summary: result.summary,
+              p_findings: findingsRows, p_summary: auditedSummary,
             })
           : await this.findingsWriter.rpc('finish_project_reading', {
               p_quote_id: quoteId, p_job_id: job.id, p_error: null,
-              p_findings: findingsRows, p_summary: result.summary,
+              p_findings: findingsRows, p_summary: auditedSummary,
             });
       if (finished.error) throw new Error('Could not save the reading. Check its status before retrying.');
       return finished.data;
     } catch (error) {
+      if (pageRequest) {
+        const message = error instanceof ProviderSpendLimitError ? error.message
+          : 'Page review stopped or its outcome is uncertain. Saved pages are preserved. Check the page status before continuing; no automatic retry was started.';
+        try {
+          await this.findingsWriter.from('plan_reading_jobs').update({ processing_error: message })
+            .eq('id', job.id).eq('workspace_id', this.workspaceId).eq('requested_by', this.userId).eq('status', 'processing');
+        } catch { /* Retain the original processing claim even when diagnostics cannot be written. */ }
+        throw new ProjectApiError(error instanceof ProviderSpendLimitError ? 429 : 502, message);
+      }
       const failure = error instanceof Error ? error.message.slice(0, 1000) : 'Plan reading failed';
       if (accessMode === 'pilot') {
         await this.findingsWriter.rpc('finish_pilot_reading', {

@@ -311,6 +311,9 @@ export type PlanReadingJob = {
   status: PlanReadingJobStatus;
   processing_error: string | null;
   output_summary: {
+    page_strategy?: 'sheet-v1';
+    physical_page_number?: number;
+    physical_page_count?: number;
     sheet_count?: number;
     detected_trade_scope?: string[];
     scale_status?: "detected" | "missing" | "conflicting";
@@ -502,4 +505,22 @@ export function getSavedReadingQuote(workspaceId: string, projectId: string, fil
 }
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
+}
+
+export type PageReviewInventory = {
+  strategy: 'sheet-v1'; fileId: string; sourceSha256: string; totalPages: number;
+  scope: string; trades: string[]; completeTakeoffVerified: false;
+  pages: Array<{ pageNumber: number; jobId: string | null; status: PlanReadingJobStatus | 'not_started'; processingError: string | null; findingCount: number | null }>;
+};
+/** Read-only: checks the actual PDF and restores persisted page reviews. */
+export function getPageReviewInventory(workspaceId: string, projectId: string, fileId: string, scope: string, trades: string[]) {
+  const query = new URLSearchParams({ file_id: fileId, scope });
+  trades.forEach(trade => query.append('trade', trade));
+  return request<PageReviewInventory>(`/api/projects/${projectId}/ai-plan-readings?${query}`, { workspaceId });
+}
+/** One explicit, metered physical-page request. No automatic POST retry. */
+export function startPhysicalPageReading(workspaceId: string, projectId: string, inventory: PageReviewInventory, pageNumber: number) {
+  return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, { method: 'POST', workspaceId,
+    body: { file_id: inventory.fileId, source_sha256: inventory.sourceSha256, page_number: pageNumber,
+      mode: 'detailed', scope: inventory.scope, trades: inventory.trades } });
 }

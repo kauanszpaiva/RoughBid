@@ -11,8 +11,8 @@ export function presentAiPlanStatus(status: AiPlanPresentationStatus) {
   if (status === 'needs_review' || status === 'ready') {
     return {
       finished: true,
-      notice: 'AI plan reading complete — findings are ready to review.',
-      revisionNote: 'AI plan reading complete. Review findings before adding them.',
+      notice: 'AI processing finished - partial findings are ready to review. Complete takeoff coverage is not verified.',
+      revisionNote: 'AI findings saved for review. Complete takeoff coverage is not verified.',
     };
   }
   if (status === 'queued') {

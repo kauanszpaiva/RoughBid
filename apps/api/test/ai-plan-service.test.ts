@@ -198,3 +198,13 @@ test('PATCH /api/ai-plan-readings/findings/:id rejects an invalid status before 
   );
   assert.equal(response.status, 400);
 });
+
+test('new Quick reading persists physical PDF coverage instead of an empty completeness claim', async () => {
+  const finding = { page_number: 1, finding_type: 'room' as const, label: 'Kitchen', value_text: null, quantity: 100, unit: 'SF', confidence: 0.9, geometry: {}, source_excerpt: 'Kitchen 100 SF' };
+  const reader = { read: async () => ({ ...await noopReader.read({} as never), findings: [finding] }) };
+  const service = new AiPlanReadingService(fakeDb(baseResolver()) as never, directWriter(), noopStorage, reader, 'user-1', 'workspace-1', noopFetcher as never);
+  const actual = await service.create('project-1', {file_id: 'file-1', quote_id: 'quote-1'});
+  assert.equal(actual.output_summary.physical_page_count, 1);
+  assert.equal(actual.output_summary.reading_coverage.completeTakeoffVerified, false);
+  assert.ok(actual.output_summary.limitations.some((text: string) => /complete takeoff.*not verified/i.test(text)));
+});

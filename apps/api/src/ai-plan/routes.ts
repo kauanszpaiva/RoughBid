@@ -1,3 +1,4 @@
+import { getPageReadingInventory } from './page-inventory.ts';
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import {
   AiPlanReadingService,
@@ -54,8 +55,18 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
+    if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
+      return json(await getPageReadingInventory(db, deps.storage, data.user.id, workspaceId, parts[1],
+        url.searchParams.get('file_id') ?? '', { scope: url.searchParams.get('scope') ?? '', trades: url.searchParams.getAll('trade') }));
+    }
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
       const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(body, 'page_number')) {
+        if (!await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) throw new ProjectApiError(403, 'Page-by-page review is not enabled for this account.');
+        if (deps.paidReaderAvailable !== true) throw new ProjectApiError(503, 'The page-reading provider is unavailable. No job was started.');
+        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, undefined, true);
+        return json(await owner.create(parts[1], body), 201);
+      }
       if (body.mode === FULL_TAKEOFF_V2_MODE) {
         // Full V2 has no generally available paid entitlement yet. Restrict the
         // first integration boundary to the verified platform owner and fail

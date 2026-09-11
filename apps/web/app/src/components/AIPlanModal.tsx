@@ -1,3 +1,4 @@
+import { summarizeReadingCoverage, INCOMPLETE_TAKEOFF_NOTICE } from '../../../../../packages/domain/src/reading-coverage.ts';
 import React, { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
@@ -192,6 +193,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   };
 
   const findings = job?.plan_reading_findings ?? [];
+  const pageCoverage = summarizeReadingCoverage(job?.output_summary, findings);
   const rawLimitations = (job?.output_summary as { limitations?: unknown } | undefined)?.limitations;
   const limitations = Array.isArray(rawLimitations) ? rawLimitations.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())) : [];
   const priceableFindings = findings.filter((f) => f.quantity !== null && f.quantity > 0 && f.unit && KNOWN_UNITS.includes(f.unit as UnitType));
@@ -256,6 +258,22 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             before it becomes part of your estimate.
           </p>
         </div>
+
+        {!job.output_summary.takeoff_v2 && (
+          <section aria-label="Page evidence coverage" role="status" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 space-y-1">
+            <h4 className="text-sm font-semibold">{job.output_summary.page_strategy === 'sheet-v1' ? `Single-page review: physical page ${job.output_summary.physical_page_number}` : 'Partial extraction - complete takeoff not verified'}</h4>
+            <p className="text-xs">{INCOMPLETE_TAKEOFF_NOTICE}</p>
+            <p className="text-xs font-medium">
+              Findings cite {pageCoverage.pagesWithFindings.length}{pageCoverage.totalPages !== null ? ` of ${pageCoverage.totalPages}` : ''} pages.
+              {' '}{pageCoverage.pageCountSource === 'pdf_preflight' ? 'Page total verified from the PDF.' : pageCoverage.pageCountSource === 'model_reported' ? 'Total reported by the AI; this older reading has no verified PDF count.' : 'The PDF page total is not available.'}
+            </p>
+            {!job.output_summary.page_strategy && pageCoverage.pagesWithoutFindings.length > 0 && <p className="text-xs">
+              No saved source findings on page(s): {pageCoverage.pagesWithoutFindings.slice(0,40).join(', ')}{pageCoverage.pagesWithoutFindings.length > 40 ? ' (first 40 shown)' : ''}.
+              {' '}These pages may be informational or may contain omissions; they have not been certified as reviewed.
+            </p>}
+            <p className="text-xs">Printed room floor area is not wall drywall area. Check wall lengths, heights, openings and assembly layers separately.</p>
+          </section>
+        )}
 
         {limitations.length > 0 && (
           <section aria-label="Reading limitations" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900">

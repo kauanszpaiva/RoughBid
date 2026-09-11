@@ -1,3 +1,4 @@
+import { PageReviewPanel } from '../components/PageReviewPanel';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PlansPage as PlansPageContent } from "./PlansPageContent";
 import { PricingAddressCard, type PricingAddressChoice } from "../components/PricingAddressCard";
@@ -14,6 +15,7 @@ const pricingErrorText = (error: unknown) => error instanceof Error ? error.mess
 export const PlansPage: React.FC<PlansPageProps> = (props) => {
   const { project, workspaceId } = props;
   const canWrite = Boolean(props.canWrite);
+  const [pageReviewBusy, setPageReviewBusy] = useState(false);
   const [pricingContext, setPricingContext] = useState<PricingContext | null>(null);
   const [pricingContextError, setPricingContextError] = useState<string | null>(null);
   const requestKeyRef = useRef("");
@@ -71,7 +73,16 @@ export const PlansPage: React.FC<PlansPageProps> = (props) => {
         error={pricingContextError}
         onResolve={handleResolvePricingAddress}
       />
-      <PlansPageContent {...props} />
+      {workspaceId && project.remoteId && currentRevision?.remoteFileId && <PageReviewPanel
+        key={`${contextKey}:${currentRevision.remoteFileId}:${project.projectType}`}
+        workspaceId={workspaceId} projectId={project.remoteId} fileId={currentRevision.remoteFileId}
+        scope={project.projectType} canWrite={canWrite} onBusyChange={setPageReviewBusy}
+        onOpenJob={(jobId, status) => {
+          props.onPatchRevision(currentRevision.id, { aiPlanJobId: jobId, aiPlanStatus: status });
+          props.onOpenAIAssistant();
+        }}
+      />}
+      <PlansPageContent {...props} canWrite={canWrite && !pageReviewBusy} />
     </>
   );
 };
