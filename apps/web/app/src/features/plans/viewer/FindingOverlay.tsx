@@ -8,7 +8,7 @@ type Props = {
   selectedFindingId: string | null;
   showAiMarkers: boolean;
   showFindingHighlights: boolean;
-  onSelectFinding?: (findingId: string) => void;
+  onSelectFinding?: ((findingId: string) => void) | undefined;
 };
 
 export function FindingOverlay({ findings, pageNumber, selectedFindingId, showAiMarkers, showFindingHighlights, onSelectFinding }: Props) {
