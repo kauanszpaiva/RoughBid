@@ -37,7 +37,7 @@ create policy project_estimate_versions_select_member
     and private.has_product_access()
   );
 
-create or replace function public.reject_project_estimate_version_update()
+create or replace function public.reject_project_estimate_version_mutation()
 returns trigger
 language plpgsql
 set search_path = pg_catalog, pg_temp
@@ -47,11 +47,11 @@ begin
 end;
 $$;
 
-revoke all on function public.reject_project_estimate_version_update() from public, anon, authenticated;
+revoke all on function public.reject_project_estimate_version_mutation() from public, anon, authenticated;
 
-create trigger project_estimate_versions_reject_update
-before update on public.project_estimate_versions
-for each row execute function public.reject_project_estimate_version_update();
+create trigger project_estimate_versions_reject_mutation
+before update or delete on public.project_estimate_versions
+for each row execute function public.reject_project_estimate_version_mutation();
 
 create or replace function public.snapshot_project_estimate_state()
 returns trigger
