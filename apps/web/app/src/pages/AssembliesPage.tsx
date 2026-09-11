@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { AlertCircle, Boxes, Check, ChevronDown, Edit2, Plus, Search } from "lucide-react";
-import type { AssemblyItem, UnitType } from "../types";
+import type { AssemblyItem, MaterialItem, UnitType } from "../types";
+import { ApiError, getWorkspaceEstimatingCatalog, saveWorkspaceEstimatingCatalog } from "../services/api";
 import { calculateLineDirectCost, formatCurrency } from "../utils/calculations";
 import { validateEstimateInput } from "../utils/manualEstimate";
 import { StorageService, type StorageScope } from "../utils/storage";
@@ -19,6 +20,11 @@ function unitTotal(assembly: AssemblyItem) {
 
 export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean }> = ({ scope, canWrite = false }) => {
   const [assemblies, setAssemblies] = useState<AssemblyItem[]>(() => StorageService.getAssemblies(scope));
+  const [catalogMaterials, setCatalogMaterials] = useState<MaterialItem[]>(() => StorageService.getMaterials(scope));
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [savingCatalog, setSavingCatalog] = useState(false);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState<AssemblyItem | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -26,23 +32,83 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    setAssemblies(StorageService.getAssemblies(scope));
+    let active = true;
+    const cachedAssemblies = StorageService.getAssemblies(scope);
+    const cachedMaterials = StorageService.getMaterials(scope);
+    setAssemblies(cachedAssemblies);
+    setCatalogMaterials(cachedMaterials);
+    setCatalogRevision(0);
+    setCatalogReady(false);
+    setCatalogLoading(true);
     setDraft(null);
     setExpandedId(null);
     setSearch("");
     setError("");
     setNotice("");
-  }, [scope.userId, scope.workspaceId]);
+    void getWorkspaceEstimatingCatalog(scope.workspaceId).then((catalog) => {
+      if (!active) return;
+      const useCachedSeed = catalog.revision === 0 && canWrite;
+      setAssemblies(useCachedSeed ? cachedAssemblies : catalog.assemblies);
+      setCatalogMaterials(useCachedSeed ? cachedMaterials : catalog.materials);
+      setCatalogRevision(catalog.revision);
+      setCatalogReady(true);
+      setCatalogLoading(false);
+    }).catch((loadError) => {
+      if (!active) return;
+      setCatalogLoading(false);
+      setCatalogReady(false);
+      setError(loadError instanceof Error ? `${loadError.message} Cached assemblies are read-only until the workspace catalog reconnects.` : "Workspace catalog could not load. Cached assemblies are read-only until it reconnects.");
+    });
+    return () => { active = false; };
+  }, [scope.userId, scope.workspaceId, canWrite]);
 
   useEffect(() => { if (!canWrite) setDraft(null); }, [canWrite]);
+  const canEditCatalog = canWrite && catalogReady && !catalogLoading && !savingCatalog;
 
   const filtered = assemblies.filter((assembly) =>
     `${assembly.name} ${assembly.category} ${assembly.description}`.toLowerCase().includes(search.trim().toLowerCase())
   );
   const editingExisting = Boolean(draft && assemblies.some((assembly) => assembly.id === draft.id));
 
+  const applyLatest = (catalog: Awaited<ReturnType<typeof getWorkspaceEstimatingCatalog>>) => {
+    setAssemblies(catalog.assemblies);
+    setCatalogMaterials(catalog.materials);
+    setCatalogRevision(catalog.revision);
+  };
+
+  const persist = async (updated: AssemblyItem[]) => {
+    if (!canEditCatalog) return false;
+    setSavingCatalog(true);
+    try {
+      const saved = await saveWorkspaceEstimatingCatalog(scope.workspaceId, {
+        materials: catalogMaterials,
+        assemblies: updated,
+        expectedRevision: catalogRevision,
+      });
+      applyLatest(saved);
+      setError("");
+      return true;
+    } catch (saveError) {
+      if (saveError instanceof ApiError && saveError.status === 409) {
+        try {
+          const latest = await getWorkspaceEstimatingCatalog(scope.workspaceId);
+          applyLatest(latest);
+          setError("This catalog changed in another session. Your edit was not saved. Review the latest values and retry.");
+        } catch {
+          setError("This catalog changed in another session, and the latest version could not be reloaded. Retry before editing again.");
+          setCatalogReady(false);
+        }
+      } else {
+        setError(saveError instanceof Error ? saveError.message : "Workspace catalog could not be saved.");
+      }
+      return false;
+    } finally {
+      setSavingCatalog(false);
+    }
+  };
+
   const startNew = () => {
-    if (!canWrite) return;
+    if (!canEditCatalog) return;
     setDraft({
       id: `asm-${crypto.randomUUID()}`, name: "", category: "", description: "", unit: "SF",
       materialCostPerUnit: 0, laborCostPerUnit: 0, equipmentCostPerUnit: 0,
@@ -52,17 +118,16 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
   };
 
   const startEdit = (assembly: AssemblyItem) => {
-    if (!canWrite) return;
+    if (!canEditCatalog) return;
     setDraft({ ...assembly });
     setError("");
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const saveAssembly = (event: React.FormEvent) => {
+  const saveAssembly = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canWrite) return;
-    if (!draft) return;
+    if (!canEditCatalog || !draft) return;
     const validationError = validateEstimateInput(draft.name, 1, rateFields.map(({ key }) => draft[key]));
     if (validationError) { setError(validationError); return; }
     const saved: AssemblyItem = {
@@ -73,16 +138,12 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
       equipmentCostPerUnit: Number(draft.equipmentCostPerUnit.toFixed(2)),
     };
     const updated = editingExisting ? assemblies.map((assembly) => assembly.id === saved.id ? saved : assembly) : [saved, ...assemblies];
-    if (!StorageService.saveAssemblies(updated, scope)) {
-      setError("This device could not save the assembly. Keep this form open and free up browser storage before retrying.");
-      return;
-    }
-    setAssemblies(updated);
+    if (!await persist(updated)) return;
     setDraft(null);
     setExpandedId(saved.id);
     setSearch("");
     setError("");
-    setNotice("Assembly saved on this device.");
+    setNotice("Assembly saved to the workspace catalog.");
   };
 
   return (
@@ -90,14 +151,14 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">Assemblies</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">Build your own unit rates from material, labor and equipment costs.</p>
+          <p className="text-sm text-slate-500 mt-1 max-w-2xl">Build reusable unit rates from material, labor and equipment costs for this workspace.</p>
         </div>
-        <button onClick={startNew} disabled={!canWrite || Boolean(draft)} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+        <button onClick={startNew} disabled={!canEditCatalog || Boolean(draft)} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
           <Plus className="h-4 w-4" /> New Assembly
         </button>
       </div>
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-relaxed text-blue-900">
-        Add rates from your quotes or actual job costs. This library is saved on this device for your account and workspace. No paid price feed is required.
+        {catalogLoading ? "Loading the shared workspace catalog..." : catalogRevision === 0 && canWrite ? "This workspace has no server catalog yet. Your existing local library is ready to become revision 1 on the next saved change." : `Workspace catalog revision ${catalogRevision}. Changes are shared across signed-in workspace members.`}
       </div>
       {notice && <p role="status" className="flex items-center gap-2 text-sm text-emerald-700"><Check className="h-4 w-4" />{notice}</p>}
       {error && <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />{error}</p>}
@@ -105,14 +166,14 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
         <form onSubmit={saveAssembly} className="rounded-xl border border-blue-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-bold text-slate-900">{editingExisting ? "Edit assembly" : "New assembly"}</h2>
-            <button type="button" onClick={() => { setDraft(null); setError(""); }} className="text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+            <button type="button" disabled={savingCatalog} onClick={() => { setDraft(null); setError(""); }} className="text-sm text-slate-600 hover:text-slate-900">Cancel</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">Assembly name
               <input autoFocus required maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g., Interior wall finishing" className={`${fieldClass} mt-1`} />
             </label>
             <label className="block text-xs font-semibold text-slate-600">Trade / category
-              <input maxLength={100} value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="e.g., Finishes" className={`${fieldClass} mt-1`} />
+              <input maxLength={120} value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="e.g., Finishes" className={`${fieldClass} mt-1`} />
             </label>
             <label className="block text-xs font-semibold text-slate-600">Unit
               <select value={draft.unit} onChange={(event) => setDraft({ ...draft, unit: event.target.value as UnitType })} className={`${fieldClass} mt-1`}>
@@ -129,11 +190,11 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
             </div>
           </fieldset>
           <label className="block text-xs font-semibold text-slate-600">Scope and quote notes
-            <textarea rows={3} maxLength={4000} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="What is included, exclusions, supplier quote and quote date" className={`${fieldClass} mt-1 resize-y`} />
+            <textarea rows={3} maxLength={1000} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="What is included, exclusions, supplier quote and quote date" className={`${fieldClass} mt-1 resize-y`} />
           </label>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-4">
             <p className="text-sm text-slate-600">Unit rate: <strong className="font-mono text-slate-900">{unitTotal(draft) > 0 ? `${formatCurrency(unitTotal(draft))} / ${draft.unit}` : "Not priced"}</strong></p>
-            <button type="submit" className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Save Assembly</button>
+            <button type="submit" disabled={!canEditCatalog} className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">{savingCatalog ? "Saving..." : "Save Assembly"}</button>
           </div>
         </form>
       )}
@@ -166,7 +227,7 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
               </div>
               <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
                 <button aria-expanded={expanded} aria-controls={`assembly-${assembly.id}`} onClick={() => setExpandedId(expanded ? null : assembly.id)} className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800">{expanded ? "Hide details" : "View breakdown"}<ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} /></button>
-                <button disabled={!canWrite || Boolean(draft)} onClick={() => startEdit(assembly)} aria-label={`Edit ${assembly.name}`} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"><Edit2 className="h-3.5 w-3.5" /> Edit</button>
+                <button disabled={!canEditCatalog || Boolean(draft)} onClick={() => startEdit(assembly)} aria-label={`Edit ${assembly.name}`} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"><Edit2 className="h-3.5 w-3.5" /> Edit</button>
               </div>
               {expanded && <div id={`assembly-${assembly.id}`} className="space-y-3">
                 <dl className="rounded-lg bg-slate-50 p-3 space-y-2 text-xs">
