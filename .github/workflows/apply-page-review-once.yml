@@ -1,0 +1,58 @@
+name: Apply reviewed page correction once
+on:
+  push:
+    branches: [chat/official-page-reading-20260910]
+    paths: [.github/workflows/apply-page-review-once.yml]
+permissions:
+  contents: write
+concurrency:
+  group: apply-page-review-once
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.repository == 'kauanszpaiva/RoughBid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 8
+      - name: Verify exact staging parent and reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = ea62e3c2c7b5ee29c9d2c94bdf68ed83d14257a6
+          git merge-base --is-ancestor 0e0cbfc6401858d2bb336628eb4bea0513d4a868 HEAD
+          cat .github/patches/page-review-0{1,2,3}.b64 | base64 --decode | gzip --decompress > /tmp/page-review.patch
+          echo 'c363a0fd6ce6d49a074a5bb29ddc9e5674e412e96eb5436db84687c6d2c7f5fc  /tmp/page-review.patch' | sha256sum --check
+          git apply --check /tmp/page-review.patch
+          git apply /tmp/page-review.patch
+          rm .github/patches/page-review-0{1,2,3}.b64 .github/workflows/apply-page-review-once.yml
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx tsc --noEmit -p apps/web/app/tsconfig.json
+      - name: Run complete repository tests without provider credentials
+        run: npm test
+      - name: Compile production assets with non-secret test configuration
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
+        run: npm run build
+      - name: Commit verified correction to this branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -u
+          git add apps/api/src/ai-plan/page-inventory.ts apps/api/test/page-inventory.test.ts apps/api/test/page-reading.test.ts apps/web/app/src/components/PageReviewPanel.tsx packages/domain/src/reading-coverage.ts packages/domain/test/reading-coverage.test.ts scripts/test-page-review-browser.mjs
+          git diff --cached --check
+          git diff --cached --stat
+          git config user.name 'Kauan Paiva'
+          git config user.email 'kauan@kspdominion.group'
+          git commit -m 'fix: persist owner physical-page readings with metering and safe resume'
+          git push origin HEAD:refs/heads/chat/official-page-reading-20260910
+          echo "VERIFIED_BRANCH_COMMIT=$(git rev-parse HEAD)"
