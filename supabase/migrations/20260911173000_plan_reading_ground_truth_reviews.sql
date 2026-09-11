@@ -8,7 +8,9 @@ create table public.plan_reading_finding_reviews (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   project_id uuid not null references public.projects(id) on delete cascade,
   file_id uuid not null references public.project_files(id) on delete cascade,
-  reviewed_by uuid not null references auth.users(id) on delete restrict,
+  -- Preserve the review event when an auth account is deleted. The identity is
+  -- intentionally nullable so QA history never blocks the account lifecycle.
+  reviewed_by uuid references auth.users(id) on delete set null,
   action text not null check (action in ('accepted', 'rejected', 'corrected')),
   original_prediction jsonb not null check (jsonb_typeof(original_prediction) = 'object'),
   canonical_target jsonb check (canonical_target is null or jsonb_typeof(canonical_target) = 'object'),
