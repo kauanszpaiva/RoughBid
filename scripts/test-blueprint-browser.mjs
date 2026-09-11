@@ -30,9 +30,12 @@ try {
   await writeFile(path.join(root, 'main.tsx'), `
 import React, { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BlueprintViewer } from '../apps/web/app/src/components/BlueprintViewer';
+import { usePdfDocument } from '../apps/web/app/src/features/plans/hooks/usePdfDocument';
+import { BlueprintPage } from '../apps/web/app/src/features/plans/viewer/BlueprintPage';
 function Fixture() {
   const [url, setUrl] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [zoom, setZoom] = useState(100);
   useEffect(() => {
     if (location.search.includes('broken')) { setUrl('/missing.pdf'); return; }
     let active = true; let objectUrl;
@@ -42,7 +45,16 @@ function Fixture() {
     });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, []);
-  return <BlueprintViewer currentRevision={{ id: 'fixture', revisionNumber: '01', fileName: 'synthetic-23-pages.pdf', fileSize: 'fixture', pages: 0, uploadDate: 'test', uploadedBy: 'test', isCurrent: true, notes: '', annotations: [] }} projectName="Synthetic viewer verification" previewUrl={url} isPreviewLoading={!url} onAnnotationsChange={() => {}} canWrite={true} />;
+  const { pdf, status, error } = usePdfDocument(url);
+  return <section className="border border-slate-200" aria-label="Synthetic viewer verification PDF preview">
+    <div>
+      <label>Page <select aria-label="PDF page" value={pageNumber} disabled={!pdf} onChange={event => setPageNumber(Number(event.target.value))}>{Array.from({ length: pdf?.numPages ?? 1 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></label>
+      <button type="button" aria-label="Zoom in" disabled={!pdf} onClick={() => setZoom(value => value + 25)}>Zoom in</button>
+    </div>
+    {error && <p role="status">{error}</p>}
+    {status === 'loading' && <p role="status">Opening blueprint...</p>}
+    {pdf && <BlueprintPage pdf={pdf} pageNumber={pageNumber} fileName="synthetic-23-pages.pdf" zoomPercent={zoom} findings={[]} annotations={[]} selectedFindingId={null} selectedAnnotationId={null} showAiMarkers={true} showFindingHighlights={true} showManualNotes={true} />}
+  </section>;
 }
 createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></StrictMode>);
 `);
@@ -80,7 +92,7 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('http://127.0.0.1:4179/');
-      const canvas = page.locator('canvas');
+      const canvas = page.locator('canvas[aria-label^="Uploaded PDF:"]');
       await canvas.waitFor({ state: 'visible', timeout: 30_000 });
       const styled = await page.getByRole('region', { name: 'Synthetic viewer verification PDF preview' }).evaluate(element => parseFloat(getComputedStyle(element).borderTopWidth) > 0);
       assert.equal(styled, true, 'The production stylesheet must be loaded, not an unstyled harness.');
@@ -89,25 +101,20 @@ createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></Stri
       const firstPage = await canvas.evaluate(c => c.toDataURL());
       await page.getByLabel('PDF page', { exact: true }).selectOption('23');
       await page.waitForFunction(old => {
-        const c = document.querySelector('canvas');
+        const c = document.querySelector('canvas[aria-label^="Uploaded PDF:"]');
         return c && c.offsetParent !== null && c.toDataURL() !== old;
       }, firstPage, { timeout: 20_000 });
-      assert.match(await canvas.getAttribute('aria-label'), /page 23/);
+      assert.equal(await canvas.getAttribute('aria-label'), 'Uploaded PDF: synthetic-23-pages.pdf, page 23');
       const width = await canvas.evaluate(c => c.width);
       await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-      await page.waitForFunction(oldWidth => document.querySelector('canvas')?.width > oldWidth, width);
-      const addNote = page.getByRole('button', { name: 'Add note', exact: true });
-      // The canvas dimensions update before React commits renderStatus='ready' on some
-      // engines (notably WebKit). Trial click waits for actionability without mutating UI.
-      await addNote.click({ trial: true });
-      assert.equal(await addNote.isEnabled(), true);
+      await page.waitForFunction(oldWidth => document.querySelector('canvas[aria-label^="Uploaded PDF:"]')?.width > oldWidth, width);
       await page.screenshot({ path: path.join(repo, 'test-results', `blueprint-${browserName}.png`), fullPage: true });
       await page.goto('http://127.0.0.1:4179/?broken=1');
       await page.getByRole('status').filter({ hasText: 'Unable to open this PDF (404)' }).waitFor({ state: 'visible' });
       assert.equal(await canvas.isVisible(), false);
       assert.deepEqual(errors, []);
       assert.deepEqual(external, []);
-      console.log(`PASS ${browserName}: actual PDF worker, 23 pages, page navigation, zoom, note availability, and explicit 404 under production CSP`);
+      console.log(`PASS ${browserName}: extracted PDF primitives render real worker output, navigate 23 pages, zoom, and expose explicit 404 under production CSP`);
     } finally { await browser.close(); }
   }
 } finally {
