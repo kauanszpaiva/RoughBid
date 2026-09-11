@@ -1,3 +1,5 @@
+import type { NormalizedPoint } from '../types.ts';
+
 export const clampZoom = (percent: number) => Math.min(500, Math.max(25, Math.round(percent)));
 
 export function computeFitWidthZoom(input: { pageWidth: number; viewportWidth: number; totalHorizontalPadding: number }) {
@@ -15,6 +17,25 @@ export function computeFitPageZoom(input: { pageWidth: number; pageHeight: numbe
 export function computeBoxFocusZoom(input: { boxWidth: number; boxHeight: number; currentZoom: number }) {
   if (input.boxWidth <= 0 || input.boxHeight <= 0) return clampZoom(input.currentZoom);
   return clampZoom(Math.min(0.72 / input.boxWidth, 0.72 / input.boxHeight) * 100);
+}
+
+export function computeCenteredScrollPosition(input: {
+  containerScrollLeft: number;
+  containerScrollTop: number;
+  containerWidth: number;
+  containerHeight: number;
+  pageOffsetLeft: number;
+  pageOffsetTop: number;
+  pageWidth: number;
+  pageHeight: number;
+  point: NormalizedPoint;
+}) {
+  const sourceX = input.containerScrollLeft + input.pageOffsetLeft + input.point.x * input.pageWidth;
+  const sourceY = input.containerScrollTop + input.pageOffsetTop + input.point.y * input.pageHeight;
+  return {
+    left: Math.max(0, sourceX - input.containerWidth / 2),
+    top: Math.max(0, sourceY - input.containerHeight / 2),
+  };
 }
 
 export function getContinuousRenderWindow(input: { activePage: number; totalPages: number; radius: number }): number[] {
