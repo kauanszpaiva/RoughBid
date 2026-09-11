@@ -74,7 +74,7 @@ test('migration executes and corrected review preserves original prediction sepa
   const db = await boot();
   try {
     const reviewed = await db.query(
-      `select action, original_prediction, canonical_target, model, training_eligible
+      `select id, action, original_prediction, canonical_target, model, training_eligible, reviewed_by
        from public.review_plan_reading_finding($1,'corrected',$2::jsonb)`,
       [id(14), JSON.stringify({ quantity: 12, unit: 'LF' })],
     );
@@ -85,10 +85,15 @@ test('migration executes and corrected review preserves original prediction sepa
     assert.equal(reviewed.rows[0].canonical_target.label, 'Wall');
     assert.equal(reviewed.rows[0].model, 'gemini-test');
     assert.equal(reviewed.rows[0].training_eligible, false);
+    assert.equal(reviewed.rows[0].reviewed_by, id(1));
 
     const finding = await db.query('select quantity, status from public.plan_reading_findings where id=$1', [id(14)]);
     assert.equal(Number(finding.rows[0].quantity), 10, 'model prediction must remain immutable');
     assert.equal(finding.rows[0].status, 'accepted');
+
+    await db.query('delete from auth.users where id=$1', [id(1)]);
+    const retained = await db.query('select reviewed_by, action from public.plan_reading_finding_reviews where id=$1', [reviewed.rows[0].id]);
+    assert.deepEqual(retained.rows, [{ reviewed_by: null, action: 'corrected' }], 'review history must survive account deletion without blocking it');
   } finally {
     await db.close();
   }
