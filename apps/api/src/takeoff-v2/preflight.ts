@@ -36,6 +36,7 @@ export async function createPlanSetManifest(fileBytes: Uint8Array): Promise<Plan
       rotationDegrees,
       contentKind: native?.contentKind ?? 'unknown' as const,
       textQuality: native?.textQuality ?? 'unknown' as const,
+      nativeScaleCandidates: native?.printedScaleCandidates ?? [],
       status: 'review_required' as const,
       statusReason: native
         ? `Physical page accounted for; native content detected as ${native.contentKind} with ${native.textQuality} text.`
