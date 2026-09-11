@@ -15,6 +15,17 @@ export const ALLOWED_FINDING_TYPES: ReadonlySet<PlanReadingFindingType> = new Se
 /** The AI plan reader is asked to report quantities using only these short imperial unit codes. */
 export const ALLOWED_UNITS: ReadonlySet<string> = new Set(['SF', 'LF', 'EA', 'CY', 'SY', 'HR', 'LS']);
 
+/**
+ * Visual object classes are deliberately coarse. They describe what the model
+ * can actually point to on a sheet without pretending it has already produced
+ * a construction-grade CAD model.
+ */
+export const ALLOWED_VISUAL_OBJECT_TYPES: ReadonlySet<string> = new Set([
+  'room', 'wall', 'door', 'window', 'opening', 'closet', 'cabinet', 'counter',
+  'stair', 'column', 'fixture', 'appliance', 'plumbing_fixture', 'electrical_fixture',
+  'hvac_fixture', 'dimension', 'symbol', 'detail', 'section', 'elevation', 'other',
+]);
+
 export interface PlanReadingFinding {
   page_number: number | null;
   finding_type: PlanReadingFindingType;
@@ -58,17 +69,46 @@ export interface PlanReadingResult {
   findings: PlanReadingFinding[];
 }
 
-const MAX_FINDINGS = 200;
+const MAX_FINDINGS = 400;
 
-/** Only normalized PDF coordinates survive; provider pricing is never persisted. */
+function isNormalizedPoint(raw: unknown): raw is [number, number] {
+  return Array.isArray(raw)
+    && raw.length === 2
+    && raw.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1);
+}
+
+/**
+ * Keep only bounded normalized PDF geometry. Provider pricing and arbitrary
+ * model metadata are never persisted. Visual-only geometry is valid evidence
+ * even when an object has no nearby printed label (for example a door swing).
+ */
 export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {
-  if (!raw || typeof raw !== 'object') return {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const input = raw as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+
   const box = input.bbox;
-  if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return {};
-  const [x, y, width, height] = box as number[];
-  if (!width || !height || x! + width > 1 || y! + height > 1) return {};
-  return { bbox: box, coordinate_space: 'normalized', ...(typeof input.area === 'string' ? { area: input.area.trim().slice(0, 100) } : {}) };
+  if (Array.isArray(box) && box.length === 4 && box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) {
+    const [x, y, width, height] = box as number[];
+    if (width! > 0 && height! > 0 && x! + width! <= 1 && y! + height! <= 1) output.bbox = box;
+  }
+
+  if (isNormalizedPoint(input.point)) output.point = input.point;
+
+  if (Array.isArray(input.points) && input.points.length >= 2 && input.points.length <= 64 && input.points.every(isNormalizedPoint)) {
+    output.points = input.points;
+  }
+
+  if (!output.bbox && !output.point && !output.points) return {};
+
+  output.coordinate_space = 'normalized';
+  if (input.evidence_kind === 'visual' || input.evidence_kind === 'text') output.evidence_kind = input.evidence_kind;
+  if (typeof input.object_type === 'string' && ALLOWED_VISUAL_OBJECT_TYPES.has(input.object_type)) output.object_type = input.object_type;
+  if (input.shape === 'bbox' || input.shape === 'point' || input.shape === 'polyline' || input.shape === 'polygon') output.shape = input.shape;
+  if (typeof input.area === 'string' && input.area.trim()) output.area = input.area.trim().slice(0, 100);
+  if (typeof input.host === 'string' && input.host.trim()) output.host = input.host.trim().slice(0, 120);
+  if (typeof input.room === 'string' && input.room.trim()) output.room = input.room.trim().slice(0, 120);
+  return output;
 }
 
 function safeNullableText(value: unknown, max: number): string | null {
@@ -117,11 +157,12 @@ function sanitizeProjectAddressEvidence(raw: unknown, sheetCount: number): { add
 }
 
 /**
- * Cleans raw model (or fallback-generator) output into safe, storable
- * findings — the same hard validation rule an untrusted model output needs
- * regardless of provider: a quantity is only ever trusted alongside a
- * verbatim source excerpt and an allowed imperial unit. Anything that fails
- * is dropped and disclosed in `summary.limitations`, never silently coerced.
+ * Cleans raw model output into safe, reviewable findings. Text-derived numeric
+ * measurements still require a verbatim source citation. The only citationless
+ * numeric value allowed from visual evidence is a discrete EA=1 object whose
+ * normalized location survived geometry validation. This lets RoughBid retain
+ * a visibly detected door/window/fixture without allowing the model to invent
+ * LF/SF/CY measurements from an uncalibrated drawing.
  */
 export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = [], synthetic = false): PlanReadingResult {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -141,21 +182,24 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
     const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim().slice(0, 160) : null;
     if (!label) { dropped.push('a finding with no label'); continue; }
 
+    const pageNumber = typeof item.page_number === 'number' && Number.isInteger(item.page_number) && item.page_number > 0
+      ? item.page_number
+      : null;
+    const geometry = pageNumber && pageNumber <= sheetCount ? sanitizePlanGeometry(item.geometry) : {};
+    const visualEvidence = geometry.evidence_kind === 'visual' && Object.keys(geometry).length > 0;
     const hasQuantity = typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0;
     const unit = typeof item.unit === 'string' ? item.unit.trim().toUpperCase() : null;
-    const sourceExcerpt = typeof item.source_excerpt === 'string' && item.source_excerpt.trim() ? item.source_excerpt.trim() : null;
+    const sourceExcerpt = typeof item.source_excerpt === 'string' && item.source_excerpt.trim() ? item.source_excerpt.trim().slice(0, 1000) : null;
 
     if (hasQuantity) {
-      if (!sourceExcerpt) { dropped.push(`"${label}": quantity without a verbatim source excerpt`); continue; }
       if (!unit || !ALLOWED_UNITS.has(unit)) { dropped.push(`"${label}": unit "${String(item.unit)}" is not an allowed imperial unit`); continue; }
+      const visualDiscreteCount = visualEvidence && unit === 'EA' && item.quantity === 1;
+      if (!sourceExcerpt && !visualDiscreteCount) { dropped.push(`"${label}": quantity without acceptable text or visual evidence`); continue; }
     }
 
     const findingType = ALLOWED_FINDING_TYPES.has(item.finding_type as PlanReadingFindingType)
       ? (item.finding_type as PlanReadingFindingType)
       : (hasQuantity ? 'measurement' : 'scope_note');
-    const pageNumber = typeof item.page_number === 'number' && Number.isInteger(item.page_number) && item.page_number > 0
-      ? item.page_number
-      : null;
     if (hasQuantity && (pageNumber === null || pageNumber > sheetCount)) {
       dropped.push(`"${label}": quantity without a valid source page`); continue;
     }
@@ -171,7 +215,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       quantity: hasQuantity ? Math.round((item.quantity as number) * 100) / 100 : null,
       unit: hasQuantity ? unit : null,
       confidence,
-      geometry: pageNumber && sourceExcerpt ? sanitizePlanGeometry(item.geometry) : {},
+      geometry,
       source_excerpt: sourceExcerpt,
     });
   }
@@ -179,7 +223,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   const capped = findings.slice(0, MAX_FINDINGS);
   const limitations = [...notices, ...(Array.isArray(rawSummary.limitations) ? rawSummary.limitations.filter((v): v is string => typeof v === 'string').map(v => v.slice(0, 1000)) : [])];
   if (projectAddress.limitation) limitations.push(projectAddress.limitation);
-  if (dropped.length) limitations.push(`${dropped.length} item(s) dropped for missing a verbatim source citation or an invalid unit.`);
+  if (dropped.length) limitations.push(`${dropped.length} item(s) dropped because their evidence, page identity, or unit was not safe to persist.`);
   if (findings.length > MAX_FINDINGS) limitations.push(`Findings capped at ${MAX_FINDINGS} (${findings.length} detected).`);
 
   return {
