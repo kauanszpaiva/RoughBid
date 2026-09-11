@@ -21,6 +21,7 @@
  *   GET  /api/ai-plan-readings/:id
  *   PATCH /api/ai-plan-readings/findings/:id
  *   POST /api/workspaces/:id/ai-consent
+ *   GET|POST /api/workspaces/:id/estimating-catalog
  *
  * Requests default to same-origin relative paths, since /api and /app are
  * built and deployed together (see scripts/build.mjs, vercel.json). Set
@@ -393,6 +394,30 @@ export function setPlanReadingFindingStatus(workspaceId: string, findingId: stri
 /** POST /api/workspaces/:id/ai-consent — owner accepts sending plan files to AI. */
 export function grantWorkspaceAiConsent(workspaceId: string) {
   return request<Workspace>(`/api/workspaces/${workspaceId}/ai-consent`, { method: "POST" });
+}
+
+export type WorkspaceEstimatingCatalog = {
+  id: string | null;
+  workspaceId: string;
+  revision: number;
+  materials: import('../types').MaterialItem[];
+  assemblies: import('../types').AssemblyItem[];
+  contentSha256: string | null;
+  createdBy: string | null;
+  createdAt: string | null;
+};
+
+export function getWorkspaceEstimatingCatalog(workspaceId: string) {
+  return request<WorkspaceEstimatingCatalog>(`/api/workspaces/${workspaceId}/estimating-catalog`, { workspaceId });
+}
+
+export function saveWorkspaceEstimatingCatalog(
+  workspaceId: string,
+  input: Pick<WorkspaceEstimatingCatalog, 'materials' | 'assemblies'> & { expectedRevision: number },
+) {
+  return request<WorkspaceEstimatingCatalog>(`/api/workspaces/${workspaceId}/estimating-catalog`, {
+    method: 'POST', workspaceId, body: input,
+  });
 }
 
 export function createDocumentDownloadUrl(workspaceId: string, fileId: string) {

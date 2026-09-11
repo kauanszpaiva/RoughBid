@@ -31,3 +31,11 @@ test('vercel.json still has no /api catchall, so per-route files remain required
     'an /api rewrite would change this contract — revisit the per-route file requirement above',
   );
 });
+
+test('workspace estimating catalog has a deployable function file', () => {
+  const handler = readFileSync(new URL('../src/http/handler.ts', import.meta.url), 'utf8');
+  const file = new URL('../../../api/workspaces/[id]/estimating-catalog.ts', import.meta.url);
+  assert.ok(existsSync(file), 'the estimating catalog route would 404 on Vercel');
+  assert.equal(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), bridge);
+  assert.match(handler, /estimating-catalog/);
+});
