@@ -1,0 +1,26 @@
+{
+  "version": "rbai-benchmark-v1",
+  "quantityTolerancePercent": 5,
+  "split": {
+    "trainProjectFamilyIds": ["permit-set:job-train-001"],
+    "evaluationProjectFamilyIds": ["bid-set:job-eval-001"]
+  },
+  "classification": [
+    {
+      "projectFamilyId": "job-eval-001",
+      "actual": "architectural",
+      "predicted": "architectural",
+      "confidence": 0.94
+    }
+  ],
+  "quantities": [
+    {
+      "projectFamilyId": "job-eval-001",
+      "key": "exterior-bearing-wall",
+      "unit": "LF",
+      "actual": 128.5,
+      "predicted": 125.8,
+      "confidence": 0.88
+    }
+  ]
+}
