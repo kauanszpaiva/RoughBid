@@ -31,6 +31,7 @@ import type { AuthenticatedSupabaseClient } from '../supabase/client.ts';
 import type { SupabaseLike } from '../projects/service.ts';
 import { handleMarketplaceCatalog } from '../marketplace/catalog.ts';
 import { handleSupplierPriceImport } from '../marketplace/supplier-import.ts';
+import { handleWorkspaceCatalogRequest } from '../catalogs/routes.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -115,6 +116,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   }
   if(pathname==='/api/marketplace/catalog') return handleMarketplaceCatalog(request,client as unknown as SupabaseLike,process.env);
   if(pathname==='/api/marketplace/supplier-import') return handleSupplierPriceImport(request,client as unknown as SupabaseLike,process.env);
+  if (/^\/api\/workspaces\/[^/]+\/estimating-catalog$/.test(pathname)) {
+    return handleWorkspaceCatalogRequest(request, client as unknown as SupabaseLike);
+  }
   if (pathname.startsWith('/api/pilot/')) {
     const key = loadSupabaseServiceRoleKey();
     if (!key || !process.env.SUPABASE_URL) return json({ error: 'Pilot administration is not configured.' }, 503);

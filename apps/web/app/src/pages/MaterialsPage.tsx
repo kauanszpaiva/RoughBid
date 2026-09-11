@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { AlertCircle, Check, Edit2, Package, Plus, Search, Trash2, Undo2 } from "lucide-react";
-import type { MaterialItem, UnitType } from "../types";
+import type { AssemblyItem, MaterialItem, UnitType } from "../types";
+import { ApiError, getWorkspaceEstimatingCatalog, saveWorkspaceEstimatingCatalog } from "../services/api";
 import { formatCurrency } from "../utils/calculations";
 import { validateEstimateInput } from "../utils/manualEstimate";
 import { StorageService, type StorageScope } from "../utils/storage";
@@ -12,6 +13,11 @@ const updatedLabel = (value: string) => Number.isNaN(Date.parse(value)) ? value 
 
 export const MaterialsPage: React.FC<{ scope: StorageScope; canWrite?: boolean }> = ({ scope, canWrite = false }) => {
   const [materials, setMaterials] = useState<MaterialItem[]>(() => StorageService.getMaterials(scope));
+  const [catalogAssemblies, setCatalogAssemblies] = useState<AssemblyItem[]>(() => StorageService.getAssemblies(scope));
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [savingCatalog, setSavingCatalog] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [draft, setDraft] = useState<MaterialItem | null>(null);
@@ -20,54 +26,102 @@ export const MaterialsPage: React.FC<{ scope: StorageScope; canWrite?: boolean }
   const [deleted, setDeleted] = useState<{ item: MaterialItem; index: number } | null>(null);
 
   useEffect(() => {
-    setMaterials(StorageService.getMaterials(scope));
+    let active = true;
+    const cachedMaterials = StorageService.getMaterials(scope);
+    const cachedAssemblies = StorageService.getAssemblies(scope);
+    setMaterials(cachedMaterials);
+    setCatalogAssemblies(cachedAssemblies);
+    setCatalogRevision(0);
+    setCatalogReady(false);
+    setCatalogLoading(true);
     setDraft(null);
     setDeleted(null);
     setSearch("");
     setSelectedCategory("all");
     setError("");
     setNotice("");
-  }, [scope.userId, scope.workspaceId]);
+    void getWorkspaceEstimatingCatalog(scope.workspaceId).then((catalog) => {
+      if (!active) return;
+      const useCachedSeed = catalog.revision === 0 && canWrite;
+      setMaterials(useCachedSeed ? cachedMaterials : catalog.materials);
+      setCatalogAssemblies(useCachedSeed ? cachedAssemblies : catalog.assemblies);
+      setCatalogRevision(catalog.revision);
+      setCatalogReady(true);
+      setCatalogLoading(false);
+    }).catch((loadError) => {
+      if (!active) return;
+      setCatalogLoading(false);
+      setCatalogReady(false);
+      setError(loadError instanceof Error ? `${loadError.message} Cached materials are read-only until the workspace catalog reconnects.` : "Workspace catalog could not load. Cached materials are read-only until it reconnects.");
+    });
+    return () => { active = false; };
+  }, [scope.userId, scope.workspaceId, canWrite]);
 
   const categories = Array.from(new Set(materials.map((item) => item.category).filter(Boolean))).sort();
   useEffect(() => { if (!canWrite) setDraft(null); }, [canWrite]);
 
+  const canEditCatalog = canWrite && catalogReady && !catalogLoading && !savingCatalog;
   const filtered = materials.filter((item) =>
     `${item.name} ${item.supplier || ""}`.toLowerCase().includes(search.trim().toLowerCase()) &&
     (selectedCategory === "all" || item.category === selectedCategory)
   );
   const editingExisting = Boolean(draft && materials.some((item) => item.id === draft.id));
 
-  const persist = (updated: MaterialItem[]) => {
-    if (!canWrite) return false;
-    if (!StorageService.saveMaterials(updated, scope)) {
-      setError("This device could not save your materials. Keep this page open and free up browser storage before retrying.");
+  const applyLatest = (catalog: Awaited<ReturnType<typeof getWorkspaceEstimatingCatalog>>) => {
+    setMaterials(catalog.materials);
+    setCatalogAssemblies(catalog.assemblies);
+    setCatalogRevision(catalog.revision);
+  };
+
+  const persist = async (updated: MaterialItem[]) => {
+    if (!canEditCatalog) return false;
+    setSavingCatalog(true);
+    try {
+      const saved = await saveWorkspaceEstimatingCatalog(scope.workspaceId, {
+        materials: updated,
+        assemblies: catalogAssemblies,
+        expectedRevision: catalogRevision,
+      });
+      applyLatest(saved);
+      setError("");
+      return true;
+    } catch (saveError) {
+      if (saveError instanceof ApiError && saveError.status === 409) {
+        try {
+          const latest = await getWorkspaceEstimatingCatalog(scope.workspaceId);
+          applyLatest(latest);
+          setError("This catalog changed in another session. Your edit was not saved. Review the latest values and retry.");
+        } catch {
+          setError("This catalog changed in another session, and the latest version could not be reloaded. Retry before editing again.");
+          setCatalogReady(false);
+        }
+      } else {
+        setError(saveError instanceof Error ? saveError.message : "Workspace catalog could not be saved.");
+      }
       return false;
+    } finally {
+      setSavingCatalog(false);
     }
-    setMaterials(updated);
-    setError("");
-    return true;
   };
 
   const startNew = () => {
-    if (!canWrite) return;
+    if (!canEditCatalog) return;
     setDraft({ id: `mat-${crypto.randomUUID()}`, name: "", category: "", unit: "SF", unitCost: 0, supplier: "", lastUpdated: "" });
     setError("");
     setNotice("");
   };
 
   const startEdit = (item: MaterialItem) => {
-    if (!canWrite) return;
+    if (!canEditCatalog) return;
     setDraft({ ...item, unitCost: unitCost(item) });
     setError("");
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const saveMaterial = (event: React.FormEvent) => {
+  const saveMaterial = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canWrite) return;
-    if (!draft) return;
+    if (!canEditCatalog || !draft) return;
     const validationError = validateEstimateInput(draft.name, 1, [unitCost(draft)]);
     if (validationError) { setError(validationError); return; }
     const saved: MaterialItem = {
@@ -75,36 +129,35 @@ export const MaterialsPage: React.FC<{ scope: StorageScope; canWrite?: boolean }
       unitCost: Number(unitCost(draft).toFixed(2)), unitPrice: Number(unitCost(draft).toFixed(2)), lastUpdated: new Date().toISOString(),
     };
     const updated = editingExisting ? materials.map((item) => item.id === saved.id ? saved : item) : [saved, ...materials];
-    if (!persist(updated)) return;
+    if (!await persist(updated)) return;
     setDraft(null);
     setSearch("");
     setSelectedCategory("all");
-    setNotice("Material saved on this device.");
+    setNotice("Material saved to the workspace catalog.");
   };
 
-  const deleteMaterial = (item: MaterialItem) => {
-    if (!canWrite) return;
+  const deleteMaterial = async (item: MaterialItem) => {
+    if (!canEditCatalog) return;
     const index = materials.findIndex((candidate) => candidate.id === item.id);
     const updated = materials.filter((candidate) => candidate.id !== item.id);
-    if (!persist(updated)) return;
+    if (!await persist(updated)) return;
     setDeleted({ item, index });
     if (!updated.some((candidate) => candidate.category === selectedCategory)) setSelectedCategory("all");
-    setNotice("Material removed from your library.");
+    setNotice("Material removed from the workspace catalog.");
   };
 
-  const undoDelete = () => {
-    if (!canWrite) return;
-    if (!deleted) return;
+  const undoDelete = async () => {
+    if (!canEditCatalog || !deleted) return;
     const updated = [...materials];
     updated.splice(deleted.index, 0, deleted.item);
-    if (!persist(updated)) return;
+    if (!await persist(updated)) return;
     setDeleted(null);
-    setNotice("Material restored on this device.");
+    setNotice("Material restored to the workspace catalog.");
   };
 
   const actions = (item: MaterialItem) => <div className="flex items-center justify-end gap-1 shrink-0">
-    <button disabled={!canWrite || Boolean(draft)} onClick={() => startEdit(item)} aria-label={`Edit ${item.name}`} title="Edit material" className="rounded-md p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"><Edit2 className="h-4 w-4" /></button>
-    <button disabled={!canWrite || Boolean(draft)} onClick={() => deleteMaterial(item)} aria-label={`Delete ${item.name}`} title="Delete material" className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button>
+    <button disabled={!canEditCatalog || Boolean(draft)} onClick={() => startEdit(item)} aria-label={`Edit ${item.name}`} title="Edit material" className="rounded-md p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"><Edit2 className="h-4 w-4" /></button>
+    <button disabled={!canEditCatalog || Boolean(draft)} onClick={() => void deleteMaterial(item)} aria-label={`Delete ${item.name}`} title="Delete material" className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button>
   </div>;
 
   return (
@@ -112,29 +165,29 @@ export const MaterialsPage: React.FC<{ scope: StorageScope; canWrite?: boolean }
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">Materials Library</h1>
-          <p className="mt-1 text-sm text-slate-500">Keep your supplier quotes and actual material prices in one place.</p>
+          <p className="mt-1 text-sm text-slate-500">Keep your supplier quotes and actual material prices in one shared workspace catalog.</p>
         </div>
-        <button onClick={startNew} disabled={!canWrite || Boolean(draft)} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"><Plus className="h-4 w-4" />New Material</button>
+        <button onClick={startNew} disabled={!canEditCatalog || Boolean(draft)} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"><Plus className="h-4 w-4" />New Material</button>
       </div>
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-relaxed text-blue-900">
-        Prices come from you. This library is saved on this device for your account and workspace. Export your materials from Price Lists to keep a separate copy.
+        {catalogLoading ? "Loading the shared workspace catalog..." : catalogRevision === 0 && canWrite ? "This workspace has no server catalog yet. Your existing local library is ready to become revision 1 on the next saved change." : `Workspace catalog revision ${catalogRevision}. Changes are shared across signed-in workspace members.`}
       </div>
       {error && <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p>}
       {(notice || deleted) && <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <p role="status" className="flex items-center gap-2 text-sm text-emerald-700"><Check className="h-4 w-4" />{notice}</p>
-        {deleted && <button disabled={!canWrite} onClick={undoDelete} className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline"><Undo2 className="h-4 w-4" />Undo last removal</button>}
+        {deleted && <button disabled={!canEditCatalog} onClick={() => void undoDelete()} className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline"><Undo2 className="h-4 w-4" />Undo last removal</button>}
       </div>}
       {draft && <form onSubmit={saveMaterial} className="rounded-xl border border-blue-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-bold text-slate-900">{editingExisting ? "Edit material" : "New material"}</h2>
-          <button type="button" onClick={() => { setDraft(null); setError(""); }} className="text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+          <button type="button" disabled={savingCatalog} onClick={() => { setDraft(null); setError(""); }} className="text-sm text-slate-600 hover:text-slate-900">Cancel</button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">Material name
             <input autoFocus required maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g., 5/8 inch drywall board" className={`${fieldClass} mt-1`} />
           </label>
           <label className="block text-xs font-semibold text-slate-600">Category
-            <input list="material-categories" maxLength={100} value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="e.g., Drywall" className={`${fieldClass} mt-1`} />
+            <input list="material-categories" maxLength={120} value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="e.g., Drywall" className={`${fieldClass} mt-1`} />
             <datalist id="material-categories">{categories.map((category) => <option key={category} value={category} />)}</datalist>
           </label>
           <label className="block text-xs font-semibold text-slate-600">Supplier
@@ -149,7 +202,7 @@ export const MaterialsPage: React.FC<{ scope: StorageScope; canWrite?: boolean }
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <p className="text-xs text-slate-500">Leave the cost at zero until you have a price.</p>
-          <button type="submit" className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Save Material</button>
+          <button type="submit" disabled={!canEditCatalog} className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">{savingCatalog ? "Saving..." : "Save Material"}</button>
         </div>
       </form>}
       <div className="flex flex-col sm:flex-row gap-3">
