@@ -15,6 +15,4 @@ export type PlanSheet = {
   title?: string;
 };
 
-export function fallbackSheetLabel(page: number): string {
-  return `Page ${String(Math.max(1, Math.floor(page))).padStart(2, '0')}`;
-}
+export const fallbackSheetLabel = (page: number) => `Page ${String(page).padStart(2, '0')}`;
