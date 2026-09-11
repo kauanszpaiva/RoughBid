@@ -24,7 +24,8 @@ test('estimate snapshot RLS uses hardened private helpers and requires active pr
   assert.doesNotMatch(migration, /public\.has_workspace_access\(workspace_id\)/);
 });
 
-test('estimate history is retained when a project delete is attempted', () => {
+test('estimate history cannot be silently removed by deleting its project or workspace', () => {
+  assert.match(migration, /workspace_id uuid not null references public\.workspaces\(id\) on delete restrict/);
   assert.match(migration, /references public\.projects\(id, workspace_id\) on delete restrict/);
   assert.doesNotMatch(migration, /references public\.projects\(id, workspace_id\) on delete cascade/);
 });
