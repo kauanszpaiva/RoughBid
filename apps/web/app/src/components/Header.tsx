@@ -53,9 +53,9 @@ export const Header: React.FC<HeaderProps> = ({
   const ownerAvatar = ownerProfileImage(user?.email);
 
   return (
-    <div className="flex flex-col shrink-0 z-20 select-none bg-white font-sans">
+    <div className="flex flex-col shrink-0 z-20 select-none bg-[#f1efe8]">
       {/* Primary Header Bar */}
-      <header className="h-14 md:h-16 border-b border-[#e5e7eb] px-3 sm:px-4 md:px-6 xl:px-8 flex items-center justify-between">
+      <header className="h-14 md:h-16 border-b border-[#151713] px-3 sm:px-4 md:px-6 xl:px-8 flex items-center justify-between">
         {/* Left: Mobile Hamburger & Project / App Title */}
         <div className="flex items-center gap-2.5 md:gap-3 min-w-0">
           {/* Mobile hamburger menu toggle */}
@@ -93,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
                 alt="RoughBid"
                 className="w-8 h-8 object-contain rounded bg-white md:hidden"
               />
-              <h2 className="text-base md:text-lg font-bold text-[#111827] tracking-tight">
+              <h2 className="font-display text-base md:text-lg font-semibold text-[#151713] tracking-tight">
                 <span className="sr-only md:hidden">RoughBid</span>
                 <span className="hidden md:inline">{pageTitle}</span>
               </h2>
@@ -103,17 +103,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Center (Desktop only): Pill Stepper navigation if project is active */}
         {project && (
-          <div className="hidden md:flex items-center bg-[#f3f4f6] rounded-full p-1">
+          <div className="hidden md:flex items-center border border-[#151713] p-0.5">
             {steps.map((step) => {
               const isActive = activeStep === step.id;
               return (
                 <button
                   key={step.id}
                   onClick={() => onSelectStep(step.id)}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                  className={`px-4 py-1.5 font-mono text-[10px] uppercase tracking-wide font-semibold transition-all cursor-pointer ${
                     isActive
-                      ? "bg-white text-[#2563eb] shadow-xs"
-                      : "text-[#6b7280] hover:text-[#111827]"
+                      ? "bg-[#151713] text-[#d9ff43]"
+                      : "text-[#6b6e66] hover:bg-[#e2e0d7] hover:text-[#151713]"
                   }`}
                 >
                   {step.label}
@@ -158,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenNewProject}
               aria-label="New Project"
               disabled={!canWrite}
-              className="flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 border border-[#151713] px-3 py-1.5 md:px-3.5 md:py-1.5 bg-[#d9ff43] hover:bg-[#151713] hover:text-[#d9ff43] text-[#151713] font-mono text-[10px] uppercase tracking-wide font-semibold transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">New Project</span>
