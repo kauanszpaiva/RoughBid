@@ -36,8 +36,10 @@ await cp(new URL('../dist/index.html', import.meta.url), new URL('../dist/app/in
 await mkdir(new URL('../dist/landing', import.meta.url), { recursive: true });
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/styles.css', import.meta.url));
+await cp(new URL('../apps/web/landing.js', import.meta.url), new URL('../dist/landing.js', import.meta.url));
 await cp(new URL('../apps/web/index.html', import.meta.url), new URL('../dist/landing/index.html', import.meta.url));
 await cp(new URL('../apps/web/styles.css', import.meta.url), new URL('../dist/landing/styles.css', import.meta.url));
+await cp(new URL('../apps/web/landing.js', import.meta.url), new URL('../dist/landing/landing.js', import.meta.url));
 
 const serverOnlyKeys = ['SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'RESEND_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY'];
 async function assertNoServerSecrets(directory) {
