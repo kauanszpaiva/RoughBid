@@ -108,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Logo Section */}
       <div>
         <div
-          className={`${collapsed ? "p-3 justify-center" : "p-6"} border-b border-[#e5e7eb] flex items-center justify-between cursor-pointer`}
+          className={`${collapsed ? "p-3 justify-center" : "px-5 py-6"} border-b border-white/10 flex items-center justify-between cursor-pointer`}
           onClick={() => handleItemClick("projects")}
         >
           <div className={`${collapsed ? "w-full flex justify-center" : ""}`}>
@@ -139,9 +139,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation List */}
-        <nav className={`${collapsed ? "p-2" : "p-4"} space-y-1`}>
-          {!collapsed && <div className="px-3 pb-2 pt-1 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
-            Main Navigation
+        <nav className={`${collapsed ? "p-2" : "px-3 py-6"} space-y-1`}>
+          {!collapsed && <div className="px-3 pb-3 pt-1 font-mono text-[9px] font-semibold text-white/35 uppercase tracking-[.2em]">
+            [01 / Workspace]
           </div>}
           {mainNavItems.map((item) => {
             const isActive = currentTab === item.id;
@@ -150,13 +150,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 onClick={() => handleItemClick(item.id)}
                 title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm font-medium transition-all text-left cursor-pointer border-l-2 ${
                   isActive
-                    ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
-                    : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                    ? "border-[#d9ff43] text-[#d9ff43] bg-white/[.06] font-semibold"
+                    : "border-transparent text-white/55 hover:border-white/30 hover:bg-white/[.04] hover:text-white"
                 }`}
               >
-                <span className={isActive ? "text-[#2563eb]" : "text-[#6b7280]"}>
+                <span className={isActive ? "text-[#d9ff43]" : "text-white/45"}>
                   {item.icon}
                 </span>
                 {!collapsed && <span>{item.label}</span>}
@@ -164,19 +164,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
-          {!collapsed && <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">
-            System & Support
+          {!collapsed && <div className="pt-5 pb-3 px-3 font-mono text-[9px] font-semibold text-white/35 uppercase tracking-[.2em]">
+            [02 / System]
           </div>}
           <button
             onClick={() => handleItemClick("settings")}
             title={collapsed ? "Settings" : undefined}
             className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "settings"
-                ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
-                : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                ? "text-[#d9ff43] bg-white/[.06] font-semibold"
+                : "text-white/55 hover:bg-white/[.04] hover:text-white"
             }`}
           >
-            <Settings className="w-4 h-4 text-[#6b7280]" />
+            <Settings className="w-4 h-4 text-white/45" />
             {!collapsed && <span>Settings</span>}
           </button>
 
@@ -185,22 +185,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={collapsed ? "Help & Docs" : undefined}
             className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "help"
-                ? "text-[#2563eb] bg-[#eff6ff] font-semibold"
-                : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#111827]"
+                ? "text-[#d9ff43] bg-white/[.06] font-semibold"
+                : "text-white/55 hover:bg-white/[.04] hover:text-white"
             }`}
           >
-            <HelpCircle className="w-4 h-4 text-[#6b7280]" />
+            <HelpCircle className="w-4 h-4 text-white/45" />
             {!collapsed && <span>Help & Docs</span>}
           </button>
         </nav>
       </div>
 
       {/* Bottom Account Profile */}
-      <div className={`${collapsed ? "p-2" : "p-4"} border-t border-[#e5e7eb] space-y-2`}>
+      <div className={`${collapsed ? "p-2" : "p-4"} border-t border-white/10 space-y-2`}>
         {!isDrawer && (
           <button
             onClick={onToggleCollapsed}
-            className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-between"} px-3 py-2 rounded-md text-xs font-semibold text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] transition`}
+            className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-between"} px-3 py-2 rounded-md text-xs font-semibold text-white/45 hover:text-white hover:bg-white/[.04] transition`}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
@@ -213,7 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onOpenAuth();
             if (onCloseMobile) onCloseMobile();
           }}
-          className={`bg-[#f3f4f6] hover:bg-[#e5e7eb]/80 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
+          className={`border border-white/10 bg-white/[.04] hover:bg-white/[.08] ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
           title={collapsed ? "Account" : undefined}
         >
           <div className={`${isSignedIn ? "bg-[#d1d5db] text-[#374151]" : "bg-[#111827] text-white"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
@@ -227,8 +227,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : "IN"}
           </div>
           {!collapsed && <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-[#111827] truncate">{isSignedIn ? user.name : "Sign in"}</p>
-            <p className="text-[10px] text-[#6b7280] truncate flex items-center gap-1">
+            <p className="text-xs font-semibold text-white truncate">{isSignedIn ? user.name : "Sign in"}</p>
+            <p className="text-[10px] text-white/45 truncate flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
               <span>{isSignedIn ? user.plan : "Create account"}</span>
             </p>
@@ -242,7 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-white border-r border-[#e5e7eb] flex-col justify-between h-screen select-none shrink-0 font-sans transition-[width] duration-200`}>
+      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-[#151713] border-r border-black flex-col justify-between h-screen select-none shrink-0 transition-[width] duration-200`}>
         {renderNavContent(false)}
       </aside>
 

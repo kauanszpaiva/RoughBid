@@ -517,7 +517,7 @@ export default function App() {
   const saveErrors = pendingSaveEntries.filter(([, value]) => value.state === "error");
 
   return (
-    <div className="flex h-dvh bg-[#fcfcfd] text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-dvh bg-[#f1efe8] text-[#151713] overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         currentTab={activeTab}
@@ -553,7 +553,7 @@ export default function App() {
 
         {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role.</div>}
 
-        <div className="border-b border-slate-200 bg-white px-4 sm:px-6 py-2 text-xs flex flex-wrap items-center gap-x-4 gap-y-2" aria-live="polite">
+        <div className="border-b border-[#c8c6bd] bg-[#e7e5dc] px-4 sm:px-6 py-2 font-mono text-[10px] uppercase tracking-[.08em] flex flex-wrap items-center gap-x-4 gap-y-2" aria-live="polite">
           <span className={saveErrors.length ? "font-semibold text-amber-800" : "text-slate-500"}>
             {operationCount > 0 ? "Saving project changes…" : saveErrors.length ? `${saveErrors.length} project${saveErrors.length > 1 ? "s" : ""} with unsaved changes` : pendingSaveEntries.length ? "Saving changes…" : "All changes saved"}
           </span>

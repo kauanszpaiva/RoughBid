@@ -1,1 +1,38 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  --rb-ink: #151713;
+  --rb-paper: #f1efe8;
+  --rb-acid: #d9ff43;
+}
+
+html { background: var(--rb-paper); }
+body { margin: 0; background: var(--rb-paper); color: var(--rb-ink); }
+button, input, textarea, select { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid #789300;
+  outline-offset: 3px;
+}
+
+.font-display { font-family: "Space Grotesk", ui-sans-serif, sans-serif; }
+.font-mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.rb-grid {
+  background-image:
+    linear-gradient(rgba(21, 23, 19, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 23, 19, .045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.rb-noise { position: relative; isolation: isolate; }
+.rb-noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .16;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+}
