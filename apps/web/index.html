@@ -75,28 +75,85 @@
         <h2 id="workflow-title">Plans → Quantities → Estimate → Export</h2>
         <p>Each step answers one question. Nothing important is hidden behind technical language.</p>
       </div>
-      <ol class="workflow-grid">
-        <li>
-          <span class="step-number">01</span>
-          <h3>Plans</h3>
-          <p>Keep the project PDF and revisions in one place instead of hunting through folders and email threads.</p>
-        </li>
-        <li>
-          <span class="step-number">02</span>
-          <h3>Quantities</h3>
-          <p>Track square feet, linear feet, counts and other takeoff quantities with units people recognize.</p>
-        </li>
-        <li>
-          <span class="step-number">03</span>
-          <h3>Estimate</h3>
-          <p>Separate material, labor, equipment and other costs. See overhead, markup and margin before you quote.</p>
-        </li>
-        <li>
-          <span class="step-number">04</span>
-          <h3>Export</h3>
-          <p>Turn the working numbers into a clean estimate you can review, revise and eventually send.</p>
-        </li>
-      </ol>
+      <div class="workflow-shell">
+        <div class="workflow-grid" role="tablist" aria-label="RoughBid workflow steps">
+          <button class="workflow-card is-active" id="workflow-tab-1" type="button" role="tab" aria-selected="true" aria-controls="workflow-panel-1" data-step="1">
+            <span class="step-topline"><span class="step-number">01</span><span class="step-state">Start here</span></span>
+            <span class="step-title">Upload plans</span>
+            <span class="step-copy">Drop in a PDF and keep every plan revision organized with the project.</span>
+            <span class="step-action">Try PDF Reader <span aria-hidden="true">→</span></span>
+          </button>
+          <button class="workflow-card" id="workflow-tab-2" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-2" data-step="2" tabindex="-1">
+            <span class="step-topline"><span class="step-number">02</span><span class="step-state">Review</span></span>
+            <span class="step-title">Confirm quantities</span>
+            <span class="step-copy">Review AI-assisted findings, then approve only the quantities you trust.</span>
+            <span class="step-action">Explore AI Review <span aria-hidden="true">→</span></span>
+          </button>
+          <button class="workflow-card" id="workflow-tab-3" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-3" data-step="3" tabindex="-1">
+            <span class="step-topline"><span class="step-number">03</span><span class="step-state">Build</span></span>
+            <span class="step-title">Price the work</span>
+            <span class="step-copy">Add labor and materials, then see overhead, markup, and margin clearly.</span>
+            <span class="step-action">Open Estimator <span aria-hidden="true">→</span></span>
+          </button>
+          <button class="workflow-card" id="workflow-tab-4" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-4" data-step="4" tabindex="-1">
+            <span class="step-topline"><span class="step-number">04</span><span class="step-state">Deliver</span></span>
+            <span class="step-title">Share the estimate</span>
+            <span class="step-copy">Turn approved numbers into a polished, client-ready proposal and export.</span>
+            <span class="step-action">See Sample Export <span aria-hidden="true">→</span></span>
+          </button>
+        </div>
+
+        <div class="workflow-preview" aria-live="polite">
+          <div class="preview-copy">
+            <p class="preview-kicker"><span class="preview-dot"></span> LIVE WORKFLOW PREVIEW</p>
+            <div class="workflow-panel is-active" id="workflow-panel-1" role="tabpanel" aria-labelledby="workflow-tab-1">
+              <span class="preview-step">STEP 01 · PLANS</span><h3>Bring the drawings. We’ll keep them straight.</h3>
+              <p>Start with the actual source of truth. Upload a plan set, label the revision, and keep the original close at hand throughout the estimate.</p>
+              <a href="/app/">Try PDF Reader <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="workflow-panel" id="workflow-panel-2" role="tabpanel" aria-labelledby="workflow-tab-2" hidden>
+              <span class="preview-step">STEP 02 · QUANTITIES</span><h3>Review every finding before it counts.</h3>
+              <p>AI-assisted plan reading surfaces possible quantities with sheet references. You decide what is accepted, edited, or dismissed.</p>
+              <a href="/app/">Explore AI Review <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="workflow-panel" id="workflow-panel-3" role="tabpanel" aria-labelledby="workflow-tab-3" hidden>
+              <span class="preview-step">STEP 03 · ESTIMATE</span><h3>See where every dollar goes.</h3>
+              <p>Build line items with real unit costs and instantly understand the effect of labor, overhead, and markup on your price.</p>
+              <a href="/app/">Open Estimator <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="workflow-panel" id="workflow-panel-4" role="tabpanel" aria-labelledby="workflow-tab-4" hidden>
+              <span class="preview-step">STEP 04 · EXPORT</span><h3>Send a quote you’re proud to stand behind.</h3>
+              <p>Choose what the client sees, add your company details, and produce a clear proposal without exposing your internal math.</p>
+              <a href="/app/">See Sample Export <span aria-hidden="true">→</span></a>
+            </div>
+          </div>
+
+          <div class="preview-stage" aria-hidden="true">
+            <div class="micro-demo demo-upload is-active" data-demo="1">
+              <div class="demo-windowbar"><i></i><i></i><i></i><span>NEW PROJECT / PLANS</span></div>
+              <div class="dropzone"><div class="file-icon">PDF</div><strong>Drop your plans here</strong><small>or browse from your computer</small><span>CHOOSE PDF</span></div>
+              <div class="upload-file"><span class="tiny-file">PDF</span><div><strong>oak-street-renovation.pdf</strong><small>32 sheets · 18.4 MB</small></div><b>100%</b></div>
+            </div>
+            <div class="micro-demo demo-review" data-demo="2">
+              <div class="demo-windowbar"><i></i><i></i><i></i><span>AI PLAN REVIEW</span></div>
+              <div class="review-head"><div><small>SHEET A-201</small><strong>3 findings ready</strong></div><span>REVIEWING</span></div>
+              <div class="finding"><em>01</em><div><strong>Exterior wall framing</strong><small>128 linear ft · A-201</small></div><button>✓</button></div>
+              <div class="finding"><em>02</em><div><strong>Insulated wall area</strong><small>1,024 sq ft · A-201</small></div><button>✓</button></div>
+              <div class="finding muted-finding"><em>03</em><div><strong>Door openings</strong><small>6 count · A-601</small></div><button>+</button></div>
+            </div>
+            <div class="micro-demo demo-estimate" data-demo="3">
+              <div class="demo-windowbar"><i></i><i></i><i></i><span>ESTIMATE BUILDER</span></div>
+              <div class="calc-heading"><div><small>LINE ITEM</small><strong>Exterior wall framing</strong></div><span>EDITING</span></div>
+              <div class="calc-row"><label>QUANTITY<strong>128</strong></label><b>×</b><label>UNIT COST<strong>$14.80</strong></label><b>=</b><label>TOTAL<strong>$1,894.40</strong></label></div>
+              <div class="calc-summary"><span>Material <b>$1,254.40</b></span><span>Labor <b>$640.00</b></span><span class="calc-total">CLIENT PRICE <b>$2,424.83</b></span></div>
+            </div>
+            <div class="micro-demo demo-export" data-demo="4">
+              <div class="demo-windowbar"><i></i><i></i><i></i><span>PROPOSAL PREVIEW</span></div>
+              <div class="paper"><header><div><small>PROPOSAL</small><strong>Oak Street Renovation</strong></div><b>ROUGH<span>BID</span></b></header><div class="paper-meta"><span>PREPARED FOR<br><b>Jordan Homeowners</b></span><span>ESTIMATE #<br><b>RB-1042</b></span></div><div class="paper-line"><span>Scope of work</span><b>$18,420.00</b></div><div class="paper-line"><span>Materials &amp; installation</span><b>Included</b></div><div class="paper-total"><span>PROJECT TOTAL</span><strong>$18,420.00</strong></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="platform" class="class-access" aria-labelledby="platform-title">
@@ -138,5 +195,36 @@
     <div class="brand footer-brand"><img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" /></div>
     <p>A KSP Ventures product · AI findings require human review. <a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a> · <a href="/data-use.html">Data/AI</a> · <a href="/refunds.html">Refunds</a> · <a href="mailto:hello@kspdominion.group">Support</a></p>
   </footer>
+  <script>
+    (() => {
+      const tabs = [...document.querySelectorAll('.workflow-card')];
+      const panels = [...document.querySelectorAll('.workflow-panel')];
+      const demos = [...document.querySelectorAll('.micro-demo')];
+      const activate = (tab) => {
+        const step = tab.dataset.step;
+        tabs.forEach((item) => {
+          const active = item === tab;
+          item.classList.toggle('is-active', active);
+          item.setAttribute('aria-selected', String(active));
+          item.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel) => {
+          const active = panel.id === `workflow-panel-${step}`;
+          panel.classList.toggle('is-active', active);
+          panel.hidden = !active;
+        });
+        demos.forEach((demo) => demo.classList.toggle('is-active', demo.dataset.demo === step));
+      };
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activate(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          tabs[next].focus(); activate(tabs[next]);
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

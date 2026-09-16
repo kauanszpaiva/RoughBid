@@ -6,6 +6,11 @@ test('landing page explains RoughBid as an independent SaaS product', async () =
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /Construction estimates without the spreadsheet chaos/i);
   assert.match(html, /Plans → Quantities → Estimate → Export/i);
+  assert.match(html, /role="tablist" aria-label="RoughBid workflow steps"/i);
+  assert.match(html, /Try PDF Reader/i);
+  assert.match(html, /See Sample Export/i);
+  assert.match(html, /data-demo="4"/i);
+  assert.match(html, /ArrowRight/);
   assert.match(html, /Independent SaaS platform/i);
   assert.match(html, /standalone construction estimating SaaS/i);
   assert.match(html, /controlled customer access/i);
