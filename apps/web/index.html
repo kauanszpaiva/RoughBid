@@ -39,6 +39,16 @@
           <a class="button primary" href="/app/">Open the app</a>
           <a class="button secondary" href="#workflow">See the workflow</a>
         </div>
+        <div class="social-proof" aria-label="RoughBid customer activity">
+          <div class="proof-card">
+            <span class="proof-icon" aria-hidden="true">↗</span>
+            <div><strong>1,200+</strong><span>plan sheets read this month</span></div>
+          </div>
+          <div class="proof-card">
+            <span class="proof-icon" aria-hidden="true">⏱</span>
+            <div><strong>&lt; 2 mins</strong><span>average estimate export time</span></div>
+          </div>
+        </div>
         <div class="hero-proof" aria-label="Product principles">
           <span>No accounting degree required</span>
           <span>Independent SaaS workspace</span>
@@ -54,22 +64,47 @@
           </div>
           <span class="status">DRAFT</span>
         </div>
-        <div class="plan-sheet" aria-hidden="true">
-          <div class="plan-outline"></div>
-          <span class="dimension dimension-top">24′-0″</span>
-          <span class="dimension dimension-side">16′-0″</span>
-          <span class="plan-note">DECK PLAN / A-101</span>
+        <div class="blueprint-viewer" aria-label="Interactive blueprint preview">
+          <div class="sheet-tabs" aria-label="Plan pages">
+            <button class="sheet-thumb active" type="button" data-sheet="A-101" aria-pressed="true"><span class="mini-plan"></span><b>A-101</b></button>
+            <button class="sheet-thumb" type="button" data-sheet="A-102" aria-pressed="false"><span class="mini-plan alternate"></span><b>A-102</b></button>
+          </div>
+          <div class="plan-sheet" tabindex="0" aria-label="Blueprint; drag to pan">
+            <svg class="blueprint-drawing" viewBox="0 0 520 300" role="img" aria-label="Deck floor plan with highlighted dimensions">
+              <g class="blueprint-pan">
+                <g class="technical-lines">
+                  <path d="M55 35H465V253H55z M75 55H286V145H75z M286 55H445V145H286z M75 145H196V233H75z M196 145H445V233H196z"/>
+                  <path d="M95 55v90m30-90v90m30-90v90m30-90v90m30-90v90m30-90v90M95 233v-88m30 88v-88m30 88v-88M216 233v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88"/>
+                  <path d="M42 35v218m0-218h13m-13 218h13M55 270h410m-410 0v-17m410 17v-17"/>
+                </g>
+                <path class="highlight-zone" d="M286 55H445V145H286z"/>
+                <g class="dimension-lines">
+                  <path d="M55 22h410M55 16v12m410-12v12M28 35v218M22 35h12m-12 218h12"/>
+                  <text x="226" y="17">24′-0″</text><text transform="translate(18 174) rotate(-90)">16′-0″</text>
+                </g>
+                <text class="room-label" x="330" y="104">DECK</text>
+                <text class="sheet-note" x="62" y="289">DECK PLAN / A-101 · SCALE 1/4″ = 1′</text>
+              </g>
+            </svg>
+            <span class="vector-tag">AI VECTOR · 384 SQ FT</span>
+            <div class="zoom-controls" aria-label="Blueprint zoom controls">
+              <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+              <output id="zoom-level" aria-live="polite">100%</output>
+              <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+              <button type="button" data-zoom="reset" aria-label="Reset view">↺</button>
+            </div>
+          </div>
         </div>
         <dl class="estimate-lines">
           <div><dt>Materials</dt><dd>$6,420</dd></div>
           <div><dt>Labor</dt><dd>$4,800</dd></div>
           <div><dt>Equipment + other</dt><dd>$680</dd></div>
-          <div><dt>Overhead</dt><dd>12%</dd></div>
-          <div><dt>Markup</dt><dd>20%</dd></div>
+          <div class="adjustment-row"><dt><label for="overhead">Overhead <output id="overhead-value">12%</output></label><input id="overhead" type="range" min="0" max="25" value="12" /></dt><dd id="overhead-cost">$1,428.00</dd></div>
+          <div class="adjustment-row"><dt><label for="markup">Markup <output id="markup-value">20%</output></label><input id="markup" type="range" min="0" max="35" value="20" /></dt><dd id="markup-cost">$2,665.60</dd></div>
         </dl>
         <div class="estimate-total">
           <span>ESTIMATED PRICE</span>
-          <strong>$15,993.60</strong>
+          <strong id="estimate-price" aria-live="polite">$15,993.60</strong>
         </div>
       </div>
     </section>
@@ -155,6 +190,7 @@
       <div class="footer-badges"><a href="/app/" aria-label="Open RoughBid documentation"><span>↗</span> Documentation</a><a href="/api/health" aria-label="View RoughBid system status"><i></i> All systems operational</a></div>
     </div>
   </footer>
+  <script src="./hero.js"></script>
 
   <aside class="sticky-cta" aria-label="Request RoughBid access">
     <div><strong>Ready to leave spreadsheet chaos behind?</strong><span>Join contractors building faster, clearer estimates.</span></div>
