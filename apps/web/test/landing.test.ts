@@ -24,3 +24,24 @@ test('landing page explains RoughBid as an independent SaaS product', async () =
   assert.match(html, /name="viewport"/i);
   assert.doesNotMatch(html, /AI-powered estimating available now/i);
 });
+
+test('landing conversion surfaces include accessible navigation, modal, footer, and sticky CTA', async () => {
+  const [html, styles, script] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('../landing.js', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(html, /href="#workflow">Workflow/);
+  assert.match(html, /href="#features">Features/);
+  assert.match(html, /href="#pricing">Pricing/);
+  assert.match(html, /class="sticky-cta"/);
+  assert.match(html, /role="dialog" aria-modal="true"/);
+  assert.match(html, /id="company-size"/);
+  assert.match(html, /Product[\s\S]*Legal[\s\S]*Contact/);
+  assert.match(html, /Documentation[\s\S]*All systems operational/);
+  assert.match(styles, /backdrop-filter: blur/);
+  assert.match(styles, /\.site-header-wrap\s*{[\s\S]*position: sticky/);
+  assert.match(script, /validEmail/);
+  assert.match(script, /success-toast/);
+});

@@ -20,6 +20,20 @@ test('auth gate offers sign-in and account creation without password storage', (
   assert.doesNotMatch(authGate, /signInWithOtp|PrimeBid|Class Pass|60\s+days/i);
 });
 
+test('landing page contrasts manual estimating with human-reviewed AI', () => {
+  assert.match(authGate, /Spreadsheet Chaos/);
+  assert.match(authGate, /RoughBid Workspace/);
+  assert.match(authGate, /AI-assisted gap detection/);
+  assert.match(authGate, /Possible missing item/);
+  assert.match(authGate, /Approve/);
+  assert.match(authGate, /Reject/);
+  assert.match(authGate, /Private project data/);
+  assert.match(authGate, /Human in the loop/);
+  assert.match(authGate, /Exact precision math/);
+  assert.match(authGate, /setReviewDecision\("approved"\)/);
+  assert.match(authGate, /setReviewDecision\("rejected"\)/);
+});
+
 test('account modal sends auth and organization invite links back to the protected app path', () => {
   const authModal = readFileSync(new URL('../app/src/components/AuthModal.tsx', import.meta.url), 'utf8');
   assert.match(authModal, /\/app\/\?invite=/);
