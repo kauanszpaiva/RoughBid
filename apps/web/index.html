@@ -12,16 +12,21 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="RoughBid home">
-      <img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" />
-    </a>
-    <nav aria-label="Primary navigation">
-      <a href="#workflow">How it works</a>
-      <a href="#platform">Platform</a>
-      <a href="/app/">Open the app</a>
-      <a class="nav-cta" href="#early-access">Request access</a>
-    </nav>
+  <header class="site-header-wrap">
+    <div class="site-header">
+      <a class="brand" href="#top" aria-label="RoughBid home">
+        <img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" />
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#workflow">Workflow</a>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+      </nav>
+      <div class="header-actions">
+        <a class="sign-in-link" href="/app/">Sign in</a>
+        <button class="nav-cta" type="button" data-open-access>Request Access <span aria-hidden="true">→</span></button>
+      </div>
+    </div>
   </header>
 
   <main id="main">
@@ -134,7 +139,7 @@
       </ol>
     </section>
 
-    <section id="platform" class="class-access" aria-labelledby="platform-title">
+    <section id="features" class="class-access" aria-labelledby="platform-title">
       <div>
         <p class="eyebrow inverse">Independent SaaS platform</p>
         <h2 id="platform-title">A dedicated RoughBid workspace for contractors and estimators.</h2>
@@ -161,18 +166,59 @@
       </div>
     </section>
 
-    <section id="early-access" class="early-access" aria-labelledby="early-title">
+    <section id="pricing" class="early-access" aria-labelledby="early-title">
       <p class="eyebrow">Controlled customer access</p>
       <h2 id="early-title">Simple enough to learn in one sitting.</h2>
       <p>RoughBid is a standalone construction estimating SaaS built by KSP Ventures. Approved customers can buy a server-priced plan reading per project and subscribe to available workspace Marketplace add-ons.</p>
-      <a class="button primary" href="mailto:hello@kspdominion.group?subject=RoughBid%20SaaS%20access">Request access</a>
+      <button class="button primary" type="button" data-open-access>Request access</button>
     </section>
   </main>
 
-  <footer>
-    <div class="brand footer-brand"><img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" /></div>
-    <p>A KSP Ventures product · AI findings require human review. <a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a> · <a href="/data-use.html">Data/AI</a> · <a href="/refunds.html">Refunds</a> · <a href="mailto:hello@kspdominion.group">Support</a></p>
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <div class="footer-intro">
+        <a class="brand footer-brand" href="#top"><img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" /></a>
+        <p>Clearer construction estimates, from first plan to final proposal.</p>
+        <span>A KSP Ventures product</span>
+      </div>
+      <div class="footer-column"><h3>Product</h3><a href="#workflow">Workflow</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="/app/">Sign in</a></div>
+      <div class="footer-column"><h3>Legal</h3><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a><a href="/data-use.html">Data &amp; AI</a><a href="/refunds.html">Refunds</a></div>
+      <div class="footer-column"><h3>Contact</h3><a href="mailto:hello@kspdominion.group">Sales</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20support">Support</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20partnership">Partnerships</a></div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 RoughBid. AI findings require human review.</p>
+      <div class="footer-badges"><a href="/app/" aria-label="Open RoughBid documentation"><span>↗</span> Documentation</a><a href="/api/health" aria-label="View RoughBid system status"><i></i> All systems operational</a></div>
+    </div>
   </footer>
   <script src="./hero.js"></script>
+
+  <aside class="sticky-cta" aria-label="Request RoughBid access">
+    <div><strong>Ready to leave spreadsheet chaos behind?</strong><span>Join contractors building faster, clearer estimates.</span></div>
+    <button type="button" data-open-access>Request Access <span aria-hidden="true">→</span></button>
+  </aside>
+
+  <div class="modal-shell" id="access-modal" hidden>
+    <div class="modal-backdrop" data-close-access></div>
+    <section class="access-modal" role="dialog" aria-modal="true" aria-labelledby="access-title">
+      <button class="modal-close" type="button" aria-label="Close access request" data-close-access>×</button>
+      <span class="modal-kicker">EARLY ACCESS</span>
+      <h2 id="access-title">Build better bids with RoughBid.</h2>
+      <p>Tell us a little about your team. We’ll follow up with access details tailored to your workflow.</p>
+      <form id="access-form" novalidate>
+        <label for="access-email">Work email</label>
+        <input id="access-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required />
+        <span class="field-error" id="email-error" aria-live="polite"></span>
+        <label for="company-size">Company size</label>
+        <select id="company-size" name="companySize" required>
+          <option value="">Select your team size</option><option>Just me</option><option>2–10 people</option><option>11–50 people</option><option>51–200 people</option><option>201+ people</option>
+        </select>
+        <span class="field-error" id="size-error" aria-live="polite"></span>
+        <button class="modal-submit" type="submit">Request my access <span>→</span></button>
+        <small>By continuing, you agree to our <a href="/terms.html">Terms</a> and <a href="/privacy.html">Privacy Policy</a>.</small>
+      </form>
+    </section>
+  </div>
+  <div class="success-toast" id="success-toast" role="status" aria-live="polite"><span>✓</span><div><strong>You're on the list!</strong><small>We’ll be in touch with next steps shortly.</small></div></div>
+  <script src="./landing.js" defer></script>
 </body>
 </html>
