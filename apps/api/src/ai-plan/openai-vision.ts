@@ -136,7 +136,12 @@ export class OpenAiCompatibleVisionPlanReader {
       ...(this.config.provider === 'deepseek'
         ? { max_tokens: 8000, thinking: { type: input.reasoningEffort === 'high' ? 'enabled' : 'disabled' },
             reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'none' }
-        : { max_completion_tokens: 8000, reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'low' }),
+        : {
+            max_completion_tokens: 8000,
+            ...(this.config.model.startsWith('kimi-k3')
+              ? { reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'low' }
+              : {}),
+          }),
     };
 
     const started = Date.now();
