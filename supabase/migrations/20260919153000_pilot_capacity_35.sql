@@ -11,19 +11,19 @@ begin
 end
 $$;
 
-update public.pilot_cohorts
-set capacity = 35
-where code = 'founding-pilot-60d';
-
-alter table public.pilot_cohorts
-  alter column capacity set default 35;
-
 alter table public.pilot_cohorts
   drop constraint if exists pilot_cohorts_capacity_check;
 
 alter table public.pilot_cohorts
   add constraint pilot_cohorts_capacity_check
   check (capacity between 1 and 35);
+
+update public.pilot_cohorts
+set capacity = 35
+where code = 'founding-pilot-60d';
+
+alter table public.pilot_cohorts
+  alter column capacity set default 35;
 
 create or replace function public.issue_pilot_invitation(
   p_admin_user_id uuid,
