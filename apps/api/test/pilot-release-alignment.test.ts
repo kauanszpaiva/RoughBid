@@ -12,7 +12,7 @@ const capacityMigration = readFileSync(
   'utf8',
 );
 const pilotInviteOnlyMigration = readFileSync(
-  new URL('../../../supabase/migrations/20260919162000_pilot_invite_only_access.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260919162447_pilot_invite_only_access.sql', import.meta.url),
   'utf8',
 );
 
