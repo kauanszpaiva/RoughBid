@@ -98,20 +98,23 @@ export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tok
 
   const id = randomUUID();
   const prefix = `rb1:${context.jobId}:generate:`;
-  const insert = await context.writer.from('api_usage_events').insert({
-    id,
-    workspace_id: context.workspaceId,
-    project_id: context.projectId,
-    user_id: context.userId,
-    provider,
-    model,
-    operation: `${prefix}pending`,
-    input_tokens: 0,
-    output_tokens: 0,
-    estimated_cost_usd: 0,
-    actual_cost_usd: null,
-    sensitive_payload: false,
-  }).catch(() => { throw new UsageAccountingError(); });
+  let insert: { error: unknown };
+  try {
+    insert = await context.writer.from('api_usage_events').insert({
+      id,
+      workspace_id: context.workspaceId,
+      project_id: context.projectId,
+      user_id: context.userId,
+      provider,
+      model,
+      operation: `${prefix}pending`,
+      input_tokens: 0,
+      output_tokens: 0,
+      estimated_cost_usd: 0,
+      actual_cost_usd: null,
+      sensitive_payload: false,
+    });
+  } catch { throw new UsageAccountingError(); }
   if (insert.error) throw new UsageAccountingError();
 
   const settle = async (patch: Record<string, unknown>) => {
