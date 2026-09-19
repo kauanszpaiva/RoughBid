@@ -16,9 +16,11 @@ export interface OpenAiVisionProviderConfig {
 const DEFAULT_MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
-function safeHttpsBaseUrl(value: string): string {
+function safeHttpsBaseUrl(value: string, allowedHosts: readonly string[]): string {
   const url = new URL(value);
-  if (url.protocol !== 'https:') throw new ProjectApiError(503, 'AI provider endpoint must use HTTPS.');
+  if (url.protocol !== 'https:' || !allowedHosts.includes(url.hostname)) {
+    throw new ProjectApiError(503, 'AI provider endpoint is not an approved HTTPS host.');
+  }
   return url.toString().replace(/\/$/, '');
 }
 
@@ -37,7 +39,7 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
   return {
     provider: 'deepseek',
     apiKey,
-    baseUrl: safeHttpsBaseUrl(env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com'),
+    baseUrl: safeHttpsBaseUrl(env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com', ['api.deepseek.com']),
     model,
     maxImages: maxImagesFromEnv(env),
   };
@@ -55,7 +57,7 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
   return {
     provider: 'kimi',
     apiKey,
-    baseUrl: safeHttpsBaseUrl(baseUrl),
+    baseUrl: safeHttpsBaseUrl(baseUrl, ['api.moonshot.ai', 'api.moonshot.cn']),
     model,
     maxImages: maxImagesFromEnv(env),
   };
