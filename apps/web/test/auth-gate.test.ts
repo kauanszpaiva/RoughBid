@@ -40,3 +40,10 @@ test('account modal sends auth and organization invite links back to the protect
   assert.match(authModal, /requestMagicLink/);
   assert.doesNotMatch(authModal, /Supabase sends|Demo mode|local demo data/);
 });
+
+
+test('invited users default to account creation while public signed-out users default to sign-in', () => {
+  assert.match(authGate, /const hasAccountInvite = search\.has\("pilot_invite"\) \|\| search\.has\("invite"\)/);
+  assert.match(authGate, /useState<AuthMode>\(hasAccountInvite \? "create-account" : "sign-in"\)/);
+  assert.match(authGate, /\{hasAccountInvite && <button/);
+});
