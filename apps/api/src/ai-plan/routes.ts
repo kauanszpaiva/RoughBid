@@ -22,7 +22,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 const FINDING_STATUSES: readonly PlanReadingFindingStatus[] = ['needs_review', 'accepted', 'rejected'];
 const CORRECTABLE_FINDING_FIELDS = new Set(['finding_type', 'label', 'value_text', 'quantity', 'unit', 'geometry']);
-const CORRECTABLE_FINDING_TYPES = new Set(['measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material']);
+const CORRECTABLE_FINDING_TYPES = new Set(['measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material', 'labor']);
 
 function correctedFindingTarget(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
