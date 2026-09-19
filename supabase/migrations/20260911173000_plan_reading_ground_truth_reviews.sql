@@ -127,7 +127,7 @@ begin
 
     if p_correction ? 'finding_type' and (
       coalesce(jsonb_typeof(p_correction -> 'finding_type'), '') <> 'string'
-      or coalesce(p_correction ->> 'finding_type', '') not in ('measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material')
+      or coalesce(p_correction ->> 'finding_type', '') not in ('measurement', 'symbol', 'room', 'scope_note', 'risk', 'question', 'material', 'labor')
     ) then
       raise exception 'finding_type must be a supported value' using errcode = '22023';
     end if;
