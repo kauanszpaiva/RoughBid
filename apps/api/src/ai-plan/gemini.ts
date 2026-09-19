@@ -4,13 +4,22 @@ import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 
-/** Shared by every PDF-native reader (Gemini, Claude) — both take the raw uploaded PDF inline, no page-rendering step. */
+export interface PlanPageImage {
+  /** Physical PDF page number (1-based). Single-page owner review may normalize this to 1 before provider submission. */
+  pageNumber: number;
+  bytes: Uint8Array;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+}
+
+/** Shared plan-reader input. Gemini consumes the PDF directly; image-native fallback providers consume pageImages when available. */
 export interface GeminiPlanReadInput {
   fileBytes: Uint8Array;
   mimeType: string;
   sheetName: string;
   requestedTrades: readonly string[];
   scope: string | null;
+  /** Optional server-rendered page images for providers that do not accept construction PDFs natively. */
+  pageImages?: readonly PlanPageImage[];
   /** Deep orchestrators opt into HIGH per-sheet reasoning; Quick/Pilot remains LOW. */
   reasoningEffort?: 'low' | 'high';
 }
