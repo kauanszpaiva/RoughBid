@@ -49,7 +49,8 @@ test('limited pilot release is invite-only and becomes read-only after access en
   assert.match(pilotInviteOnlyMigration, /authorize_roughbid_magic_link/);
   assert.match(pilotInviteOnlyMigration, /pilot_workspace_write_allowed/);
   assert.match(pilotInviteOnlyMigration, /private\.can_create_workspace\(\)/);
-  assert.match(pilotInviteOnlyMigration, /source <> 'limited_pilot'/);
+  assert.match(pilotInviteOnlyMigration, /is_platform_admin/);
+  assert.match(pilotInviteOnlyMigration, /self-service workspace creation is closed/i);
   assert.match(pilotInviteOnlyMigration, /created_by = auth\.uid\(\)[\s\S]*private\.can_create_workspace\(\)/);
   assert.match(pilotInviteOnlyMigration, /'viewer' = any\(allowed_roles\)[\s\S]*pilot_workspace_write_allowed/);
   assert.match(pilotInviteOnlyMigration, /grant execute on function public\.authorize_roughbid_magic_link\(text,text,text\)[\s\S]*service_role/);
