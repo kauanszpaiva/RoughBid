@@ -123,5 +123,7 @@ create policy workspaces_insert_self
     and private.can_create_workspace()
   );
 
-revoke all on function private.pilot_workspace_write_allowed(uuid) from public;
-revoke all on function private.can_create_workspace() from public;
+revoke all on function private.pilot_workspace_write_allowed(uuid) from public,anon;
+revoke all on function private.can_create_workspace() from public,anon;
+grant execute on function private.pilot_workspace_write_allowed(uuid) to authenticated,service_role;
+grant execute on function private.can_create_workspace() to authenticated,service_role;
