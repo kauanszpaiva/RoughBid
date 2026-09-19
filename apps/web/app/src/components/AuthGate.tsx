@@ -22,7 +22,7 @@ type SendState = "idle" | "sending" | "sent" | "error";
 export const AuthGate: React.FC = () => {
   const search = new URLSearchParams(window.location.search);
   const hasAccountInvite = search.has("pilot_invite") || search.has("invite");
-  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [mode, setMode] = useState<AuthMode>(hasAccountInvite ? "create-account" : "sign-in");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
