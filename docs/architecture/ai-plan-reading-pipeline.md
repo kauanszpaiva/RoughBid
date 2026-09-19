@@ -80,16 +80,19 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 RoughBid keeps one evidence contract regardless of provider: every quantity must survive the same
 `sanitizePlanReadingResult` checks, preserve source-page evidence, and remain human-reviewable.
 
-Default intended paid-provider order:
+Safe default paid-provider order:
 
-1. **DeepSeek Flash** — inexpensive image-native first pass, only when verified server-rendered page images are available.
-2. **Gemini** — current PDF-native production reader and safe fallback when page images are unavailable or the cheaper pass fails.
-3. **Kimi K2.6** — optional final vision fallback. K3 may be selected explicitly only when its higher cost is justified by a benchmarked workload.
+1. **Gemini** — current PDF-native production reader; paid-service data is not used for product/model improvement under Google's published terms.
+2. **Kimi K2.6** — optional image-native fallback; Kimi's API policy states API inputs/outputs are not used for model training.
+3. **DeepSeek Flash** — cost-optimized optional route, but private/customer plan processing stays behind a separate explicit privacy gate until the applicable data-use/opt-out posture is accepted.
+
+For synthetic, public, or otherwise authorized non-confidential benchmark sets, DeepSeek can be moved earlier in `AI_PLAN_PROVIDER_ORDER` after the privacy gate is intentionally enabled.
 
 Controls:
 
 - `AI_PLAN_PROVIDER_ORDER` controls routing order.
 - DeepSeek and Kimi are independently disabled by default and require server-only credentials.
+- DeepSeek additionally requires `DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED=true`; the key and enable flag alone cannot open private-plan processing.
 - DeepSeek/Kimi fail before a network request when `pageImages` are absent; this preserves the existing Gemini PDF path and prevents surprise spend.
 - Kimi requires an explicit region-matched base URL because international and China Open Platform credentials are separate.
 - All paid providers pass through the same database company-spend breaker before generation.
