@@ -20,7 +20,9 @@ type AuthMode = "sign-in" | "create-account";
 type SendState = "idle" | "sending" | "sent" | "error";
 
 export const AuthGate: React.FC = () => {
-  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const search = new URLSearchParams(window.location.search);
+  const hasAccountInvite = search.has("pilot_invite") || search.has("invite");
+  const [mode, setMode] = useState<AuthMode>(hasAccountInvite ? "create-account" : "sign-in");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export const AuthGate: React.FC = () => {
 
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4 sm:p-5 max-w-[440px] mx-auto">
           {new URLSearchParams(window.location.search).has('pilot_invite') && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">You have an access invitation. Sign in or create your account using the exact email that received it. Your private workspace and access period activate after your email is verified.</p>}
-          <div className="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-5">
+          <div className={`${hasAccountInvite ? "grid grid-cols-2" : "grid grid-cols-1"} bg-slate-100 rounded-lg p-1 mb-5`}>
             <button
               type="button"
               onClick={() => {
@@ -72,7 +74,7 @@ export const AuthGate: React.FC = () => {
             >
               Sign In
             </button>
-            <button
+            {hasAccountInvite && <button
               type="button"
               onClick={() => {
                 setMode("create-account");
@@ -82,7 +84,7 @@ export const AuthGate: React.FC = () => {
               className={`h-9 rounded-md text-xs font-bold transition ${mode === "create-account" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"}`}
             >
               Create Account
-            </button>
+            </button>}
           </div>
 
           {state === "sent" ? (
@@ -125,7 +127,7 @@ export const AuthGate: React.FC = () => {
                 </div>
               </label>
 
-              <p className="text-xs text-slate-500 leading-relaxed">No password to remember. We will email you a secure link to open your workspace.</p>
+              <p className="text-xs text-slate-500 leading-relaxed">{hasAccountInvite ? "No password to remember. We will email you a secure link to activate or open your invited workspace." : "RoughBid is invite-only during the limited pilot. Existing users can sign in with their verified email."}</p>
 
               {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
