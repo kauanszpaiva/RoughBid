@@ -12,6 +12,8 @@ export interface PlanSheetManifestEntry {
   rotationDegrees: 0 | 90 | 180 | 270;
   contentKind: 'vector' | 'raster' | 'mixed' | 'blank' | 'unknown';
   textQuality: 'good' | 'partial' | 'none' | 'unreadable' | 'unknown';
+  /** Strict printed-scale notations recovered deterministically from native PDF text. */
+  nativeScaleCandidates?: string[];
   status: SheetCoverageStatus;
   statusReason: string;
 }
