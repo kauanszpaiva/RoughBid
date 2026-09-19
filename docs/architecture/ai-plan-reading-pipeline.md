@@ -75,6 +75,41 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 - Store model output as reviewable findings, not silently trusted estimate data.
 - Log job status and errors without storing raw secrets or unnecessary personal data.
 
+## Low-Cost Multi-Provider Routing
+
+RoughBid keeps one evidence contract regardless of provider: every quantity must survive the same
+`sanitizePlanReadingResult` checks, preserve source-page evidence, and remain human-reviewable.
+
+Safe default paid-provider order:
+
+1. **Gemini** — current PDF-native production reader; paid-service data is not used for product/model improvement under Google's published terms.
+2. **Kimi K2.6** — optional image-native fallback; Kimi's API policy states API inputs/outputs are not used for model training.
+3. **DeepSeek Flash** — cost-optimized optional route, but private/customer plan processing stays behind a separate explicit privacy gate until the applicable data-use/opt-out posture is accepted.
+
+For synthetic, public, or otherwise authorized non-confidential benchmark sets, DeepSeek can be moved earlier in `AI_PLAN_PROVIDER_ORDER` after the privacy gate is intentionally enabled.
+
+Controls:
+
+- `AI_PLAN_PROVIDER_ORDER` controls routing order.
+- DeepSeek and Kimi are independently disabled by default and require server-only credentials.
+- DeepSeek additionally requires `DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED=true`; the key and enable flag alone cannot open private-plan processing.
+- DeepSeek/Kimi fail before a network request when `pageImages` are absent; this preserves the existing Gemini PDF path and prevents surprise spend.
+- Kimi requires an explicit region-matched base URL because international and China Open Platform credentials are separate.
+- All paid providers pass through the same database company-spend breaker before generation.
+- Unknown cost telemetry is conservative: the spend reservation remains counted rather than being treated as zero cost.
+- Do not activate a new provider until real construction-plan benchmarks verify extraction quality, cost, and evidence integrity.
+
+### Page-image prerequisite
+
+DeepSeek and Kimi consume images rather than RoughBid's raw construction PDF. One of these paths must
+be verified before either provider is enabled:
+
+- the existing Poppler document worker writes private `project_file_pages` assets; or
+- an approved on-demand renderer produces bounded page images without adding a new external API.
+
+Do not make low-cost vision depend on a public image URL. Page assets remain private and are sent to a
+provider only after the workspace AI-processing consent and existing tenant/payment/entitlement gates pass.
+
 ## Tavily Status
 
 Tavily is intended for current market/context research around construction terminology and estimating best practices, not for reading private customer plans. The connector still returned a reauthentication error on 2026-09-04, so this pipeline document is implementation-driven and not represented as Tavily-verified research.

@@ -38,6 +38,7 @@ async function database() {
   `);
   await db.exec(readFileSync(new URL('../migrations/0039_commercial_spend_and_marketplace.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../migrations/0041_retry_stale_stripe_reconciliation.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../migrations/20260919142500_low_cost_ai_provider_spend.sql', import.meta.url), 'utf8'));
   return db;
 }
 
@@ -56,6 +57,29 @@ test('company provider breaker atomically reserves, retains unknown exposure, an
     assert.equal(row.telemetry_known,false); assert.equal(Number(row.reserved_usd),2.5);
     await db.exec('set role authenticated');
     await assert.rejects(reserve(first),/permission denied/i);
+  } finally { await db.close(); }
+});
+
+test('company provider breaker explicitly permits DeepSeek and Kimi but rejects unknown providers', async () => {
+  const db = await database();
+  try {
+    await db.exec("update provider_spend_policy set spend_cap_usd=10,call_reservation_usd=1");
+    const deep='40000000-0000-4000-8000-000000000011';
+    const kimi='40000000-0000-4000-8000-000000000012';
+    const other='40000000-0000-4000-8000-000000000013';
+    await db.query("insert into api_usage_events(id,workspace_id,project_id,user_id,provider,model,operation) values($1,$2,$3,$4,'deepseek','deepseek-flash','pending')",[deep,workspace,project,admin]);
+    await db.query("insert into api_usage_events(id,workspace_id,project_id,user_id,provider,model,operation) values($1,$2,$3,$4,'kimi','kimi-k2.6','pending')",[kimi,workspace,project,admin]);
+    await db.query("insert into api_usage_events(id,workspace_id,project_id,user_id,provider,model,operation) values($1,$2,$3,$4,'other','other-model','pending')",[other,workspace,project,admin]);
+
+    await db.query("select reserve_provider_spend($1,$2,$3,$4,'deepseek','deepseek-flash')",[deep,job,workspace,admin]);
+    await db.query("select reserve_provider_spend($1,$2,$3,$4,'kimi','kimi-k2.6')",[kimi,job,workspace,admin]);
+    await assert.rejects(
+      db.query("select reserve_provider_spend($1,$2,$3,$4,'other','other-model')",[other,job,workspace,admin]),
+      /provider spend identity is invalid/i,
+    );
+
+    const rows=(await db.query("select provider,model from provider_spend_reservations where event_id in ($1,$2) order by provider",[deep,kimi])).rows;
+    assert.deepEqual(rows.map(row=>[row.provider,row.model]), [['deepseek','deepseek-flash'],['kimi','kimi-k2.6']]);
   } finally { await db.close(); }
 });
 
