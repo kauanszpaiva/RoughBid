@@ -20,6 +20,12 @@ import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
 import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
+import {
+  OpenAiCompatibleVisionPlanReader,
+  configuredProviderOrder,
+  requireDeepSeekVisionConfig,
+  requireKimiVisionConfig,
+} from '../ai-plan/openai-vision.ts';
 import { runtimeCapabilities } from './capabilities.ts';
 import { requireFreeProviderConfig } from '../ai-plan/free-provider.ts';
 import { assertNoPaidFallback } from '../ai-plan/owner-free.ts';
@@ -215,7 +221,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      const readers = [];
+      const configuredReaders = new Map<string, { name: string; read(input: any): Promise<any> }>();
       let pilotReader: PilotPlanReader | undefined;
       try {
         const config = requirePilotReaderConfig(process.env);
@@ -225,8 +231,21 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         const readingConfig = requirePaidPlanReadingConfig(process.env);
         const geminiClient = await createGeminiClient(readingConfig.apiKey);
         const gemini = new GeminiPlanReader(geminiClient, [readingConfig.model]);
-        readers.push({ name: 'gemini', read: (input: any) => gemini.read(input) });
+        configuredReaders.set('gemini', { name: 'gemini', read: (input: any) => gemini.read(input) });
       } catch { /* Paid Gemini remains disabled unless explicitly configured. */ }
+      try {
+        const deepSeekConfig = requireDeepSeekVisionConfig(process.env);
+        const deepSeek = new OpenAiCompatibleVisionPlanReader(deepSeekConfig);
+        configuredReaders.set('deepseek', { name: 'deepseek', read: (input: any) => deepSeek.read(input) });
+      } catch { /* Low-cost DeepSeek route stays disabled until explicitly configured. */ }
+      try {
+        const kimiConfig = requireKimiVisionConfig(process.env);
+        const kimi = new OpenAiCompatibleVisionPlanReader(kimiConfig);
+        configuredReaders.set('kimi', { name: 'kimi', read: (input: any) => kimi.read(input) });
+      } catch { /* Kimi remains a final fallback and is disabled by default. */ }
+      const readers = configuredProviderOrder(process.env)
+        .map(name => configuredReaders.get(name))
+        .filter((reader): reader is { name: string; read(input: any): Promise<any> } => Boolean(reader));
       // The owner-only free reader is built from its OWN credentials and kept in
       // a separate dependency, never appended to `readers`. A free reading can
       // therefore never fall through to the billed Gemini project, and a paid
