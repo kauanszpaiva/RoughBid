@@ -59,7 +59,11 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const addresses = [...new Set(emails.split(/[\s,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
-    if (!addresses.length || addresses.length > 25 || addresses.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) { setError('Enter 1–25 valid email addresses, separated by commas or new lines.'); return; }
+    const maxBatch = capacity ?? 35;
+    if (!addresses.length || addresses.length > maxBatch || addresses.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+      setError(`Enter 1–${maxBatch} valid email addresses, separated by commas or new lines.`);
+      return;
+    }
     void send(addresses, preset);
   };
   const copy = async (url: string) => {
@@ -80,11 +84,12 @@ export function PilotAccessPanel({ owner, userId, refreshKey, onBilling }: { own
   </section>;
   const knownCosts = rows.every((row) => typeof row.reserved_cents === 'number');
   const reserved = knownCosts ? rows.reduce((total, row) => total + (row.reserved_cents ?? 0), 0) : null;
+  const reservedSeats = rows.filter((row) => Boolean(row.accepted_at) || (!row.revoked_at && (!row.expires_at || Date.parse(row.expires_at) > Date.now()))).length;
   return <section className="border-b border-slate-200 bg-white" aria-label="Owner access dashboard">
     <button className="w-full px-4 py-3 text-left text-sm font-semibold text-blue-700 flex justify-between" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><span>Owner dashboard · Limited access invitations</span><span>{expanded ? 'Close' : 'Manage'}</span></button>
     {expanded && <div className="p-4 sm:p-6 pt-0 space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded ? rows.length : '—'} / {capacity ?? '—'}</strong><p className="text-xs text-slate-500 mt-1">Total reserved invitation seats</p></div>
+        <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded ? reservedSeats : '—'} / {capacity ?? '—'}</strong><p className="text-xs text-slate-500 mt-1">Reserved pilot seats</p></div>
         <div className="rounded-lg bg-slate-50 border p-3"><strong>{loaded && reserved !== null && budget !== null ? money(Math.max(0, budget - reserved)) : 'Awaiting usage data'}</strong><p className="text-xs text-slate-500 mt-1">Available AI budget out of {budget === null ? 'Loading budget...' : money(budget)}; conservative reservations included</p></div>
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3"><strong>Your account is complimentary</strong><p className="text-xs text-emerald-800 mt-1">Your access is separate from pilot participants and their API budget.</p></div>
       </div>
