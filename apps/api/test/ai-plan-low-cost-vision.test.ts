@@ -98,6 +98,13 @@ test('Kimi requires an explicit region-matched base URL', () => {
     KIMI_MODEL: 'kimi-k2.6',
   }), /not configured/i);
 
+  assert.throws(() => requireKimiVisionConfig({
+    KIMI_PLAN_READING_ENABLED: 'true',
+    KIMI_API_KEY: 'test-key',
+    KIMI_BASE_URL: 'https://example.com/v1',
+    KIMI_MODEL: 'kimi-k2.6',
+  }), /approved HTTPS host/i);
+
   const config = requireKimiVisionConfig({
     KIMI_PLAN_READING_ENABLED: 'true',
     KIMI_API_KEY: 'test-key',
