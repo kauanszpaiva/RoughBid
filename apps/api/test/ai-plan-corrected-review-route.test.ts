@@ -57,6 +57,26 @@ test('corrected finding review uses the request-scoped authenticated RPC and ret
   assert.equal(body.review.action, 'corrected');
 });
 
+test('corrected review accepts labor as a supported finding type', async () => {
+  let received: Record<string, unknown> | null = null;
+  const db = {
+    auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
+    from() { throw new Error('table access is not expected'); },
+    storage: { from() { throw new Error('storage access is not expected'); } },
+    async rpc(fn: string, args: Record<string, unknown>) {
+      received = { fn, args };
+      return { data: [{ id: 'review-labor', workspace_id: 'workspace-1', action: 'corrected' }], error: null };
+    },
+  };
+
+  const response = await handleAiPlanRequest(request({
+    status: 'corrected', correction: { finding_type: 'labor', quantity: 8, unit: 'HR' },
+  }), db as never, deps() as never);
+
+  assert.equal(response.status, 200);
+  assert.equal((received as any)?.args?.p_correction?.finding_type, 'labor');
+});
+
 test('corrected review rejects unsupported or malformed correction fields before any RPC', async () => {
   let calls = 0;
   const db = {
