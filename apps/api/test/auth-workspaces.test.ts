@@ -116,9 +116,11 @@ test('valid pilot invitation authorizes account creation without exposing the pl
   const pilotToken = 'A'.repeat(43);
   let authorizationArgs: Record<string, unknown> | undefined;
   let generated = 0;
+  let generatedInput: Record<string, unknown> | undefined;
   const admin = {
-    auth: { admin: { generateLink: async () => {
+    auth: { admin: { generateLink: async (input: Record<string, unknown>) => {
       generated += 1;
+      generatedInput = input;
       return { data: { properties: { action_link: 'https://auth.example/verify?token=ok' } }, error: null };
     } } },
     rpc: async (name: string, args: Record<string, unknown>) => {
@@ -143,6 +145,7 @@ test('valid pilot invitation authorizes account creation without exposing the pl
     globalThis.fetch = originalFetch;
   }
   assert.equal(generated, 1);
+  assert.equal(generatedInput?.type, 'signup');
   assert.equal(authorizationArgs?.p_email, 'builder@example.com');
   assert.notEqual(authorizationArgs?.p_pilot_token_digest, pilotToken);
   assert.match(String(authorizationArgs?.p_pilot_token_digest), /^[a-f0-9]{64}$/);
