@@ -117,16 +117,22 @@ test('Kimi requires an explicit region-matched base URL', () => {
 });
 
 test('DeepSeek defaults to Flash and provider order stays cost-first', () => {
+  assert.throws(() => requireDeepSeekVisionConfig({
+    DEEPSEEK_PLAN_READING_ENABLED: 'true',
+    DEEPSEEK_API_KEY: 'test-key',
+  }), /private-plan processing is not approved/i);
+
   const config = requireDeepSeekVisionConfig({
     DEEPSEEK_PLAN_READING_ENABLED: 'true',
+    DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED: 'true',
     DEEPSEEK_API_KEY: 'test-key',
   });
   assert.equal(config.model, 'deepseek-flash');
   assert.equal(config.baseUrl, 'https://api.deepseek.com');
 
-  assert.deepEqual(configuredProviderOrder({}), ['deepseek', 'gemini', 'kimi']);
+  assert.deepEqual(configuredProviderOrder({}), ['gemini', 'kimi', 'deepseek']);
   assert.deepEqual(
-    configuredProviderOrder({ AI_PLAN_PROVIDER_ORDER: 'gemini,deepseek' }),
-    ['gemini', 'deepseek', 'kimi'],
+    configuredProviderOrder({ AI_PLAN_PROVIDER_ORDER: 'kimi,gemini' }),
+    ['kimi', 'gemini', 'deepseek'],
   );
 });
