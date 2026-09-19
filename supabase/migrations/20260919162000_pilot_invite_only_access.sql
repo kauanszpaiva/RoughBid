@@ -75,25 +75,14 @@ stable
 security definer
 set search_path = public,pg_temp
 as $$
-  select
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.is_platform_admin
-    )
-    or (
-      not exists (
-        select 1 from public.pilot_enrollments pe
-        where pe.user_id = auth.uid()
-      )
-      and exists (
-        select 1 from public.entitlements e
-        where e.user_id = auth.uid()
-          and e.source <> 'limited_pilot'
-          and e.revoked_at is null
-          and e.starts_at <= now()
-          and (e.expires_at is null or e.expires_at > now())
-      )
-    );
+  -- During the limited pilot, self-service workspace creation is closed.
+  -- Pilot redemption creates its private workspace through the guarded
+  -- security-definer RPC; ordinary workspace invitations join an existing one.
+  -- Paid/self-service workspace creation is a later, separately approved gate.
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.is_platform_admin
+  );
 $$;
 
 create or replace function private.has_workspace_role(
