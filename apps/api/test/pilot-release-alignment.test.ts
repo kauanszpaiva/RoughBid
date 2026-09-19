@@ -11,6 +11,10 @@ const capacityMigration = readFileSync(
   new URL('../../../supabase/migrations/20260919160714_pilot_capacity_35.sql', import.meta.url),
   'utf8',
 );
+const pilotInviteOnlyMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260919162000_pilot_invite_only_access.sql', import.meta.url),
+  'utf8',
+);
 
 test('pilot release is pinned to the production-verified provider model', () => {
   assert.equal(PILOT_MODEL, 'gemini-3.8-flash');
@@ -38,4 +42,15 @@ test('pilot release aligns the founding cohort to the approved 35-user ceiling',
   assert.match(capacityMigration, /capacity between 1 and 35/i);
   assert.match(capacityMigration, /Pilot cohort is full \(% recipients maximum\)/);
   assert.doesNotMatch(capacityMigration, /25 recipients maximum/);
+});
+
+
+test('limited pilot release is invite-only and becomes read-only after access ends', () => {
+  assert.match(pilotInviteOnlyMigration, /authorize_roughbid_magic_link/);
+  assert.match(pilotInviteOnlyMigration, /pilot_workspace_write_allowed/);
+  assert.match(pilotInviteOnlyMigration, /private\.can_create_workspace\(\)/);
+  assert.match(pilotInviteOnlyMigration, /source <> 'limited_pilot'/);
+  assert.match(pilotInviteOnlyMigration, /created_by = auth\.uid\(\)[\s\S]*private\.can_create_workspace\(\)/);
+  assert.match(pilotInviteOnlyMigration, /'viewer' = any\(allowed_roles\)[\s\S]*pilot_workspace_write_allowed/);
+  assert.match(pilotInviteOnlyMigration, /grant execute on function public\.authorize_roughbid_magic_link\(text,text,text\)[\s\S]*service_role/);
 });
