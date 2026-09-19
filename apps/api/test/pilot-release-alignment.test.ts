@@ -8,7 +8,7 @@ const migration = readFileSync(
   'utf8',
 );
 const capacityMigration = readFileSync(
-  new URL('../../../supabase/migrations/20260919153000_pilot_capacity_35.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260919160714_pilot_capacity_35.sql', import.meta.url),
   'utf8',
 );
 
