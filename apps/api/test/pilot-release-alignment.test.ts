@@ -7,6 +7,10 @@ const migration = readFileSync(
   new URL('../../../supabase/migrations/0034_pilot_budget_and_model_alignment.sql', import.meta.url),
   'utf8',
 );
+const capacityMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260919153000_pilot_capacity_35.sql', import.meta.url),
+  'utf8',
+);
 
 test('pilot release is pinned to the production-verified provider model', () => {
   assert.equal(PILOT_MODEL, 'gemini-3.8-flash');
@@ -25,4 +29,13 @@ test('pilot release enforces the approved aggregate cohort ceiling before provid
 test('pilot release removes direct RPC execution from the workspace-owner trigger function', () => {
   assert.match(migration, /revoke execute on function public\.add_workspace_owner_membership\(\)/);
   assert.match(migration, /from public,anon,authenticated/);
+});
+
+
+test('pilot release aligns the founding cohort to the approved 35-user ceiling', () => {
+  assert.match(capacityMigration, /set capacity = 35/i);
+  assert.match(capacityMigration, /alter column capacity set default 35/i);
+  assert.match(capacityMigration, /capacity between 1 and 35/i);
+  assert.match(capacityMigration, /Pilot cohort is full \(% recipients maximum\)/);
+  assert.doesNotMatch(capacityMigration, /25 recipients maximum/);
 });
