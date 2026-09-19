@@ -1,7 +1,7 @@
 import { bootstrapAuth } from './bootstrap.ts';
 import { sendBrandedMagicLink, type MagicLinkAdminClient } from './sign-in.ts';
 import { ApiActionError, type AuthenticatedSupabaseClient } from '../supabase/client.ts';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { isIP } from 'node:net';
 import { validateEmail } from '../../../../packages/domain/src/index.ts';
 
@@ -33,6 +33,23 @@ function magicLinkOrigin(request: Request, env: NodeJS.ProcessEnv): string {
   }
   // A /64 resists IPv6 address rotation and stores less identifying information.
   return `ip6:${groups.slice(0, 4).map(part => parseInt(part, 16).toString(16)).join(':')}/64`;
+}
+
+async function authorizeMagicLink(admin: RateLimitedMagicLinkClient, email: string, inviteToken: string | null, pilotInviteToken: string | null) {
+  if (!admin.rpc) throw new Error('Invite-only sign-in authorization is unavailable.');
+  const digest = (token: string | null) => token ? createHash('sha256').update(token, 'utf8').digest('hex') : null;
+  let result: { data: unknown; error: unknown };
+  try {
+    result = await admin.rpc('authorize_roughbid_magic_link', {
+      p_email: email,
+      p_pilot_token_digest: digest(pilotInviteToken),
+      p_workspace_token_digest: digest(inviteToken),
+    });
+  } catch {
+    throw new Error('Invite-only sign-in authorization is unavailable.');
+  }
+  if (result.error || typeof result.data !== 'boolean') throw new Error('Invite-only sign-in authorization is unavailable.');
+  return result.data;
 }
 
 async function reserveMagicLinkAttempt(request: Request, admin: RateLimitedMagicLinkClient, email: string, env: NodeJS.ProcessEnv) {
@@ -87,6 +104,13 @@ export async function handleMagicLinkRequest(
     const env = options.env ?? process.env;
     const retryAfter = await reserveMagicLinkAttempt(request, admin, email, env);
     if (retryAfter !== null) return json({ error: 'Too many sign-in requests. Please wait and try again.' }, 429, { 'retry-after': String(retryAfter) });
+
+    // Limited-pilot release is invite-only. Return the same public response for
+    // unknown/uninvited addresses so this endpoint cannot be used as an account
+    // existence oracle.
+    const authorized = await authorizeMagicLink(admin, email, inviteToken, pilotInviteToken);
+    if (!authorized) return json({ accepted: true, message: 'If this address can receive a sign-in link, check your inbox.' }, 202);
+
     try {
       await sendBrandedMagicLink(admin, { email, appUrl: options.appUrl, inviteToken, pilotInviteToken, mode }, env);
     } catch {
