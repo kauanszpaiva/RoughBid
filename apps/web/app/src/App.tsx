@@ -35,12 +35,14 @@ import {
   acceptWorkspaceInvite,
   redeemPilotInvitation,
   bootstrapAuth,
+  getPilotAccess,
   createProject as createRemoteProject,
   createWorkspace,
   deleteProject as deleteRemoteProject,
   listProjects as listRemoteProjects,
   listWorkspaces,
   updateProject as updateRemoteProject,
+  type PilotAccess,
   type RemoteProject,
   type Workspace,
 } from "./services/api";
@@ -71,6 +73,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [isPlatformOwner, setIsPlatformOwner] = useState(false);
+  const [pilotAccess, setPilotAccess] = useState<PilotAccess | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"loading" | "ready" | "error">("loading");
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspaceRetry, setWorkspaceRetry] = useState(0);
@@ -88,7 +91,8 @@ export default function App() {
   const saveQueueRef = useRef<ProjectSaveQueue<Project> | null>(null);
   const deletingIds = useRef(new Set<string>());
   const attemptedCreateIds = useRef(new Set<string>());
-  const canWrite = workspaceState === "ready" && loadedUserId === session?.user.id && canWriteWorkspace(workspace?.role);
+  const pilotLocksWorkspace = Boolean(pilotAccess?.enrolled && workspace && pilotAccess.workspace_id === workspace.id && !pilotAccess.active);
+  const canWrite = workspaceState === "ready" && loadedUserId === session?.user.id && canWriteWorkspace(workspace?.role) && !pilotLocksWorkspace;
   const canWriteRef = useRef(false);
   canWriteRef.current = canWrite;
 
@@ -191,6 +195,7 @@ export default function App() {
     setLocalCacheWarning(false);
     setInviteNotice(null);
     setIsPlatformOwner(false);
+    setPilotAccess(null);
     setShowNewProjectModal(false);
     setShowAIModal(false);
     deletingIds.current.clear();
@@ -240,6 +245,9 @@ export default function App() {
             setInviteNotice(`Invite notice: ${message} (Invite link token preserved in URL for retry or verification)`);
           }
         }
+        const currentPilotAccess = await getPilotAccess();
+        if (!active) return;
+        setPilotAccess(currentPilotAccess);
         const workspaces = await listWorkspaces();
         if (!active) return;
         const sortedWorkspaces = [...workspaces].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -258,7 +266,8 @@ export default function App() {
           scopeRef.current = scope;
           const mapped = remoteProjects.map((remote) => remoteToProject(remote, profile));
           const drafts = StorageService.getPendingProjects(scope);
-          const writable = canWriteWorkspace(activeWorkspace.role);
+          const pilotLocksActiveWorkspace = Boolean(currentPilotAccess.enrolled && currentPilotAccess.workspace_id === activeWorkspace.id && !currentPilotAccess.active);
+          const writable = canWriteWorkspace(activeWorkspace.role) && !pilotLocksActiveWorkspace;
           const unavailableDrafts = writable ? drafts.filter((draft) => !mapped.some((project) => draft.remoteId === project.remoteId && draft.id === project.id)) : drafts;
           // Only restore drafts whose remote project still exists in this workspace.
           const recovered = writable ? mapped.map((project) => drafts.find((draft) => draft.remoteId === project.remoteId && draft.id === project.id) ?? project) : mapped;
@@ -551,7 +560,7 @@ export default function App() {
           isSignedIn={session !== null}
         />
 
-        {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role.</div>}
+        {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">{pilotLocksWorkspace ? "Your limited pilot access has ended. Saved projects remain read-only. Future paid use requires checkout; no automatic charge is scheduled." : "Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role."}</div>}
 
         <div className="border-b border-[#c8c6bd] bg-[#e7e5dc] px-4 sm:px-6 py-2 font-mono text-[10px] uppercase tracking-[.08em] flex flex-wrap items-center gap-x-4 gap-y-2" aria-live="polite">
           <span className={saveErrors.length ? "font-semibold text-amber-800" : "text-slate-500"}>
@@ -653,7 +662,7 @@ export default function App() {
           {activeTab === "materials" && <MaterialsPage scope={scopeRef.current!} canWrite={canWrite} />}
           {activeTab === "assemblies" && <AssembliesPage scope={scopeRef.current!} canWrite={canWrite} />}
           {activeTab === "pricelists" && <PriceListsPage key={`${scopeRef.current!.userId}:${scopeRef.current!.workspaceId}`} scope={scopeRef.current!} canWrite={canWrite} onOpenMaterials={() => setActiveTab("materials")} />}
-          {activeTab === "billing" && <fieldset disabled={!canWrite}><BillingPage /></fieldset>}
+          {activeTab === "billing" && <fieldset disabled={!canWrite && !pilotLocksWorkspace}><BillingPage /></fieldset>}
           {activeTab === "templates" && (
             <fieldset disabled={!canWrite}><TemplatesPage onUseTemplate={handleUseTemplate} /></fieldset>
           )}
