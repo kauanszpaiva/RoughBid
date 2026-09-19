@@ -80,13 +80,19 @@ as $$
       select 1 from public.profiles p
       where p.id = auth.uid() and p.is_platform_admin
     )
-    or exists (
-      select 1 from public.entitlements e
-      where e.user_id = auth.uid()
-        and e.source <> 'limited_pilot'
-        and e.revoked_at is null
-        and e.starts_at <= now()
-        and (e.expires_at is null or e.expires_at > now())
+    or (
+      not exists (
+        select 1 from public.pilot_enrollments pe
+        where pe.user_id = auth.uid()
+      )
+      and exists (
+        select 1 from public.entitlements e
+        where e.user_id = auth.uid()
+          and e.source <> 'limited_pilot'
+          and e.revoked_at is null
+          and e.starts_at <= now()
+          and (e.expires_at is null or e.expires_at > now())
+      )
     );
 $$;
 
