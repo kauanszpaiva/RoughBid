@@ -77,3 +77,94 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
   await captureSpend(measured?.estimatedCostUsd ?? null);
   return response;
 }
+
+
+export type MeteredVisionProvider = 'deepseek' | 'kimi';
+
+/**
+ * Cost-safe metering for OpenAI-compatible vision providers.
+ * Provider token usage is recorded, but cost remains telemetry-unknown until a
+ * provider-specific, versioned price calculator is installed. In that state the
+ * database breaker conservatively retains the configured per-call reservation.
+ */
+export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tokens?: number; completion_tokens?: number }; id?: string }>(
+  provider: MeteredVisionProvider,
+  model: string,
+  call: () => Promise<T>,
+): Promise<T> {
+  const context = storage.getStore();
+  if (!context) return call();
+  if (!context.userId || !context.workspaceId || !context.projectId || !context.jobId) throw new UsageAccountingError();
+
+  const id = randomUUID();
+  const prefix = `rb1:${context.jobId}:generate:`;
+  const insert = await context.writer.from('api_usage_events').insert({
+    id,
+    workspace_id: context.workspaceId,
+    project_id: context.projectId,
+    user_id: context.userId,
+    provider,
+    model,
+    operation: `${prefix}pending`,
+    input_tokens: 0,
+    output_tokens: 0,
+    estimated_cost_usd: 0,
+    actual_cost_usd: null,
+    sensitive_payload: false,
+  }).catch(() => { throw new UsageAccountingError(); });
+  if (insert.error) throw new UsageAccountingError();
+
+  const settle = async (patch: Record<string, unknown>) => {
+    try {
+      const result = await context.writer.from('api_usage_events').update(patch).eq('id', id);
+      if (result.error) throw new UsageAccountingError();
+    } catch { throw new UsageAccountingError(); }
+  };
+
+  if (!context.writer.rpc) throw new UsageAccountingError();
+  let reservation: { error: { message?: string } | null };
+  try {
+    reservation = await context.writer.rpc('reserve_provider_spend', {
+      p_event_id: id,
+      p_job_id: context.jobId,
+      p_workspace_id: context.workspaceId,
+      p_user_id: context.userId,
+      p_provider: provider,
+      p_model: model,
+    });
+  } catch { throw new UsageAccountingError(); }
+  if (reservation.error) {
+    if (/company ai spend limit reached/i.test(reservation.error.message ?? '')) {
+      await settle({ operation: `${prefix}blocked_spend_limit` });
+      throw new ProviderSpendLimitError();
+    }
+    throw new UsageAccountingError();
+  }
+
+  let response: T;
+  try { response = await call(); }
+  catch (error) {
+    await settle({ operation: `${prefix}failed_unknown` });
+    try {
+      const captured = await context.writer.rpc('capture_provider_spend', { p_event_id: id, p_estimated_cost_usd: null });
+      if (captured.error) throw new UsageAccountingError();
+    } catch { throw new UsageAccountingError(); }
+    throw error;
+  }
+
+  const inputTokens = Number.isSafeInteger(response.usage?.prompt_tokens) ? response.usage!.prompt_tokens! : 0;
+  const outputTokens = Number.isSafeInteger(response.usage?.completion_tokens) ? response.usage!.completion_tokens! : 0;
+  await settle({
+    operation: `${prefix}tokens_only`,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    estimated_cost_usd: 0,
+    actual_cost_usd: null,
+    provider_request_id: typeof response.id === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(response.id) ? response.id : null,
+  });
+  try {
+    const captured = await context.writer.rpc('capture_provider_spend', { p_event_id: id, p_estimated_cost_usd: null });
+    if (captured.error) throw new UsageAccountingError();
+  } catch { throw new UsageAccountingError(); }
+  return response;
+}
