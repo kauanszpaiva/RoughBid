@@ -31,6 +31,9 @@ function maxImagesFromEnv(env: Record<string, string | undefined>): number {
 
 export function requireDeepSeekVisionConfig(env: Record<string, string | undefined>): OpenAiVisionProviderConfig {
   if (env.DEEPSEEK_PLAN_READING_ENABLED !== 'true') throw new ProjectApiError(503, 'DeepSeek plan reading is disabled.');
+  if (env.DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED !== 'true') {
+    throw new ProjectApiError(503, 'DeepSeek private-plan processing is not approved.');
+  }
   const apiKey = env.DEEPSEEK_API_KEY?.trim();
   const model = env.DEEPSEEK_MODEL?.trim() || 'deepseek-flash';
   if (!isConfiguredValue(apiKey) || !/^deepseek-[a-z0-9][a-z0-9._-]+$/i.test(model)) {
@@ -65,10 +68,10 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
 
 export function configuredProviderOrder(env: Record<string, string | undefined>): Array<'deepseek' | 'gemini' | 'kimi'> {
   const allowed = new Set(['deepseek', 'gemini', 'kimi']);
-  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'deepseek,gemini,kimi')
+  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'gemini,kimi,deepseek')
     .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   const unique = [...new Set(raw.filter(value => allowed.has(value)))] as Array<'deepseek' | 'gemini' | 'kimi'>;
-  for (const provider of ['deepseek', 'gemini', 'kimi'] as const) if (!unique.includes(provider)) unique.push(provider);
+  for (const provider of ['gemini', 'kimi', 'deepseek'] as const) if (!unique.includes(provider)) unique.push(provider);
   return unique;
 }
 
