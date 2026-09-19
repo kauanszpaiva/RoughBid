@@ -7,7 +7,11 @@ const request=(body:unknown={email:'builder@example.com'},headers:Record<string,
 function client(decision:unknown={allowed:true,retry_after_seconds:0}) {
   const events:string[]=[]; const claims:Record<string,unknown>[]=[]; const links:unknown[]=[];
   const admin={
-    rpc:async(name:string,args:Record<string,unknown>)=>{events.push('reserve'); assert.equal(name,'reserve_magic_link_attempt'); claims.push(args); return {data:decision,error:null};},
+    rpc:async(name:string,args:Record<string,unknown>)=>{
+      if(name==='reserve_magic_link_attempt'){events.push('reserve');claims.push(args);return {data:decision,error:null};}
+      if(name==='authorize_roughbid_magic_link'){events.push('authorize');return {data:true,error:null};}
+      throw new Error(name);
+    },
     auth:{admin:{generateLink:async(input:unknown)=>{events.push('generate');links.push(input);return{data:{properties:{action_link:'https://auth.example/verify?token=fake'}},error:null};}}},
   };
   return {admin,events,claims,links};
@@ -23,7 +27,7 @@ test('magic-link reserves before generating/sending, preserves signup invitation
   const response=await fakeEmail(c.events,()=>handleMagicLinkRequest(request({email:' Builder@Example.COM ',mode:'create-account',inviteToken:'workspace_token',pilotInviteToken:pilot}),c.admin,{appUrl:'https://roughbid.example',env}));
   assert.equal(response.status,202);assert.equal(response.headers.get('cache-control'),'no-store');
   assert.deepEqual(await response.json(),{accepted:true,message:'If this address can receive a sign-in link, check your inbox.'});
-  assert.deepEqual(c.events,['reserve','generate','email']);
+  assert.deepEqual(c.events,['reserve','authorize','generate','email']);
   assert.match(String(c.claims[0]?.p_email_hash),/^[a-f0-9]{64}$/);assert.match(String(c.claims[0]?.p_origin_hash),/^[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(c.claims).includes('builder@example.com'),false);assert.equal(JSON.stringify(c.claims).includes('192.0.2.1'),false);
   const link=c.links[0] as {type:string,email:string,options:{redirectTo:string}};
@@ -52,10 +56,10 @@ test('magic-link account and provider failures share the same non-enumerating ac
   for(const message of ['User does not exist','Email already registered']) {
     const c=client();c.admin.auth.admin.generateLink=async()=>{c.events.push('generate');return{data:{properties:null},error:{message}} as never;};
     const response=await handleMagicLinkRequest(request(),c.admin,{appUrl:'https://roughbid.example',env});
-    assert.equal(response.status,202);assert.deepEqual(await response.json(),expected);assert.deepEqual(c.events,['reserve','generate']);
+    assert.equal(response.status,202);assert.deepEqual(await response.json(),expected);assert.deepEqual(c.events,['reserve','authorize','generate']);
   }
   const failed=client();const response=await fakeEmail(failed.events,()=>handleMagicLinkRequest(request(),failed.admin,{appUrl:'https://roughbid.example',env}),true);
-  assert.equal(response.status,202);assert.deepEqual(await response.json(),expected);assert.deepEqual(failed.events,['reserve','generate','email']);
+  assert.equal(response.status,202);assert.deepEqual(await response.json(),expected);assert.deepEqual(failed.events,['reserve','authorize','generate','email']);
 });
 
 test('magic-link origin uses only trusted Vercel identity, normalizes IPv6 and keeps unknown sources limited',async()=>{
