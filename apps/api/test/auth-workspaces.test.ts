@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootstrapAuth } from '../src/auth/bootstrap.ts';
 import { sendBrandedMagicLink } from '../src/auth/sign-in.ts';
+import { handleMagicLinkRequest } from '../src/auth/routes.ts';
 import { createWorkspace } from '../src/workspaces/actions.ts';
 
 test('auth bootstrap maps the trigger-created profile', async () => {
@@ -83,3 +84,66 @@ test('workspace creation derives created_by from the authenticated user', async 
   assert.equal(result.role, 'admin');
 });
 
+
+
+test('invite-only magic link keeps unknown addresses private and sends no account link', async () => {
+  let generated = 0;
+  const admin = {
+    auth: { admin: { generateLink: async () => {
+      generated += 1;
+      return { data: { properties: { action_link: 'https://auth.example/verify?token=unexpected' } }, error: null };
+    } } },
+    rpc: async (name: string) => {
+      if (name === 'reserve_magic_link_attempt') return { data: { allowed: true, retry_after_seconds: 0 }, error: null };
+      if (name === 'authorize_roughbid_magic_link') return { data: false, error: null };
+      throw new Error(name);
+    },
+  };
+  const response = await handleMagicLinkRequest(
+    new Request('https://roughbid.example/api/auth/magic-link', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'unknown@example.com', mode: 'create-account' }),
+    }),
+    admin as never,
+    { appUrl: 'https://roughbid.example', env: { AUTH_RATE_LIMIT_SECRET: 'x'.repeat(32), RESEND_API_KEY: 're_test' } as NodeJS.ProcessEnv },
+  );
+  assert.equal(response.status, 202);
+  assert.equal(generated, 0);
+  assert.match(await response.text(), /If this address can receive a sign-in link/);
+});
+
+test('valid pilot invitation authorizes account creation without exposing the plaintext token to the database', async () => {
+  const pilotToken = 'A'.repeat(43);
+  let authorizationArgs: Record<string, unknown> | undefined;
+  let generated = 0;
+  const admin = {
+    auth: { admin: { generateLink: async () => {
+      generated += 1;
+      return { data: { properties: { action_link: 'https://auth.example/verify?token=ok' } }, error: null };
+    } } },
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'reserve_magic_link_attempt') return { data: { allowed: true, retry_after_seconds: 0 }, error: null };
+      if (name === 'authorize_roughbid_magic_link') { authorizationArgs = args; return { data: true, error: null }; }
+      throw new Error(name);
+    },
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ id: 'email-ok' });
+  try {
+    const response = await handleMagicLinkRequest(
+      new Request('https://roughbid.example/api/auth/magic-link', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'builder@example.com', pilotInviteToken: pilotToken, mode: 'create-account' }),
+      }),
+      admin as never,
+      { appUrl: 'https://roughbid.example', env: { AUTH_RATE_LIMIT_SECRET: 'x'.repeat(32), RESEND_API_KEY: 're_test' } as NodeJS.ProcessEnv },
+    );
+    assert.equal(response.status, 202);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(generated, 1);
+  assert.equal(authorizationArgs?.p_email, 'builder@example.com');
+  assert.notEqual(authorizationArgs?.p_pilot_token_digest, pilotToken);
+  assert.match(String(authorizationArgs?.p_pilot_token_digest), /^[a-f0-9]{64}$/);
+});
