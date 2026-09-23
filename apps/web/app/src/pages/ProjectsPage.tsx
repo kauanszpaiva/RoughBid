@@ -67,7 +67,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full lg:w-auto appearance-none bg-white border border-[#e5e7eb] rounded-md px-3 py-2 pr-8 text-xs font-medium text-[#374151] hover:bg-[#f9fafb] transition focus:outline-hidden cursor-pointer shadow-xs"
+                className="w-full lg:w-auto min-h-11 appearance-none bg-white border border-[#e5e7eb] rounded-md px-3 py-2 pr-8 text-xs font-medium text-[#374151] hover:bg-[#f9fafb] transition focus:outline-hidden cursor-pointer shadow-xs"
               >
                 <option value="all">All Projects</option>
                 <option value="in progress">In Progress</option>
@@ -79,7 +79,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
 
             <button
               onClick={onNewProject} disabled={!canWrite}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer whitespace-nowrap"
+              className="min-h-11 flex items-center justify-center gap-1.5 px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Project</span>
@@ -112,7 +112,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
           <FolderOpen className="w-10 h-10 text-[#9ca3af] mx-auto mb-3" />
           <h3 className="text-sm font-bold text-[#111827]">No projects found</h3>
           <p className="text-xs text-[#6b7280] mt-1 mb-4">Create your first construction project to start building takeoffs and estimates.</p>
-          <button onClick={onNewProject} disabled={!canWrite} className="px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs">
+          <button onClick={onNewProject} disabled={!canWrite} className="min-h-11 px-4 py-2 bg-[#2563eb] text-white text-xs font-semibold rounded-md shadow-xs">
             Create New Project
           </button>
         </div>
@@ -135,20 +135,20 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                   <div className="relative" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => setActiveMenuId(isMenuOpen ? null : project.id)}
-                      className="p-1 text-[#9ca3af] hover:text-[#111827] rounded-md transition"
+                      className="min-w-11 min-h-11 inline-flex items-center justify-center text-[#9ca3af] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md transition"
                       title="Project Options"
                     >
                       <MoreVertical className="w-4 h-4" />
                     </button>
 
                     {isMenuOpen && (
-                      <div className="absolute right-0 top-6 w-36 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-20 text-xs text-[#374151]">
+                      <div className="absolute right-0 top-11 w-40 bg-white border border-[#e5e7eb] rounded-lg shadow-lg py-1 z-20 text-xs text-[#374151]">
                         <button
                           onClick={() => {
                             setActiveMenuId(null);
                             onOpenProject(project);
                           }}
-                          className="w-full text-left px-3 py-1.5 hover:bg-[#f3f4f6] flex items-center gap-2"
+                          className="w-full min-h-11 text-left px-3 py-2 hover:bg-[#f3f4f6] flex items-center gap-2"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-[#6b7280]" />
                           <span>Open Project</span>
@@ -158,7 +158,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                             setActiveMenuId(null);
                             onDuplicateProject(project);
                           }}
-                          className="w-full text-left px-3 py-1.5 hover:bg-[#f3f4f6] flex items-center gap-2"
+                          className="w-full min-h-11 text-left px-3 py-2 hover:bg-[#f3f4f6] flex items-center gap-2"
                         >
                           <Copy className="w-3.5 h-3.5 text-[#6b7280]" />
                           <span>Duplicate</span>
@@ -169,7 +169,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
                             setActiveMenuId(null);
                             onDeleteProject(project.id);
                           }}
-                          className="w-full text-left px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium"
+                          className="w-full min-h-11 text-left px-3 py-2 text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Delete</span>

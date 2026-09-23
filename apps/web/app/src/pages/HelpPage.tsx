@@ -3,7 +3,7 @@ import { Calculator, ShieldCheck, Mail, Camera, FileSearch } from "lucide-react"
 
 export const HelpPage: React.FC = () => {
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
       <div>
         <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
           Help & Estimating Documentation
@@ -15,7 +15,7 @@ export const HelpPage: React.FC = () => {
 
       <div className="space-y-4">
         {/* Core Mathematical Formulas Guide */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-xs space-y-4">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <Calculator className="w-4 h-4 text-blue-600" />
             <span>Deterministic Financial Engine Reference</span>
@@ -36,7 +36,7 @@ export const HelpPage: React.FC = () => {
         </div>
 
         {/* Platform Info */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-xs space-y-3">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>About RoughBid</span>
@@ -66,29 +66,29 @@ export const HelpPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-xs space-y-3">
           <h2 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-blue-600" />
             <span>Policies</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[13px]">
-            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
-            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
-            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/data-use.html" target="_blank" rel="noreferrer">Data Use and AI Policy</a>
-            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/acceptable-use.html" target="_blank" rel="noreferrer">Acceptable Use Policy</a>
-            <a className="px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700" href="/refunds.html" target="_blank" rel="noreferrer">Refund & cancellation policy</a>
+            <a className="min-h-11 px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700 flex items-center" href="/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
+            <a className="min-h-11 px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700 flex items-center" href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
+            <a className="min-h-11 px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700 flex items-center" href="/data-use.html" target="_blank" rel="noreferrer">Data Use and AI Policy</a>
+            <a className="min-h-11 px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700 flex items-center" href="/acceptable-use.html" target="_blank" rel="noreferrer">Acceptable Use Policy</a>
+            <a className="min-h-11 px-3 py-2 rounded-md border border-slate-200 hover:border-blue-300 text-slate-700 flex items-center" href="/refunds.html" target="_blank" rel="noreferrer">Refund & cancellation policy</a>
           </div>
         </div>
 
         {/* Support */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h3 className="text-[14px] font-bold text-slate-900">Need Estimating Support?</h3>
             <p className="text-[12px] text-slate-500">Contact the KSP Estimating engineering group.</p>
           </div>
           <a
             href="mailto:hello@kspdominion.group?subject=RoughBid%20support"
-            className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white rounded-md text-[13px] font-semibold hover:bg-slate-800 transition"
+            className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-900 text-white rounded-md text-[13px] font-semibold hover:bg-slate-800 transition"
           >
             <Mail className="w-4 h-4" />
             <span>Contact Support</span>
