@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 onClick={() => handleItemClick(item.id)}
                 title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm font-medium transition-all text-left cursor-pointer border-l-2 ${
+                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} min-h-11 py-2.5 text-sm font-medium transition-all text-left cursor-pointer border-l-2 ${
                   isActive
                     ? "border-[#d9ff43] text-[#d9ff43] bg-white/[.06] font-semibold"
                     : "border-transparent text-white/55 hover:border-white/30 hover:bg-white/[.04] hover:text-white"
@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => handleItemClick("settings")}
             title={collapsed ? "Settings" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} min-h-11 py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "settings"
                 ? "text-[#d9ff43] bg-white/[.06] font-semibold"
                 : "text-white/55 hover:bg-white/[.04] hover:text-white"
@@ -183,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => handleItemClick("help")}
             title={collapsed ? "Help & Docs" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} min-h-11 py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
               currentTab === "help"
                 ? "text-[#d9ff43] bg-white/[.06] font-semibold"
                 : "text-white/55 hover:bg-white/[.04] hover:text-white"
