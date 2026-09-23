@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 e.stopPropagation();
                 onCloseMobile();
               }}
-              className="p-2 text-[#9ca3af] hover:text-[#111827] rounded-md transition"
+              className="min-w-11 min-h-11 text-white/55 hover:text-white hover:bg-white/[.06] transition inline-flex items-center justify-center"
               aria-label="Close menu"
             >
               <X className="w-5 h-5" />
@@ -256,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {/* Slide-out Drawer Panel */}
-          <aside className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-[#e5e7eb] flex flex-col justify-between h-full shadow-2xl z-10 font-sans overflow-y-auto">
+          <aside className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#151713] border-r border-black flex flex-col justify-between h-full shadow-2xl z-10 font-sans overflow-y-auto">
             {renderNavContent(true)}
           </aside>
         </div>
