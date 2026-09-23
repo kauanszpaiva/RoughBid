@@ -83,10 +83,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateUser }
   const ownerAvatar = ownerProfileImage(user.email);
 
   return (
-    <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">
             Settings & Estimator Profile
           </h1>
           <p className="text-[13px] text-slate-500 mt-0.5">

@@ -47,11 +47,11 @@ export const BillingPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  if (accessLoading) return <div className="max-w-5xl mx-auto p-5 sm:p-8"><h1 className="text-2xl font-bold">Billing & membership</h1><p role="status" className="text-slate-600 mt-4">Checking your account access…</p></div>;
-  if (accessError) return <div className="max-w-5xl mx-auto p-5 sm:p-8 space-y-4"><h1 className="text-2xl font-bold">Billing & membership</h1><p role="alert" className="text-amber-800">{accessError}</p><button className="rounded-lg border px-4 py-2" onClick={() => setAccessRetry(value => value + 1)}>Check access again</button></div>;
+  if (accessLoading) return <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto"><h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Billing & membership</h1><p role="status" className="text-slate-600 mt-4">Checking your account access…</p></div>;
+  if (accessError) return <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-4"><h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Billing & membership</h1><p role="alert" className="text-amber-800">{accessError}</p><button className="rounded-lg border px-4 py-2" onClick={() => setAccessRetry(value => value + 1)}>Check access again</button></div>;
 
-  return <div className="max-w-5xl mx-auto p-5 sm:p-8 space-y-6">
-    <header><h1 className="text-2xl font-bold">Billing & membership</h1><p className="text-slate-600 mt-2">Review plans, enter quantities and costs, and export manually without an AI API.</p></header>
+  return <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+    <header><h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Billing & membership</h1><p className="text-slate-600 mt-2">Review plans, enter quantities and costs, and export manually without an AI API.</p></header>
 
     {platformAdmin && <section className="rounded-xl bg-emerald-50 border border-emerald-200 p-5 text-emerald-950 space-y-2">
       <h2 className="font-bold">Complimentary full access</h2>

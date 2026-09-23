@@ -51,12 +51,12 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
   const unsentCount = projects.filter((p) => p.estimateItems.length > 0 && p.status !== "Completed").length;
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <section className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-brand-500">Project Workspace</p>
-            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-1">Projects</h2>
+            <h2 className="font-display text-2xl font-semibold text-slate-900 tracking-tight mt-1">Projects</h2>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
               Every job stays separate: plans, quantities, estimate, client proposal, organization access, and audit trail.
             </p>

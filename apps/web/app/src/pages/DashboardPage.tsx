@@ -44,11 +44,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
 
   return (
     <div className="min-h-full bg-slate-50">
-      <div className="mx-auto max-w-[1400px] space-y-6 px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
+      <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6">
         <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-700">Bid control workspace</p>
-            <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+            <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-900">
               Build the bid. <span className="text-slate-500">Know the margin.</span>
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">

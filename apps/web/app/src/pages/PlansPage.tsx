@@ -67,22 +67,27 @@ export const PlansPage: React.FC<PlansPageProps> = (props) => {
 
   return (
     <>
-      <PricingAddressCard
-        context={pricingContext}
-        canWrite={canWrite}
-        error={pricingContextError}
-        onResolve={handleResolvePricingAddress}
-      />
-      {workspaceId && project.remoteId && currentRevision?.remoteFileId && <PageReviewPanel
-        key={`${contextKey}:${currentRevision.remoteFileId}:${project.projectType}`}
-        workspaceId={workspaceId} projectId={project.remoteId} fileId={currentRevision.remoteFileId}
-        scope={project.projectType} canWrite={canWrite} onBusyChange={setPageReviewBusy}
-        onOpenJob={(jobId, status) => {
-          props.onPatchRevision(currentRevision.id, { aiPlanJobId: jobId, aiPlanStatus: status });
-          props.onOpenAIAssistant();
-        }}
-      />}
+      {/* Primary content first. The pricing-address and owner page-review cards
+          are secondary status surfaces: they used to render above the plan
+          workspace, pushing the viewer and the upload control below the fold. */}
       <PlansPageContent {...props} canWrite={canWrite && !pageReviewBusy} />
+      <div className="mx-4 mt-6 space-y-4 pb-8 sm:mx-6 md:mx-8">
+        <PricingAddressCard
+          context={pricingContext}
+          canWrite={canWrite}
+          error={pricingContextError}
+          onResolve={handleResolvePricingAddress}
+        />
+        {workspaceId && project.remoteId && currentRevision?.remoteFileId && <PageReviewPanel
+          key={`${contextKey}:${currentRevision.remoteFileId}:${project.projectType}`}
+          workspaceId={workspaceId} projectId={project.remoteId} fileId={currentRevision.remoteFileId}
+          scope={project.projectType} canWrite={canWrite} onBusyChange={setPageReviewBusy}
+          onOpenJob={(jobId, status) => {
+            props.onPatchRevision(currentRevision.id, { aiPlanJobId: jobId, aiPlanStatus: status });
+            props.onOpenAIAssistant();
+          }}
+        />}
+      </div>
     </>
   );
 };

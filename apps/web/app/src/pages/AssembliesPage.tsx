@@ -150,7 +150,7 @@ export const AssembliesPage: React.FC<{ scope: StorageScope; canWrite?: boolean 
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 font-sans [&_button:disabled]:cursor-not-allowed [&_button:disabled]:opacity-40">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">Assemblies</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Assemblies</h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">Build reusable unit rates from material, labor and equipment costs for this workspace.</p>
         </div>
         <button onClick={startNew} disabled={!canEditCatalog || Boolean(draft)} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">

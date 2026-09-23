@@ -19,6 +19,8 @@ interface HeaderProps {
   onOpenAuth?: () => void;
   isSignedIn?: boolean;
   pageTitle?: string;
+  /** Tabs that already own a primary create action hide the header duplicate. */
+  showNewProjectAction?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   isSignedIn = false,
   pageTitle = "Projects",
+  showNewProjectAction = true,
 }) => {
   const steps: { id: ProjectStep; label: string }[] = [
     { id: "plans", label: "Plans" },
@@ -81,7 +84,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <h2 className="text-sm md:text-lg font-bold text-slate-900 tracking-tight truncate max-w-[140px] sm:max-w-[220px] md:max-w-none">
                   {project.name}
                 </h2>
-                <span className="hidden sm:inline-block px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase shrink-0">
+                {/* Shown only where the header has room next to the stepper and actions;
+                    below lg it was being clipped to an unreadable "PRO.". */}
+                <span className="hidden lg:inline-block shrink-0 px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-semibold rounded uppercase tracking-wide">
                   {project.id.toUpperCase().slice(0, 8)}
                 </span>
               </div>
@@ -155,15 +160,17 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </>
           ) : (
-            <button
-              onClick={onOpenNewProject}
-              aria-label="New Project"
-              disabled={!canWrite}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">New Project</span>
-            </button>
+            showNewProjectAction && (
+              <button
+                onClick={onOpenNewProject}
+                aria-label="New Project"
+                disabled={!canWrite}
+                className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">New Project</span>
+              </button>
+            )
           )}
 
           <button

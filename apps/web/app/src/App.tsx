@@ -558,6 +558,7 @@ export default function App() {
           user={user}
           onOpenAuth={() => setShowAuthModal(true)}
           isSignedIn={session !== null}
+          showNewProjectAction={activeTab !== "dashboard"}
         />
 
         {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">{pilotLocksWorkspace ? "Your limited pilot access has ended. Saved projects remain read-only. Future paid use requires checkout; no automatic charge is scheduled." : "Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role."}</div>}
