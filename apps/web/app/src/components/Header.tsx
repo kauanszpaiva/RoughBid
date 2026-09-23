@@ -104,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const stateDot = (state: RailState) => {
     if (state === "complete") return "bg-emerald-600";
-    if (state === "attention") return "bg-[#d9ff43] ring-1 ring-[#151713]";
+    if (state === "attention") return "bg-[#2563eb] ring-1 ring-[#151713]";
     if (state === "locked") return "bg-[#777a72]";
     return "bg-[#b4b2aa]";
   };
@@ -115,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2.5 md:gap-3 min-w-0">
           <button
             onClick={onToggleMobileMenu}
-            className={`min-w-11 min-h-11 -ml-2 transition md:hidden cursor-pointer inline-flex items-center justify-center ${project ? "text-white/70 hover:text-[#d9ff43] hover:bg-white/[.06]" : "text-[#374151] hover:text-[#111827] hover:bg-[#e2e0d7]"}`}
+            className={`min-w-11 min-h-11 -ml-2 transition md:hidden cursor-pointer inline-flex items-center justify-center ${project ? "text-white/70 hover:text-[#2563eb] hover:bg-white/[.06]" : "text-[#374151] hover:text-[#111827] hover:bg-[#e2e0d7]"}`}
             aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
@@ -125,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-1.5 md:gap-2.5 min-w-0">
               <button
                 onClick={onBackToProjects}
-                className="min-w-10 min-h-10 text-white/55 hover:text-[#d9ff43] hover:bg-white/[.06] transition cursor-pointer shrink-0 inline-flex items-center justify-center"
+                className="min-w-10 min-h-10 text-white/55 hover:text-[#2563eb] hover:bg-white/[.06] transition cursor-pointer shrink-0 inline-flex items-center justify-center"
                 title="Back to all projects"
                 aria-label="Back to projects"
               >
@@ -136,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <h2 className="font-display text-sm md:text-lg font-semibold text-[#f4f1e8] tracking-tight truncate max-w-[135px] sm:max-w-[220px] xl:max-w-[320px]">
                     {project.name}
                   </h2>
-                  <span className="hidden xl:inline-block font-mono text-[9px] uppercase tracking-[.14em] text-[#d9ff43] shrink-0">
+                  <span className="hidden xl:inline-block font-mono text-[9px] uppercase tracking-[.14em] text-[#2563eb] shrink-0">
                     RB-{project.id.toUpperCase().slice(0, 8)}
                   </span>
                 </div>
@@ -168,7 +168,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={() => onSelectStep(stage.id)}
                   className={`relative min-w-0 px-3.5 py-2.5 border-r border-white/15 last:border-r-0 text-left transition-colors cursor-pointer focus-visible:z-10 ${
                     isActive
-                      ? "bg-[#d9ff43] text-[#11130f]"
+                      ? "bg-[#2563eb] text-[#11130f]"
                       : "bg-[#151713] text-[#f4f1e8] hover:bg-[#20231d]"
                   }`}
                   aria-current={isActive ? "step" : undefined}
@@ -194,7 +194,7 @@ export const Header: React.FC<HeaderProps> = ({
             <>
               <button
                 onClick={onExportPDF}
-                className="hidden xl:flex min-h-10 border border-white/25 text-[#f4f1e8] hover:border-[#d9ff43] hover:text-[#d9ff43] px-3 font-mono text-[10px] uppercase tracking-wide font-semibold items-center gap-1.5 transition cursor-pointer"
+                className="hidden xl:flex min-h-10 border border-white/25 text-[#f4f1e8] hover:border-[#2563eb] hover:text-[#2563eb] px-3 font-mono text-[10px] uppercase tracking-wide font-semibold items-center gap-1.5 transition cursor-pointer"
               >
                 <FileDown className="w-3.5 h-3.5" />
                 <span>Export</span>
@@ -203,14 +203,14 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onCreateEstimate}
                 disabled={!canWrite}
-                className="hidden lg:flex min-h-10 bg-[#d9ff43] border border-[#d9ff43] text-[#11130f] px-3.5 font-mono text-[10px] uppercase tracking-wide font-semibold hover:bg-transparent hover:text-[#d9ff43] items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="hidden lg:flex min-h-10 bg-[#2563eb] border border-[#2563eb] text-[#11130f] px-3.5 font-mono text-[10px] uppercase tracking-wide font-semibold hover:bg-transparent hover:text-[#2563eb] items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span>Build estimate</span>
               </button>
 
               <button
                 onClick={onExportPDF}
-                className="sm:hidden min-w-11 min-h-11 text-[#f4f1e8] border border-white/25 hover:border-[#d9ff43] hover:text-[#d9ff43] transition cursor-pointer inline-flex items-center justify-center"
+                className="sm:hidden min-w-11 min-h-11 text-[#f4f1e8] border border-white/25 hover:border-[#2563eb] hover:text-[#2563eb] transition cursor-pointer inline-flex items-center justify-center"
                 title="Export PDF"
                 aria-label="Export PDF"
               >
@@ -222,7 +222,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenNewProject}
               aria-label="New Project"
               disabled={!canWrite}
-              className="flex min-h-10 items-center gap-1.5 border border-[#151713] px-3 md:px-3.5 bg-[#d9ff43] hover:bg-[#151713] hover:text-[#d9ff43] text-[#151713] font-mono text-[10px] uppercase tracking-wide font-semibold transition cursor-pointer disabled:opacity-40"
+              className="flex min-h-10 items-center gap-1.5 border border-[#151713] px-3 md:px-3.5 bg-[#2563eb] hover:bg-[#151713] hover:text-[#2563eb] text-[#151713] font-mono text-[10px] uppercase tracking-wide font-semibold transition cursor-pointer disabled:opacity-40"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">New Project</span>
@@ -232,7 +232,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenAuth}
             className={isSignedIn
-              ? "w-10 h-10 rounded-full bg-[#f4f1e8] hover:bg-[#d9ff43] text-[#11130f] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
+              ? "w-10 h-10 rounded-full bg-[#f4f1e8] hover:bg-[#2563eb] text-[#11130f] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
               : "h-10 px-3 bg-[#151713] hover:bg-black text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"}
             title={isSignedIn ? user?.name || "Account Profile" : "Sign in or create account"}
           >
@@ -258,7 +258,7 @@ export const Header: React.FC<HeaderProps> = ({
                   key={stage.id}
                   onClick={() => onSelectStep(stage.id)}
                   className={`min-h-11 px-3.5 border-r border-white/15 first:border-l flex items-center gap-2 font-mono text-[10px] uppercase tracking-[.08em] transition cursor-pointer ${
-                    isActive ? "bg-[#d9ff43] text-[#151713]" : "text-white/55 hover:text-white hover:bg-white/[.06]"
+                    isActive ? "bg-[#2563eb] text-[#151713]" : "text-white/55 hover:text-white hover:bg-white/[.06]"
                   }`}
                   aria-current={isActive ? "step" : undefined}
                 >
