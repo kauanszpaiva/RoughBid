@@ -1,12 +1,12 @@
 :root {
-  --blue: #0b4dba;
-  --blue-strong: #083d94;
-  --ink: #10233f;
-  --muted: #5b6f88;
-  --line: #d7e3f3;
-  --wash: #f4f8fc;
+  --blue: #1764e8;
+  --blue-strong: #0b4dba;
+  --ink: #0e1721;
+  --muted: #5a6e88;
+  --line: #e1e9f3;
+  --wash: #f7f9fc;
   --white: #ffffff;
-  --shadow: 0 24px 70px rgba(16, 35, 63, 0.12);
+  --shadow: 0 24px 70px rgba(14, 23, 33, 0.12);
 }
 
 * { box-sizing: border-box; }

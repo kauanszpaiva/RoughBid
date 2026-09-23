@@ -192,33 +192,33 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* Title Bar and Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
         <div>
-          <h3 className="text-sm font-bold text-[#374151] uppercase tracking-wider mb-0.5">
+          <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-0.5">
             Estimate Table
           </h3>
-          <p className="text-xs sm:text-sm text-[#6b7280]">
+          <p className="text-xs sm:text-sm text-slate-500">
             Enter your actual material, labor and equipment costs.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={onOpenAIAssistant}
-            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-[#eff6ff] border border-[#bfdbfe] text-[#2563eb] hover:bg-[#dbeafe] rounded-md text-xs font-semibold transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-brand-50 border border-brand-200 text-brand-500 hover:bg-brand-100 rounded-md text-xs font-semibold transition cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+            <Sparkles className="w-3.5 h-3.5 text-brand-500" />
             <span>Estimate Help</span>
           </button>
           <button
             disabled={!canWrite}
             onClick={handleOpenRates}
-            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-semibold transition cursor-pointer"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-[#6b7280]" />
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
             <span>Rates</span>
           </button>
           <button
             disabled={!canWrite}
             onClick={() => { if (!canWrite) return; setIsAddingLine(true); setEditingItemId(null); setError(""); setSearchQuery(""); }}
-            className="bg-[#2563eb] text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-semibold flex items-center gap-1.5 sm:gap-2 hover:bg-[#1d4ed8] shadow-xs transition cursor-pointer"
+            className="bg-brand-500 text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-semibold flex items-center gap-1.5 sm:gap-2 hover:bg-brand-700 shadow-xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Add Item</span>
@@ -240,7 +240,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* Inline Search Bar */}
       {(project.estimateItems.length > 4 || searchQuery) && (
         <div className="relative max-w-sm">
-          <Search className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
             aria-label="Search estimate items"
@@ -248,32 +248,32 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             placeholder="Search estimate items or CSI codes..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#e5e7eb] rounded-md text-xs text-[#111827] placeholder:text-[#9ca3af] focus:outline-hidden focus:border-[#2563eb]"
+            className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-brand-500"
           />
         </div>
       )}
 
       {/* Desktop Estimate Table (hidden on mobile) */}
-      <div className="hidden lg:block bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-x-auto">
+      <div className="hidden lg:block bg-white border border-slate-200 rounded-xl shadow-xs overflow-x-auto">
         <table className="w-full min-w-[900px] text-left border-collapse">
           <thead>
-            <tr className="bg-[#f9fafb] border-b border-[#e5e7eb] text-[11px] font-bold text-[#6b7280] uppercase tracking-wider">
+            <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               <th className="py-3.5 px-5 font-bold">Item Name</th>
               <th className="py-3.5 px-4 font-bold text-right w-24">Qty</th>
               <th className="py-3.5 px-4 font-bold text-center w-20">Unit</th>
               <th className="py-3.5 px-4 font-bold text-right w-28">Material $</th>
               <th className="py-3.5 px-4 font-bold text-right w-28">Labor $</th>
               <th className="py-3.5 px-4 font-bold text-right w-28">Equip $</th>
-              <th className="py-3.5 px-5 font-bold text-right bg-[#f1f5f9] text-[#111827] w-32">
+              <th className="py-3.5 px-5 font-bold text-right bg-slate-100 text-slate-900 w-32">
                 Direct Cost
               </th>
               <th className="py-3.5 px-4 font-bold text-right w-20">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#e5e7eb] text-sm text-[#111827]">
+          <tbody className="divide-y divide-slate-200 text-sm text-slate-900">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-[#9ca3af] text-sm">
+                <td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
                   No line items found. Click &quot;Add Item&quot; to add your first takeoff cost item.
                 </td>
               </tr>
@@ -284,7 +284,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 return (
                   <tr
                     key={item.id}
-                    className="hover:bg-[#f9fafb] transition-colors group"
+                    className="hover:bg-slate-50 transition-colors group"
                   >
                     {/* Item Name & CSI */}
                     <td className="py-3.5 px-5 font-medium">
@@ -296,26 +296,26 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                             value={editCsi}
                             onChange={(e) => setEditCsi(e.target.value)}
                             placeholder="CSI Code"
-                            className="w-20 px-2 py-1 border border-[#2563eb] rounded text-xs font-mono"
+                            className="w-20 px-2 py-1 border border-brand-500 rounded text-xs font-mono"
                           />
                           <input
                             type="text"
                             aria-label="Item description"
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
-                            className="flex-1 px-2 py-1 border border-[#2563eb] rounded text-xs font-semibold"
+                            className="flex-1 px-2 py-1 border border-brand-500 rounded text-xs font-semibold"
                           />
                         </div>
                       ) : (
                         <div>
                           <span
                             onClick={() => handleStartEdit(item)}
-                            className="cursor-pointer hover:text-[#2563eb] transition font-semibold"
+                            className="cursor-pointer hover:text-brand-500 transition font-semibold"
                           >
                             {item.name}
                           </span>
                           {item.csiCode && (
-                            <span className="ml-2 text-[10px] text-[#6b7280] font-mono bg-[#f3f4f6] px-1.5 py-0.5 rounded">
+                            <span className="ml-2 text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
                               {item.csiCode}
                             </span>
                           )}
@@ -333,7 +333,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
-                          className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
+                          className="w-20 px-1.5 py-1 border border-brand-500 rounded text-xs text-right font-mono"
                         />
                       ) : (
                         item.quantity.toLocaleString()
@@ -347,7 +347,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
-                          className="px-1.5 py-1 border border-[#2563eb] rounded text-xs bg-white"
+                          className="px-1.5 py-1 border border-brand-500 rounded text-xs bg-white"
                         >
                           {units.map((u) => (
                             <option key={u} value={u}>
@@ -356,14 +356,14 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           ))}
                         </select>
                       ) : (
-                        <span className="text-[#6b7280] text-xs font-semibold">
+                        <span className="text-slate-500 text-xs font-semibold">
                           {item.unit}
                         </span>
                       )}
                     </td>
 
                     {/* Material Cost */}
-                    <td className="py-3.5 px-4 text-right font-mono text-[#4b5563]">
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-600">
                       {isEditing ? (
                         <input
                           type="number"
@@ -372,7 +372,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Material total in USD"
                           value={editMaterial}
                           onChange={(e) => setEditMaterial(Number(e.target.value))}
-                          className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
+                          className="w-20 px-1.5 py-1 border border-brand-500 rounded text-xs text-right font-mono"
                         />
                       ) : (
                         formatCurrency(item.materialCost)
@@ -380,7 +380,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     </td>
 
                     {/* Labor Cost */}
-                    <td className="py-3.5 px-4 text-right font-mono text-[#4b5563]">
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-600">
                       {isEditing ? (
                         <input
                           type="number"
@@ -389,7 +389,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Labor total in USD"
                           value={editLabor}
                           onChange={(e) => setEditLabor(Number(e.target.value))}
-                          className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
+                          className="w-20 px-1.5 py-1 border border-brand-500 rounded text-xs text-right font-mono"
                         />
                       ) : (
                         formatCurrency(item.laborCost)
@@ -397,7 +397,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     </td>
 
                     {/* Equipment Cost */}
-                    <td className="py-3.5 px-4 text-right font-mono text-[#4b5563]">
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-600">
                       {isEditing ? (
                         <input
                           type="number"
@@ -406,7 +406,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Equipment total in USD"
                           value={editEquipment}
                           onChange={(e) => setEditEquipment(Number(e.target.value))}
-                          className="w-20 px-1.5 py-1 border border-[#2563eb] rounded text-xs text-right font-mono"
+                          className="w-20 px-1.5 py-1 border border-brand-500 rounded text-xs text-right font-mono"
                         />
                       ) : (
                         formatCurrency(item.equipmentCost)
@@ -414,7 +414,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     </td>
 
                     {/* Direct Cost (Highlighted column) */}
-                    <td className="py-3.5 px-5 text-right font-mono font-bold bg-[#f1f5f9] text-[#111827]">
+                    <td className="py-3.5 px-5 text-right font-mono font-bold bg-slate-100 text-slate-900">
                       {formatCurrency(isEditing ? calculateLineDirectCost(editMaterial, editLabor, editEquipment) : calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost))}
                     </td>
 
@@ -425,7 +425,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           <button
                             disabled={!canWrite}
                             onClick={() => handleSaveEdit(item.id)}
-                            className="p-1 bg-[#10b981] hover:bg-[#059669] text-white rounded transition"
+                            className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition"
                             title="Save item"
                             aria-label="Save item"
                           >
@@ -434,11 +434,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           <button onClick={() => { setEditingItemId(null); setError(""); }} className="p-1 text-gray-500 hover:text-gray-900" title="Cancel edit" aria-label="Cancel edit"><X className="w-3.5 h-3.5" /></button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-end gap-1 text-[#9ca3af]">
+                        <div className="flex items-center justify-end gap-1 text-slate-400">
                           <button
                             disabled={!canWrite}
                             onClick={() => handleStartEdit(item)}
-                            className="p-1 hover:text-[#2563eb] transition"
+                            className="p-1 hover:text-brand-500 transition"
                             title="Edit"
                             aria-label="Edit item"
                           >
@@ -447,7 +447,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           <button
                             disabled={!canWrite}
                             onClick={() => handleDeleteItem(item.id)}
-                            className="p-1 hover:text-[#ef4444] transition"
+                            className="p-1 hover:text-red-600 transition"
                             title="Delete"
                             aria-label="Delete item"
                           >
@@ -467,7 +467,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
         {isAddingLine && (
           <form
             onSubmit={handleAddNewItem}
-            className="p-4 bg-[#eff6ff]/60 border-t border-[#bfdbfe] grid grid-cols-12 gap-3 items-center text-xs"
+            className="p-4 bg-brand-50/60 border-t border-brand-200 grid grid-cols-12 gap-3 items-center text-xs"
           >
             <div className="col-span-2">
               <input
@@ -476,7 +476,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New CSI code"
                 value={newCsi}
                 onChange={(e) => setNewCsi(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs font-mono"
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono"
               />
             </div>
             <div className="col-span-3">
@@ -486,7 +486,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs font-semibold"
+                className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs font-semibold"
                 required
               />
             </div>
@@ -498,7 +498,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New quantity"
                 value={newQty}
                 onChange={(e) => setNewQty(Number(e.target.value))}
-                className="w-full px-2 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
+                className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-xs text-right font-mono"
                 placeholder="Qty"
               />
             </div>
@@ -507,7 +507,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New unit"
                 value={newUnit}
                 onChange={(e) => setNewUnit(e.target.value as UnitType)}
-                className="w-full px-1 py-1.5 bg-white border border-[#d1d5db] rounded text-xs"
+                className="w-full px-1 py-1.5 bg-white border border-slate-300 rounded text-xs"
               >
                 {units.map((u) => (
                   <option key={u} value={u}>
@@ -524,7 +524,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New material total in USD"
                 value={newMaterial}
                 onChange={(e) => setNewMaterial(Number(e.target.value))}
-                className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
+                className="w-full px-1.5 py-1.5 bg-white border border-slate-300 rounded text-xs text-right font-mono"
                 placeholder="Mat $"
               />
             </div>
@@ -536,7 +536,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New labor total in USD"
                 value={newLabor}
                 onChange={(e) => setNewLabor(Number(e.target.value))}
-                className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
+                className="w-full px-1.5 py-1.5 bg-white border border-slate-300 rounded text-xs text-right font-mono"
                 placeholder="Labor $"
               />
             </div>
@@ -548,21 +548,21 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New equipment total in USD"
                 value={newEquipment}
                 onChange={(e) => setNewEquipment(Number(e.target.value))}
-                className="w-full px-1.5 py-1.5 bg-white border border-[#d1d5db] rounded text-xs text-right font-mono"
+                className="w-full px-1.5 py-1.5 bg-white border border-slate-300 rounded text-xs text-right font-mono"
                 placeholder="Equip $"
               />
             </div>
             <div className="col-span-2 flex items-center justify-end gap-2">
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded text-xs font-semibold shadow-xs"
+                className="px-3 py-1.5 bg-brand-500 hover:bg-brand-700 text-white rounded text-xs font-semibold shadow-xs"
               >
                 Add
               </button>
               <button
                 type="button"
                 onClick={() => setIsAddingLine(false)}
-                className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] text-xs"
+                className="px-2.5 py-1.5 text-slate-500 hover:text-slate-900 text-xs"
               >
                 Cancel
               </button>
@@ -574,7 +574,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* Mobile Stacked Line Item Cards (visible on mobile only) */}
       <div className="lg:hidden space-y-3">
         {filteredItems.length === 0 ? (
-          <div className="bg-white border border-dashed border-[#e5e7eb] rounded-xl p-8 text-center text-[#9ca3af] text-xs">
+          <div className="bg-white border border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400 text-xs">
             No line items found. Tap &quot;Add Item&quot; to begin estimating.
           </div>
         ) : (
@@ -585,15 +585,15 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="bg-white border-2 border-[#2563eb] rounded-xl p-4 shadow-sm space-y-3"
+                  className="bg-white border-2 border-brand-500 rounded-xl p-4 shadow-sm space-y-3"
                 >
-                  <div className="flex items-center justify-between border-b border-[#f3f4f6] pb-2">
-                    <span className="text-xs font-bold text-[#2563eb]">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="text-xs font-bold text-brand-500">
                       Edit Estimate Item
                     </span>
                     <button
                       onClick={() => setEditingItemId(null)}
-                      className="text-xs text-[#6b7280] hover:text-[#111827]"
+                      className="text-xs text-slate-500 hover:text-slate-900"
                     >
                       Cancel
                     </button>
@@ -601,7 +601,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
                   <div className="space-y-2 text-xs">
                     <div>
-                      <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                         Item Name
                       </label>
                       <input
@@ -609,13 +609,13 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                         aria-label="Item description"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded-md font-semibold"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-md font-semibold"
                       />
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
                       <div className="col-span-1">
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           CSI
                         </label>
                         <input
@@ -623,11 +623,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="CSI code"
                           value={editCsi}
                           onChange={(e) => setEditCsi(e.target.value)}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md font-mono"
                         />
                       </div>
                       <div className="col-span-1">
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Qty
                         </label>
                         <input
@@ -637,18 +637,18 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono font-bold text-right"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md font-mono font-bold text-right"
                         />
                       </div>
                       <div className="col-span-1">
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Unit
                         </label>
                         <select
                           aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-semibold"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-semibold"
                         >
                           {units.map((u) => (
                             <option key={u} value={u}>
@@ -661,7 +661,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       <div>
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Mat ($)
                         </label>
                         <input
@@ -671,11 +671,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Material total in USD"
                           value={editMaterial}
                           onChange={(e) => setEditMaterial(Number(e.target.value))}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md font-mono text-right"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Labor ($)
                         </label>
                         <input
@@ -685,11 +685,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Labor total in USD"
                           value={editLabor}
                           onChange={(e) => setEditLabor(Number(e.target.value))}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md font-mono text-right"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Equip ($)
                         </label>
                         <input
@@ -699,7 +699,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                           aria-label="Equipment total in USD"
                           value={editEquipment}
                           onChange={(e) => setEditEquipment(Number(e.target.value))}
-                          className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md font-mono text-right"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md font-mono text-right"
                         />
                       </div>
                     </div>
@@ -708,7 +708,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   <button
                     disabled={!canWrite}
                             onClick={() => handleSaveEdit(item.id)}
-                    className="w-full py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs"
+                    className="w-full py-2 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs"
                   >
                     <Check className="w-3.5 h-3.5" />
                     <span>Save Cost Item</span>
@@ -720,21 +720,21 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             return (
               <div
                 key={item.id}
-                className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs space-y-3"
+                className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-[#111827] leading-snug">
+                      <h4 className="text-sm font-bold text-slate-900 leading-snug">
                         {item.name}
                       </h4>
                       {item.csiCode && (
-                        <span className="text-[10px] text-[#6b7280] font-mono bg-[#f3f4f6] px-1.5 py-0.5 rounded shrink-0">
+                        <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
                           {item.csiCode}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-[#6b7280] mt-0.5">
+                    <p className="text-xs text-slate-500 mt-0.5">
                       {item.quantity.toLocaleString()} {item.unit}
                     </p>
                   </div>
@@ -743,7 +743,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     <button
                       disabled={!canWrite}
                             onClick={() => handleStartEdit(item)}
-                      className="p-1.5 text-[#6b7280] hover:text-[#2563eb] hover:bg-[#eff6ff] rounded-md transition"
+                      className="p-1.5 text-slate-500 hover:text-brand-500 hover:bg-brand-50 rounded-md transition"
                       title="Edit Item"
                       aria-label="Edit Item"
                     >
@@ -752,7 +752,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     <button
                       disabled={!canWrite}
                             onClick={() => handleDeleteItem(item.id)}
-                      className="p-1.5 text-[#9ca3af] hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
                       title="Delete Item"
                       aria-label="Delete Item"
                     >
@@ -762,27 +762,27 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 </div>
 
                 {/* Sub cost pills */}
-                <div className="grid grid-cols-3 gap-1.5 text-[11px] text-[#4b5563]">
-                  <div className="bg-[#f9fafb] p-1.5 rounded border border-[#e5e7eb]/80 text-center">
-                    <span className="text-[9px] uppercase font-bold text-[#9ca3af] block">Mat</span>
+                <div className="grid grid-cols-3 gap-1.5 text-[11px] text-slate-600">
+                  <div className="bg-slate-50 p-1.5 rounded border border-slate-200/80 text-center">
+                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Mat</span>
                     <span className="font-mono font-medium">{formatCurrency(item.materialCost)}</span>
                   </div>
-                  <div className="bg-[#f9fafb] p-1.5 rounded border border-[#e5e7eb]/80 text-center">
-                    <span className="text-[9px] uppercase font-bold text-[#9ca3af] block">Labor</span>
+                  <div className="bg-slate-50 p-1.5 rounded border border-slate-200/80 text-center">
+                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Labor</span>
                     <span className="font-mono font-medium">{formatCurrency(item.laborCost)}</span>
                   </div>
-                  <div className="bg-[#f9fafb] p-1.5 rounded border border-[#e5e7eb]/80 text-center">
-                    <span className="text-[9px] uppercase font-bold text-[#9ca3af] block">Equip</span>
+                  <div className="bg-slate-50 p-1.5 rounded border border-slate-200/80 text-center">
+                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Equip</span>
                     <span className="font-mono font-medium">{formatCurrency(item.equipmentCost)}</span>
                   </div>
                 </div>
 
                 {/* Direct Cost Footer */}
-                <div className="pt-2 border-t border-[#f3f4f6] flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#6b7280] uppercase tracking-wider">
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                     Direct Cost:
                   </span>
-                  <span className="text-sm font-bold font-mono text-[#111827] bg-[#f1f5f9] px-2.5 py-0.5 rounded">
+                  <span className="text-sm font-bold font-mono text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded">
                     {formatCurrency(calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost))}
                   </span>
                 </div>
@@ -795,23 +795,23 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
         {isAddingLine && (
           <form
             onSubmit={handleAddNewItem}
-            className="bg-[#eff6ff] border border-blue-200 rounded-xl p-4 shadow-xs space-y-3 text-xs"
+            className="bg-brand-50 border border-blue-200 rounded-xl p-4 shadow-xs space-y-3 text-xs"
           >
             <div className="flex items-center justify-between border-b border-blue-200 pb-2">
-              <span className="font-bold text-xs text-[#1e40af]">
+              <span className="font-bold text-xs text-brand-800">
                 + Add Cost Line Item
               </span>
               <button
                 type="button"
                 onClick={() => setIsAddingLine(false)}
-                className="text-xs text-[#3b82f6] hover:text-[#1e40af]"
+                className="text-xs text-brand-400 hover:text-brand-800"
               >
                 Cancel
               </button>
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+              <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                 Item Description
               </label>
               <input
@@ -820,14 +820,14 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                 aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md bg-white font-medium"
+                className="w-full px-3 py-2 border border-slate-200 rounded-md bg-white font-medium"
                 required
               />
             </div>
 
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   CSI
                 </label>
                 <input
@@ -836,11 +836,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   aria-label="New CSI code"
                   value={newCsi}
                   onChange={(e) => setNewCsi(e.target.value)}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-mono"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Quantity
                 </label>
                 <input
@@ -850,18 +850,18 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   aria-label="New quantity"
                   value={newQty}
                   onChange={(e) => setNewQty(Number(e.target.value))}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono font-bold text-right"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-mono font-bold text-right"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Unit
                 </label>
                 <select
                   aria-label="New unit"
                   value={newUnit}
                   onChange={(e) => setNewUnit(e.target.value as UnitType)}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-bold"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-bold"
                 >
                   {units.map((u) => (
                     <option key={u} value={u}>
@@ -874,7 +874,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
 
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Mat ($)
                 </label>
                 <input
@@ -884,11 +884,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   aria-label="New material total in USD"
                   value={newMaterial}
                   onChange={(e) => setNewMaterial(Number(e.target.value))}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-mono text-right"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Labor ($)
                 </label>
                 <input
@@ -898,11 +898,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   aria-label="New labor total in USD"
                   value={newLabor}
                   onChange={(e) => setNewLabor(Number(e.target.value))}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-mono text-right"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Equip ($)
                 </label>
                 <input
@@ -912,14 +912,14 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                   aria-label="New equipment total in USD"
                   value={newEquipment}
                   onChange={(e) => setNewEquipment(Number(e.target.value))}
-                  className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded-md bg-white font-mono text-right"
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded-md bg-white font-mono text-right"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold shadow-xs"
+              className="w-full py-2.5 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold shadow-xs"
             >
               Add Cost Item
             </button>
@@ -930,79 +930,79 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* 4 Summary Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         {/* Card 1: Direct Cost Sum */}
-        <div className="bg-white p-5 rounded-xl border border-[#e5e7eb] shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div>
-            <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Direct Cost Sum
             </p>
-            <p className="text-2xl font-bold text-[#111827] mt-1 font-mono">
+            <p className="text-2xl font-bold text-slate-900 mt-1 font-mono">
               {formatCurrency(financials.directCost)}
             </p>
           </div>
-          <p className="text-[10px] text-[#6b7280] mt-4 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+          <p className="text-[10px] text-slate-500 mt-4 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
             <span>Aggregated from {project.estimateItems.length} line items</span>
           </p>
         </div>
 
         {/* Card 2: Overhead */}
-        <div className="bg-white p-5 rounded-xl border border-[#e5e7eb] shadow-xs flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-[#2563eb]" />
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500" />
           <div>
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Overhead ({financials.overheadPercentage}%)
               </p>
               <button
                 disabled={!canWrite}
             onClick={handleOpenRates}
-                className="text-[#2563eb] bg-[#eff6ff] hover:bg-[#dbeafe] px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
+                className="text-brand-500 bg-brand-50 hover:bg-brand-100 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
               >
                 Edit
               </button>
             </div>
-            <p className="text-2xl font-bold text-[#111827] mt-1 font-mono">
+            <p className="text-2xl font-bold text-slate-900 mt-1 font-mono">
               {formatCurrency(financials.overheadAmount)}
             </p>
           </div>
-          <p className="text-[10px] text-[#6b7280] mt-4">
+          <p className="text-[10px] text-slate-500 mt-4">
             Applied to direct project costs
           </p>
         </div>
 
         {/* Card 3: Markup */}
-        <div className="bg-white p-5 rounded-xl border border-[#e5e7eb] shadow-xs flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-[#2563eb]" />
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-brand-500" />
           <div>
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Markup ({financials.markupPercentage}%)
               </p>
               <button
                 disabled={!canWrite}
             onClick={handleOpenRates}
-                className="text-[#2563eb] bg-[#eff6ff] hover:bg-[#dbeafe] px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
+                className="text-brand-500 bg-brand-50 hover:bg-brand-100 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition"
               >
                 Edit
               </button>
             </div>
-            <p className="text-2xl font-bold text-[#111827] mt-1 font-mono">
+            <p className="text-2xl font-bold text-slate-900 mt-1 font-mono">
               {formatCurrency(financials.markupAmount)}
             </p>
           </div>
-          <p className="text-[10px] text-[#6b7280] mt-4">
+          <p className="text-[10px] text-slate-500 mt-4">
             Applied to direct costs plus overhead
           </p>
         </div>
 
         {/* Card 4: Final Estimated Price (Dark card) */}
-        <div className="bg-[#111827] p-5 rounded-xl border border-[#111827] shadow-xl text-white flex flex-col justify-between">
+        <div className="bg-slate-900 p-5 rounded-xl border border-slate-900 shadow-xl text-white flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Final Estimated Price
               </p>
-              <span className="text-xs font-bold text-[#10b981] bg-[#10b981]/20 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-600/20 px-2 py-0.5 rounded-full">
                 Target
               </span>
             </div>
@@ -1010,9 +1010,9 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
               {formatCurrency(financials.finalPrice)}
             </p>
           </div>
-          <div className="mt-4 pt-3 border-t border-gray-800 flex items-center justify-between text-xs text-[#9ca3af]">
+          <div className="mt-4 pt-3 border-t border-gray-800 flex items-center justify-between text-xs text-slate-400">
             <span>Estimated Margin:</span>
-            <span className="text-[#34d399] font-bold">
+            <span className="text-emerald-400 font-bold">
               {formatPercentage(financials.marginPercentage)}
             </span>
           </div>
@@ -1020,13 +1020,13 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       </div>
 
       {/* Bottom Actions Bar */}
-      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-[#e5e7eb]">
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-slate-200">
         <p className="text-xs text-gray-500">{editingItemId || isAddingLine ? "Save or cancel your open item before continuing." : "Review the completed items before continuing."}</p>
 
         <button
           onClick={onContinue}
           disabled={Boolean(editingItemId) || isAddingLine}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
+          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-brand-500 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
         >
           <span>Continue to Review</span>
           <ArrowRight className="w-4 h-4" />
@@ -1036,16 +1036,16 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
       {/* Rate Adjustment Modal */}
       {showRateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-2xs p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="estimate-rates-title" className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-md p-6 space-y-4 max-h-[90dvh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
-              <h3 id="estimate-rates-title" className="text-base font-bold text-[#111827] flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-[#2563eb]" />
+          <div role="dialog" aria-modal="true" aria-labelledby="estimate-rates-title" className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6 space-y-4 max-h-[90dvh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 id="estimate-rates-title" className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-brand-500" />
                 <span>Adjust Overhead & Markup Rates</span>
               </h3>
               <button
                 onClick={() => setShowRateModal(false)}
                 aria-label="Close rates"
-                className="text-[#9ca3af] hover:text-[#111827]"
+                className="text-slate-400 hover:text-slate-900"
               >
                 ✕
               </button>
@@ -1054,7 +1054,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
             {rateError && <p role="alert" className="rounded-md bg-rose-50 p-2 text-xs text-rose-700">{rateError}</p>}
             <div className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-[#374151] mb-1">
+                <label className="block font-semibold text-slate-600 mb-1">
                   Overhead Percentage (%)
                 </label>
                 <div className="flex items-center gap-2">
@@ -1066,17 +1066,17 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     aria-label="Overhead percentage"
                     value={overheadInput}
                     onChange={(e) => setOverheadInput(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-[#d1d5db] rounded font-mono font-bold text-sm"
+                    className="w-full px-3 py-2 border border-slate-300 rounded font-mono font-bold text-sm"
                   />
-                  <span className="font-bold text-[#6b7280]">%</span>
+                  <span className="font-bold text-slate-500">%</span>
                 </div>
-                <p className="text-[11px] text-[#6b7280] mt-1">
+                <p className="text-[11px] text-slate-500 mt-1">
                   Covers insurance, office, software, licenses & admin expenses.
                 </p>
               </div>
 
               <div>
-                <label className="block font-semibold text-[#374151] mb-1">
+                <label className="block font-semibold text-slate-600 mb-1">
                   Markup Percentage (%)
                 </label>
                 <div className="flex items-center gap-2">
@@ -1088,27 +1088,27 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
                     aria-label="Markup percentage"
                     value={markupInput}
                     onChange={(e) => setMarkupInput(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-[#d1d5db] rounded font-mono font-bold text-sm"
+                    className="w-full px-3 py-2 border border-slate-300 rounded font-mono font-bold text-sm"
                   />
-                  <span className="font-bold text-[#6b7280]">%</span>
+                  <span className="font-bold text-slate-500">%</span>
                 </div>
-                <p className="text-[11px] text-[#6b7280] mt-1">
+                <p className="text-[11px] text-slate-500 mt-1">
                   Added to direct costs plus overhead; this percentage is markup, not profit margin.
                 </p>
               </div>
             </div>
 
-            <div className="pt-3 flex items-center justify-end gap-2 border-t border-[#e5e7eb]">
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-200">
               <button
                 onClick={() => setShowRateModal(false)}
-                className="px-3 py-1.5 text-xs text-[#6b7280] hover:text-[#111827]"
+                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900"
               >
                 Cancel
               </button>
               <button
                 disabled={!canWrite}
                 onClick={handleSaveFinancialRates}
-                className="px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold rounded text-xs transition"
+                className="px-4 py-2 bg-brand-500 hover:bg-brand-700 text-white font-semibold rounded text-xs transition"
               >
                 Save Rates
               </button>

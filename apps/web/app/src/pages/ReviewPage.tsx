@@ -74,19 +74,19 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
             Review
           </h2>
-          <p className="text-xs text-[#6b7280] mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Review your estimate breakdown and verify audit readiness before exporting.
           </p>
         </div>
 
         <button
           onClick={onOpenAIAssistant}
-          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer shadow-xs"
+          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 border border-blue-200 text-brand-500 hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer shadow-xs"
         >
-          <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+          <Sparkles className="w-3.5 h-3.5 text-brand-500" />
           <span>Audit Consistency</span>
         </button>
       </div>
@@ -97,37 +97,37 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
       {/* Top 4 Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         {/* Direct Cost */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 sm:p-5 shadow-xs">
-          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-xs">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
             DIRECT COST
           </span>
-          <div className="text-xl font-bold text-[#111827] mt-1 font-mono">
+          <div className="text-xl font-bold text-slate-900 mt-1 font-mono">
             {formatCurrency(financials.directCost)}
           </div>
-          <span className="text-[11px] text-[#9ca3af] mt-1 block">
+          <span className="text-[11px] text-slate-400 mt-1 block">
             Material, labor & equipment
           </span>
         </div>
 
         {/* Overhead */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 sm:p-5 shadow-xs">
-          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-xs">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
             OVERHEAD ({financials.overheadPercentage}%)
           </span>
-          <div className="text-xl font-bold text-[#111827] mt-1 font-mono">
+          <div className="text-xl font-bold text-slate-900 mt-1 font-mono">
             {formatCurrency(financials.overheadAmount)}
           </div>
-          <span className="text-[11px] text-[#9ca3af] mt-1 block">
+          <span className="text-[11px] text-slate-400 mt-1 block">
             Operational project costs
           </span>
         </div>
 
         {/* Markup */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-4 sm:p-5 shadow-xs">
-          <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-xs">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
             MARKUP ({financials.markupPercentage}%)
           </span>
-          <div className="text-xl font-bold text-[#111827] mt-1 font-mono">
+          <div className="text-xl font-bold text-slate-900 mt-1 font-mono">
             {formatCurrency(financials.markupAmount)}
           </div>
           <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">
@@ -136,14 +136,14 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
         </div>
 
         {/* Final Price */}
-        <div className="bg-[#eff6ff] border border-blue-200 rounded-xl p-4 sm:p-5 shadow-xs">
-          <span className="text-[10px] font-bold text-[#2563eb] uppercase tracking-wider block">
+        <div className="bg-brand-50 border border-blue-200 rounded-xl p-4 sm:p-5 shadow-xs">
+          <span className="text-[10px] font-bold text-brand-500 uppercase tracking-wider block">
             FINAL PRICE
           </span>
-          <div className="text-xl font-bold text-[#2563eb] mt-1 font-mono">
+          <div className="text-xl font-bold text-brand-500 mt-1 font-mono">
             {formatCurrency(financials.finalPrice)}
           </div>
-          <span className="text-[11px] text-[#1d4ed8] font-semibold mt-1 block">
+          <span className="text-[11px] text-brand-700 font-semibold mt-1 block">
             Total contract price
           </span>
         </div>
@@ -152,12 +152,12 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
       {/* Main Review Grid: Trade Breakdown Table + Scope Verification */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Breakdown by CSI Category / Trade */}
-        <div className="lg:col-span-2 bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden">
-          <div className="p-4 bg-[#f9fafb] border-b border-[#e5e7eb] flex items-center justify-between">
-            <h3 className="text-xs font-bold text-[#111827] uppercase tracking-wider">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
               Breakdown by CSI Category / Trade
             </h3>
-            <span className="text-xs text-[#6b7280] font-medium">
+            <span className="text-xs text-slate-500 font-medium">
               {project.estimateItems.length} line items total
             </span>
           </div>
@@ -176,7 +176,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
           </div>
           <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-left text-xs min-w-[320px]">
-              <thead className="bg-[#f9fafb] text-[#6b7280] font-bold text-[10px] uppercase tracking-wider border-b border-[#e5e7eb]">
+              <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">CSI CODE</th>
                   <th className="py-3 px-4">TRADE</th>
@@ -184,34 +184,34 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
                   <th className="py-3 px-4 text-right">% OF TOTAL</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#f3f4f6]">
+              <tbody className="divide-y divide-slate-100">
                 {breakdown.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-[#9ca3af]">
+                    <td colSpan={4} className="py-8 text-center text-slate-400">
                       No estimate lines added.
                     </td>
                   </tr>
                 ) : (
                   breakdown.map((row) => (
-                    <tr key={row.csiCode} className="hover:bg-[#f9fafb] transition">
-                      <td className="py-3 px-4 font-mono font-semibold text-[#4b5563] text-xs">
+                    <tr key={row.csiCode} className="hover:bg-slate-50 transition">
+                      <td className="py-3 px-4 font-mono font-semibold text-slate-600 text-xs">
                         {row.csiCode}
                       </td>
-                      <td className="py-3 px-4 font-bold text-[#111827]">
+                      <td className="py-3 px-4 font-bold text-slate-900">
                         {row.trade}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-[#111827]">
+                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900">
                         {formatCurrency(row.directCost)}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <div className="w-12 sm:w-16 bg-[#f3f4f6] rounded-full h-1.5 overflow-hidden">
+                          <div className="w-12 sm:w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
                             <div
-                              className="bg-[#2563eb] h-full rounded-full"
+                              className="bg-brand-500 h-full rounded-full"
                               style={{ width: `${Math.min(row.percentOfTotal, 100)}%` }}
                             />
                           </div>
-                          <span className="font-mono font-medium text-[#4b5563] text-xs w-10 sm:w-12 text-right">
+                          <span className="font-mono font-medium text-slate-600 text-xs w-10 sm:w-12 text-right">
                             {formatPercentage(row.percentOfTotal)}
                           </span>
                         </div>
@@ -226,24 +226,24 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
         {/* Right 1 Col: Quality Checklist & Plan Sync Card */}
         <div className="space-y-4">
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-5 shadow-xs space-y-3.5">
-            <h3 className="text-xs font-bold text-[#111827] flex items-center gap-2 uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4 text-[#2563eb]" />
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-3.5">
+            <h3 className="text-xs font-bold text-slate-900 flex items-center gap-2 uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4 text-brand-500" />
               <span>Project Audit Checklist</span>
             </h3>
 
             <div className="space-y-2.5 text-xs">
               {readinessItems.map((item) => (
                 <div key={item.label} className="flex items-start gap-2.5">
-                  <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${item.done ? "text-emerald-600" : "text-[#9ca3af]"}`} />
-                  <span className={item.done ? "text-[#374151]" : "text-[#6b7280]"}>
+                  <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${item.done ? "text-emerald-600" : "text-slate-400"}`} />
+                  <span className={item.done ? "text-slate-600" : "text-slate-500"}>
                     {item.label}
                   </span>
                 </div>
               ))}
             </div>
 
-            <div className="pt-2 border-t border-[#f3f4f6]">
+            <div className="pt-2 border-t border-slate-100">
               <div className={`p-3 rounded-lg text-xs leading-relaxed ${isReady ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
                 <strong className={isReady ? "text-emerald-900" : "text-amber-900"}>Readiness Status:</strong>{" "}
                 {isReady
@@ -256,10 +256,10 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-[#e5e7eb]">
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-slate-200">
         <button
           onClick={onBack}
-          className="flex items-center justify-center gap-2 px-4 py-2 text-[#4b5563] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md text-xs font-medium transition cursor-pointer"
+          className="flex items-center justify-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md text-xs font-medium transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Estimate</span>
@@ -267,7 +267,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
         <button
           onClick={onContinue}
-          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
+          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer w-full sm:w-auto"
         >
           <span>Continue to Export</span>
           <ArrowRight className="w-3.5 h-3.5" />

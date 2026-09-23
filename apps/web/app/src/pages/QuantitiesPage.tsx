@@ -127,10 +127,10 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
             Quantities
           </h2>
-          <p className="text-xs text-[#6b7280] mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Enter measured quantities, then add your actual costs in Estimate.
           </p>
         </div>
@@ -138,9 +138,9 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
         {/* AI Missing Scope Trigger */}
         <button
           onClick={onOpenAIAssistant}
-          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer shadow-xs"
+          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 border border-blue-200 text-brand-500 hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer shadow-xs"
         >
-          <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+          <Sparkles className="w-3.5 h-3.5 text-brand-500" />
           <span>Scope Help</span>
         </button>
       </div>
@@ -162,9 +162,9 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
       )}
 
       {/* Desktop Takeoff Table (hidden on mobile) */}
-      <div className="hidden md:block bg-white border border-[#e5e7eb] rounded-xl shadow-xs overflow-hidden">
+      <div className="hidden md:block bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
         <table className="w-full text-left text-xs">
-          <thead className="bg-[#f9fafb] border-b border-[#e5e7eb] text-[#6b7280] font-bold text-[10px] uppercase tracking-wider">
+          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-wider">
             <tr>
               <th className="py-3 px-5 w-14 text-center">#</th>
               <th className="py-3 px-5">ITEM</th>
@@ -173,10 +173,10 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
               <th className="py-3 px-5 text-right w-24">ACTIONS</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#f3f4f6]">
+          <tbody className="divide-y divide-slate-100">
             {project.quantities.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-[#9ca3af]">
+                <td colSpan={5} className="py-12 text-center text-slate-400">
                   No quantities added yet. Click &quot;+ Add Item&quot; to build your takeoff.
                 </td>
               </tr>
@@ -187,27 +187,27 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                 return (
                   <tr
                     key={item.id}
-                    className="hover:bg-[#f9fafb] transition group"
+                    className="hover:bg-slate-50 transition group"
                   >
                     {/* Index */}
-                    <td className="py-3 px-5 text-center font-mono text-[#9ca3af] text-xs">
+                    <td className="py-3 px-5 text-center font-mono text-slate-400 text-xs">
                       {index + 1}
                     </td>
 
                     {/* Item Name */}
-                    <td className="py-3 px-5 font-semibold text-[#111827]">
+                    <td className="py-3 px-5 font-semibold text-slate-900">
                       {isEditing ? (
                         <input
                           type="text"
                           aria-label="Item description"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="w-full px-2 py-1 border border-[#2563eb] rounded text-xs font-semibold"
+                          className="w-full px-2 py-1 border border-brand-500 rounded text-xs font-semibold"
                         />
                       ) : (
                         <span
                           onClick={() => handleStartEdit(item)}
-                          className="cursor-pointer hover:text-[#2563eb] transition"
+                          className="cursor-pointer hover:text-brand-500 transition"
                           title="Click to edit"
                         >
                           {item.name}
@@ -216,7 +216,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                     </td>
 
                     {/* Quantity */}
-                    <td className="py-3 px-5 text-right font-mono font-bold text-[#111827]">
+                    <td className="py-3 px-5 text-right font-mono font-bold text-slate-900">
                       {isEditing ? (
                         <input
                           type="number"
@@ -225,12 +225,12 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                           aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
-                          className="w-28 px-2 py-1 border border-[#2563eb] rounded text-xs text-right font-mono font-bold"
+                          className="w-28 px-2 py-1 border border-brand-500 rounded text-xs text-right font-mono font-bold"
                         />
                       ) : (
                         <span
                           onClick={() => handleStartEdit(item)}
-                          className="cursor-pointer hover:text-[#2563eb] transition"
+                          className="cursor-pointer hover:text-brand-500 transition"
                         >
                           {item.quantity.toLocaleString()}
                         </span>
@@ -238,13 +238,13 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                     </td>
 
                     {/* Unit */}
-                    <td className="py-3 px-5 text-center font-semibold text-[#4b5563]">
+                    <td className="py-3 px-5 text-center font-semibold text-slate-600">
                       {isEditing ? (
                         <select
                           aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
-                          className="px-2 py-1 border border-[#2563eb] rounded text-xs bg-white font-semibold"
+                          className="px-2 py-1 border border-brand-500 rounded text-xs bg-white font-semibold"
                         >
                           {units.map((u) => (
                             <option key={u} value={u}>
@@ -253,7 +253,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                           ))}
                         </select>
                       ) : (
-                        <span className="px-2 py-0.5 rounded bg-[#f3f4f6] text-[#374151] text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold">
                           {item.unit}
                         </span>
                       )}
@@ -277,11 +277,11 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-end gap-1 text-[#9ca3af]">
+                        <div className="flex items-center justify-end gap-1 text-slate-400">
                           <button
                             disabled={!canWrite}
                             onClick={() => handleStartEdit(item)}
-                            className="p-1 hover:text-[#2563eb] transition"
+                            className="p-1 hover:text-brand-500 transition"
                             title="Edit"
                             aria-label="Edit item"
                           >
@@ -310,9 +310,9 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
         {isAddingNew ? (
           <form
             onSubmit={handleAddNewItem}
-            className="p-4 bg-[#eff6ff] border-t border-blue-200 grid grid-cols-12 gap-3 items-center"
+            className="p-4 bg-brand-50 border-t border-blue-200 grid grid-cols-12 gap-3 items-center"
           >
-            <div className="col-span-1 text-center font-mono text-[#9ca3af] text-xs">
+            <div className="col-span-1 text-center font-mono text-slate-400 text-xs">
               {project.quantities.length + 1}
             </div>
 
@@ -323,7 +323,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                 aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded text-xs bg-white font-medium"
+                className="w-full px-3 py-1.5 border border-slate-200 rounded text-xs bg-white font-medium"
                 required
               />
             </div>
@@ -337,7 +337,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                 aria-label="New quantity"
                 value={newQty}
                 onChange={(e) => setNewQty(Number(e.target.value))}
-                className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded text-xs text-right font-mono font-bold bg-white"
+                className="w-full px-3 py-1.5 border border-slate-200 rounded text-xs text-right font-mono font-bold bg-white"
                 required
               />
             </div>
@@ -347,7 +347,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                 aria-label="New unit"
                 value={newUnit}
                 onChange={(e) => setNewUnit(e.target.value as UnitType)}
-                className="w-full px-2 py-1.5 border border-[#e5e7eb] rounded text-xs bg-white font-bold"
+                className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs bg-white font-bold"
               >
                 {units.map((u) => (
                   <option key={u} value={u}>
@@ -360,25 +360,25 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
             <div className="col-span-2 flex items-center justify-end gap-2">
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded text-xs font-semibold transition"
+                className="px-3 py-1.5 bg-brand-500 hover:bg-brand-700 text-white rounded text-xs font-semibold transition"
               >
                 Add
               </button>
               <button
                 type="button"
                 onClick={() => setIsAddingNew(false)}
-                className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] text-xs"
+                className="px-2.5 py-1.5 text-slate-500 hover:text-slate-900 text-xs"
               >
                 Cancel
               </button>
             </div>
           </form>
         ) : (
-          <div className="p-3 border-t border-[#e5e7eb] bg-white">
+          <div className="p-3 border-t border-slate-200 bg-white">
             <button
               disabled={!canWrite}
               onClick={() => { if (!canWrite) return; setIsAddingNew(true); setEditingId(null); setError(""); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[#2563eb] hover:bg-[#eff6ff] rounded-md text-xs font-semibold transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-brand-500 hover:bg-brand-50 rounded-md text-xs font-semibold transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Item</span>
@@ -390,9 +390,9 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
       {/* Mobile Stacked Editable Takeoff Cards (visible on mobile only) */}
       <div className="md:hidden space-y-3">
         {project.quantities.length === 0 ? (
-          <div className="bg-white border border-dashed border-[#e5e7eb] rounded-xl p-8 text-center text-[#9ca3af]">
+          <div className="bg-white border border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400">
             <p className="text-xs">No quantities added yet.</p>
-            <p className="text-[11px] text-[#6b7280] mt-1">Tap below to add your first takeoff item.</p>
+            <p className="text-[11px] text-slate-500 mt-1">Tap below to add your first takeoff item.</p>
           </div>
         ) : (
           project.quantities.map((item, index) => {
@@ -402,15 +402,15 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="bg-white border-2 border-[#2563eb] rounded-xl p-4 shadow-sm space-y-3"
+                  className="bg-white border-2 border-brand-500 rounded-xl p-4 shadow-sm space-y-3"
                 >
-                  <div className="flex items-center justify-between border-b border-[#f3f4f6] pb-2">
-                    <span className="font-mono text-xs font-bold text-[#2563eb]">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="font-mono text-xs font-bold text-brand-500">
                       Item #{index + 1} (Editing)
                     </span>
                     <button
                       onClick={() => setEditingId(null)}
-                      className="text-xs text-[#6b7280] hover:text-[#111827]"
+                      className="text-xs text-slate-500 hover:text-slate-900"
                     >
                       Cancel
                     </button>
@@ -418,7 +418,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
 
                   <div className="space-y-2">
                     <div>
-                      <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                         Item Description
                       </label>
                       <input
@@ -426,13 +426,13 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                         aria-label="Item description"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs font-semibold focus:border-[#2563eb] focus:outline-hidden"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs font-semibold focus:border-brand-500 focus:outline-hidden"
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Quantity
                         </label>
                         <input
@@ -442,19 +442,19 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                           aria-label="Quantity"
                           value={editQty}
                           onChange={(e) => setEditQty(Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs font-mono font-bold focus:border-[#2563eb] focus:outline-hidden"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs font-mono font-bold focus:border-brand-500 focus:outline-hidden"
                         />
                       </div>
 
                       <div>
-                        <label className="text-[10px] font-bold text-[#6b7280] uppercase block mb-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                           Unit
                         </label>
                         <select
                           aria-label="Unit"
                           value={editUnit}
                           onChange={(e) => setEditUnit(e.target.value as UnitType)}
-                          className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs font-semibold bg-white focus:border-[#2563eb] focus:outline-hidden"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs font-semibold bg-white focus:border-brand-500 focus:outline-hidden"
                         >
                           {units.map((u) => (
                             <option key={u} value={u}>
@@ -470,7 +470,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                     <button
                       disabled={!canWrite}
                             onClick={() => handleSaveEdit(item.id)}
-                      className="w-full py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs"
+                      className="w-full py-2 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>Save Item Changes</span>
@@ -483,18 +483,18 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
             return (
               <div
                 key={item.id}
-                className="bg-white border border-[#e5e7eb] rounded-xl p-4 shadow-xs flex flex-col justify-between gap-3"
+                className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between gap-3"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2.5 min-w-0">
-                    <span className="w-6 h-6 rounded-md bg-[#f3f4f6] text-[#6b7280] font-mono text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="w-6 h-6 rounded-md bg-slate-100 text-slate-500 font-mono text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                       {index + 1}
                     </span>
                     <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-[#111827] leading-snug">
+                      <h4 className="text-sm font-bold text-slate-900 leading-snug">
                         {item.name}
                       </h4>
-                      <p className="text-[11px] text-[#6b7280] mt-0.5">
+                      <p className="text-[11px] text-slate-500 mt-0.5">
                         {item.category || "Takeoff Item"}
                       </p>
                     </div>
@@ -504,7 +504,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                     <button
                       disabled={!canWrite}
                             onClick={() => handleStartEdit(item)}
-                      className="p-1.5 text-[#6b7280] hover:text-[#2563eb] hover:bg-[#eff6ff] rounded-md transition"
+                      className="p-1.5 text-slate-500 hover:text-brand-500 hover:bg-brand-50 rounded-md transition"
                       title="Edit Item"
                       aria-label="Edit Item"
                     >
@@ -513,7 +513,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                     <button
                       disabled={!canWrite}
                             onClick={() => handleDeleteItem(item.id)}
-                      className="p-1.5 text-[#9ca3af] hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
                       title="Delete Item"
                       aria-label="Delete Item"
                     >
@@ -522,21 +522,21 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-[#f9fafb] border border-[#e5e7eb] rounded-lg p-2.5 flex items-center justify-between text-xs">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center justify-between text-xs">
                   <div>
-                    <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                       Quantity
                     </span>
-                    <span className="text-base font-bold font-mono text-[#111827]">
+                    <span className="text-base font-bold font-mono text-slate-900">
                       {item.quantity.toLocaleString()}
                     </span>
                   </div>
 
                   <div className="text-right">
-                    <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider block">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                       Unit
                     </span>
-                    <span className="inline-block px-2 py-0.5 rounded bg-white border border-[#e5e7eb] text-[#2563eb] font-bold text-xs">
+                    <span className="inline-block px-2 py-0.5 rounded bg-white border border-slate-200 text-brand-500 font-bold text-xs">
                       {item.unit}
                     </span>
                   </div>
@@ -550,23 +550,23 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
         {isAddingNew ? (
           <form
             onSubmit={handleAddNewItem}
-            className="bg-[#eff6ff] border border-blue-200 rounded-xl p-4 shadow-xs space-y-3"
+            className="bg-brand-50 border border-blue-200 rounded-xl p-4 shadow-xs space-y-3"
           >
             <div className="flex items-center justify-between border-b border-blue-200 pb-2">
-              <span className="font-bold text-xs text-[#1e40af]">
+              <span className="font-bold text-xs text-brand-800">
                 + Add Takeoff Line Item #{project.quantities.length + 1}
               </span>
               <button
                 type="button"
                 onClick={() => setIsAddingNew(false)}
-                className="text-xs text-[#3b82f6] hover:text-[#1e40af]"
+                className="text-xs text-brand-400 hover:text-brand-800"
               >
                 Cancel
               </button>
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+              <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                 Item Description
               </label>
               <input
@@ -575,14 +575,14 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                 aria-label="New item description"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs bg-white font-medium focus:border-[#2563eb] focus:outline-hidden"
+                className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs bg-white font-medium focus:border-brand-500 focus:outline-hidden"
                 required
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Quantity
                 </label>
                 <input
@@ -593,20 +593,20 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
                   aria-label="New quantity"
                   value={newQty}
                   onChange={(e) => setNewQty(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs font-mono font-bold bg-white focus:border-[#2563eb] focus:outline-hidden"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs font-mono font-bold bg-white focus:border-brand-500 focus:outline-hidden"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-[#1e40af] uppercase block mb-1">
+                <label className="text-[10px] font-bold text-brand-800 uppercase block mb-1">
                   Unit
                 </label>
                 <select
                   aria-label="New unit"
                   value={newUnit}
                   onChange={(e) => setNewUnit(e.target.value as UnitType)}
-                  className="w-full px-3 py-2 border border-[#e5e7eb] rounded-md text-xs bg-white font-bold focus:border-[#2563eb] focus:outline-hidden"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-md text-xs bg-white font-bold focus:border-brand-500 focus:outline-hidden"
                 >
                   {units.map((u) => (
                     <option key={u} value={u}>
@@ -619,7 +619,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
 
             <button
               type="submit"
-              className="w-full py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold shadow-xs"
+              className="w-full py-2.5 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold shadow-xs"
             >
               Add Takeoff Item
             </button>
@@ -628,7 +628,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
           <button
             disabled={!canWrite}
               onClick={() => { if (!canWrite) return; setIsAddingNew(true); setEditingId(null); setError(""); }}
-            className="w-full py-3 bg-white hover:bg-[#f9fafb] border border-dashed border-[#2563eb]/40 hover:border-[#2563eb] rounded-xl text-xs font-semibold text-[#2563eb] flex items-center justify-center gap-1.5 transition shadow-2xs"
+            className="w-full py-3 bg-white hover:bg-slate-50 border border-dashed border-brand-500/40 hover:border-brand-500 rounded-xl text-xs font-semibold text-brand-500 flex items-center justify-center gap-1.5 transition shadow-2xs"
           >
             <Plus className="w-4 h-4" />
             <span>Add Takeoff Item</span>
@@ -637,12 +637,12 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
       </div>
 
       {/* Bottom Continue Action */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-[#e5e7eb]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-slate-200">
         <p className="text-xs text-gray-500">{editingId || isAddingNew ? "Save or cancel your open item before continuing." : `${project.quantities.length} takeoff item${project.quantities.length === 1 ? "" : "s"} ready for pricing`}</p>
         <button
           onClick={onContinue}
           disabled={Boolean(editingId) || isAddingNew}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
         >
           <span>Continue to Estimate</span>
           <ArrowRight className="w-3.5 h-3.5" />

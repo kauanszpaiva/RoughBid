@@ -519,14 +519,14 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
             Plans
           </h2>
-          <p className="text-xs text-[#6b7280] mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Upload and manage construction drawings and plan revisions.
           </p>
           {planNotice && (
-            <p className="text-xs text-[#2563eb] mt-2 max-w-2xl">
+            <p className="text-xs text-brand-500 mt-2 max-w-2xl">
               {planNotice}
             </p>
           )}
@@ -536,9 +536,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         <button
           onClick={onOpenAIAssistant}
           disabled={!canWrite || !currentRevision}
-          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
+          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 border border-blue-200 text-brand-500 hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
         >
-          <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+          <Sparkles className="w-3.5 h-3.5 text-brand-500" />
           <span>AI Plan Assistant</span>
         </button>
       </div>
@@ -559,13 +559,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               findings={findings}
             />
           ) : (
-            <div className="h-[520px] bg-white border-2 border-dashed border-[#e5e7eb] rounded-xl flex flex-col items-center justify-center p-8 text-center">
-              <Upload className="w-10 h-10 text-[#9ca3af] mb-3" />
-              <h3 className="text-sm font-bold text-[#111827]">No plan uploaded</h3>
-              <p className="text-xs text-[#6b7280] max-w-sm mt-1 mb-4">
+            <div className="h-[520px] bg-white border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center p-8 text-center">
+              <Upload className="w-10 h-10 text-slate-400 mb-3" />
+              <h3 className="text-sm font-bold text-slate-900">No plan uploaded</h3>
+              <p className="text-xs text-slate-500 max-w-sm mt-1 mb-4">
                 Upload your construction drawing set (PDF) to start taking off quantities.
               </p>
-              <label className="px-4 py-2 bg-[#2563eb] text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-[#1d4ed8] transition">
+              <label className="px-4 py-2 bg-brand-500 text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-brand-700 transition">
                 <span>Upload PDF Plan</span>
                 <input
                   type="file"
@@ -582,76 +582,76 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         {/* Right 1 Col: Plan Details and Actions Panel */}
         <div className="space-y-6">
           {/* Plan Details Box */}
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-5 shadow-xs">
-            <h3 className="text-xs font-bold text-[#111827] mb-4 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+            <h3 className="text-xs font-bold text-slate-900 mb-4 uppercase tracking-wider">
               Plan Details
             </h3>
 
             <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center py-1 border-b border-[#f3f4f6]">
-                <span className="text-[#6b7280]">File Name</span>
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500">File Name</span>
                 {editingFileName ? (
                   <div className="flex items-center gap-1">
                     <input
                       type="text"
                       value={newFileName}
                       onChange={(e) => setNewFileName(e.target.value)}
-                      className="border border-[#e5e7eb] rounded px-1.5 py-0.5 text-xs w-36 font-semibold"
+                      className="border border-slate-200 rounded px-1.5 py-0.5 text-xs w-36 font-semibold"
                       autoFocus
                     />
                     <button
                       onClick={handleSaveRename} disabled={!canWrite}
-                      className="px-2 py-0.5 bg-[#2563eb] text-white rounded text-[10px] font-bold"
+                      className="px-2 py-0.5 bg-brand-500 text-white rounded text-[10px] font-bold"
                     >
                       Save
                     </button>
                   </div>
                 ) : (
-                  <span className="font-semibold text-[#111827] truncate max-w-[170px]" title={currentRevision?.fileName}>
+                  <span className="font-semibold text-slate-900 truncate max-w-[170px]" title={currentRevision?.fileName}>
                     {currentRevision?.fileName || "None"}
                   </span>
                 )}
               </div>
 
-              <div className="flex justify-between items-center py-1 border-b border-[#f3f4f6]">
-                <span className="text-[#6b7280]">Revision</span>
-                <span className="font-semibold text-[#111827] flex items-center gap-1">
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500">Revision</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1">
                   <span>{currentRevision?.revisionNumber || "01"}</span>
-                  <span className="w-2 h-2 rounded-full bg-[#2563eb] inline-block" title="Current Active Revision" />
+                  <span className="w-2 h-2 rounded-full bg-brand-500 inline-block" title="Current Active Revision" />
                 </span>
               </div>
 
-              <div className="flex justify-between items-center py-1 border-b border-[#f3f4f6]">
-                <span className="text-[#6b7280]">Upload Date</span>
-                <span className="font-semibold text-[#111827]">
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500">Upload Date</span>
+                <span className="font-semibold text-slate-900">
                   {currentRevision?.uploadDate || "N/A"}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center py-1 border-b border-[#f3f4f6]">
-                <span className="text-[#6b7280]">Uploaded By</span>
-                <span className="font-semibold text-[#111827]">
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500">Uploaded By</span>
+                <span className="font-semibold text-slate-900">
                   {currentRevision?.uploadedBy || "—"}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center py-1 border-b border-[#f3f4f6]">
-                <span className="text-[#6b7280]">Pages</span>
-                <span className="font-semibold text-[#111827]">
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500">Pages</span>
+                <span className="font-semibold text-slate-900">
                   {currentRevision?.pages || "See PDF viewer"}
                 </span>
               </div>
 
               <div className="flex justify-between items-center py-1">
-                <span className="text-[#6b7280]">File Size</span>
-                <span className="font-semibold text-[#111827]">
+                <span className="text-slate-500">File Size</span>
+                <span className="font-semibold text-slate-900">
                   {currentRevision?.fileSize || "0 MB"}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center py-1 border-t border-[#f3f4f6]">
-                <span className="text-[#6b7280]">Processing</span>
-                <span className="font-semibold text-[#111827] capitalize">
+              <div className="flex justify-between items-center py-1 border-t border-slate-100">
+                <span className="text-slate-500">Processing</span>
+                <span className="font-semibold text-slate-900 capitalize">
                   {currentRevision?.processingStatus?.replace("_", " ") || (project.remoteId ? "not uploaded" : "local only")}
                 </span>
               </div>
@@ -659,8 +659,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           </div>
 
           {/* Actions Box */}
-          <div className="bg-white border border-[#e5e7eb] rounded-xl p-5 shadow-xs space-y-2">
-            <h3 className="text-xs font-bold text-[#111827] mb-3 uppercase tracking-wider">
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-2">
+            <h3 className="text-xs font-bold text-slate-900 mb-3 uppercase tracking-wider">
               Actions
             </h3>
             <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying || isUploading} className="pb-3 border-b border-slate-200">
@@ -669,12 +669,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             </fieldset>
 
             {/* Upload New Revision */}
-            <label className="w-full flex items-center justify-between px-3 py-2 bg-[#f9fafb] hover:bg-[#f3f4f6] border border-[#e5e7eb] rounded-lg text-xs font-medium text-[#111827] transition cursor-pointer">
+            <label className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 transition cursor-pointer">
               <div className="flex items-center gap-2">
-                <Upload className="w-3.5 h-3.5 text-[#2563eb]" />
+                <Upload className="w-3.5 h-3.5 text-brand-500" />
                 <span>Upload New Revision</span>
               </div>
-              <span className="text-[10px] font-mono text-[#6b7280]">
+              <span className="text-[10px] font-mono text-slate-500">
                 {isUploading ? "Uploading..." : `Rev ${String(project.revisions.length + 1).padStart(2, "0")}`}
               </span>
               <input
@@ -704,13 +704,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {paidReading && !readingQuote && <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !quoteRecoveryReady || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
-              className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-between px-3 py-2 bg-brand-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-brand-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
+                <Sparkles className="w-3.5 h-3.5 text-brand-500" />
                 <span>Calculate project price</span>
               </div>
-              <span className="text-[10px] font-mono text-[#2563eb]">
+              <span className="text-[10px] font-mono text-brand-500">
                 {isStartingAi ? "Processing..." : currentRevision?.aiPlanStatus || ""}
               </span>
             </button>}
@@ -736,13 +736,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <button
               onClick={() => setShowRevisionsModal(true)}
               disabled={project.revisions.length === 0}
-              className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition"
+              className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-600 transition"
             >
               <div className="flex items-center gap-2">
-                <History className="w-3.5 h-3.5 text-[#6b7280]" />
+                <History className="w-3.5 h-3.5 text-slate-500" />
                 <span>View Revisions</span>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#f3f4f6] text-[#4b5563] font-bold">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">
                 {project.revisions.length}
               </span>
             </button>
@@ -755,9 +755,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 setEditingFileName(true);
               }}
               disabled={!canWrite || !currentRevision}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-600 transition text-left"
             >
-              <Edit2 className="w-3.5 h-3.5 text-[#6b7280]" />
+              <Edit2 className="w-3.5 h-3.5 text-slate-500" />
               <span>Rename File</span>
             </button>
 
@@ -765,9 +765,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <button
               onClick={handleDownloadOriginal}
               disabled={!currentRevision}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f9fafb] rounded-lg text-xs font-medium text-[#374151] transition text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-600 transition text-left"
             >
-              <Download className="w-3.5 h-3.5 text-[#6b7280]" />
+              <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>Download Original</span>
             </button>
 
@@ -785,10 +785,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       </div>
 
       {/* Bottom Next Step Button */}
-      <div className="flex justify-end pt-4 border-t border-[#e5e7eb]">
+      <div className="flex justify-end pt-4 border-t border-slate-200">
         <button
           onClick={onContinue}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold transition shadow-xs cursor-pointer"
         >
           <span>Continue to Quantities</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -798,15 +798,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       {/* Revision History Modal */}
       {showRevisionsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-4 select-none">
-          <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-lg p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
-              <h3 className="text-sm font-bold text-[#111827] flex items-center gap-2">
-                <History className="w-4 h-4 text-[#2563eb]" />
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <History className="w-4 h-4 text-brand-500" />
                 <span>Plan Revision History</span>
               </h3>
               <button
                 onClick={() => setShowRevisionsModal(false)}
-                className="text-[#9ca3af] hover:text-[#111827]"
+                className="text-slate-400 hover:text-slate-900"
               >
                 ✕
               </button>
@@ -818,26 +818,26 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                   key={rev.id}
                   className={`p-3.5 rounded-lg border flex items-center justify-between transition ${
                     rev.isCurrent
-                      ? "bg-[#eff6ff] border-blue-200"
-                      : "bg-white border-[#e5e7eb] hover:border-slate-300"
+                      ? "bg-brand-50 border-blue-200"
+                      : "bg-white border-slate-200 hover:border-slate-300"
                   }`}
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-xs text-[#111827]">
+                      <span className="font-bold text-xs text-slate-900">
                         Revision {rev.revisionNumber}
                       </span>
                       {rev.isCurrent && (
-                        <span className="text-[10px] font-bold bg-[#2563eb] text-white px-2 py-0.5 rounded">
+                        <span className="text-[10px] font-bold bg-brand-500 text-white px-2 py-0.5 rounded">
                           CURRENT
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-[#6b7280] mt-0.5">
+                    <div className="text-xs text-slate-500 mt-0.5">
                       {rev.fileName} • {rev.uploadDate} ({rev.fileSize})
                     </div>
                     {rev.notes && (
-                      <p className="text-[11px] text-[#6b7280] italic mt-1">
+                      <p className="text-[11px] text-slate-500 italic mt-1">
                         &quot;{rev.notes}&quot;
                       </p>
                     )}
@@ -846,7 +846,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                   {!rev.isCurrent && (
                     <button
                       onClick={() => handleSetCurrentRevision(rev.id)} disabled={!canWrite}
-                      className="px-3 py-1.5 border border-[#e5e7eb] rounded text-xs font-medium text-[#374151] hover:bg-[#f3f4f6]"
+                      className="px-3 py-1.5 border border-slate-200 rounded text-xs font-medium text-slate-600 hover:bg-slate-100"
                     >
                       Make Current
                     </button>
@@ -858,7 +858,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 onClick={() => setShowRevisionsModal(false)}
-                className="px-4 py-2 bg-[#111827] text-white rounded-md text-xs font-semibold"
+                className="px-4 py-2 bg-slate-900 text-white rounded-md text-xs font-semibold"
               >
                 Close
               </button>

@@ -51,7 +51,7 @@ export function buildInternalEstimatePDF(project: Project): jsPDF {
   );
 
   // Header Banner
-  doc.setFillColor(30, 58, 138); // Dark Navy Blue
+  doc.setFillColor(11, 51, 114); // Brand deep blue
   doc.rect(0, 0, 612, 60, "F");
 
   doc.setFont("helvetica", "bold");
@@ -88,7 +88,7 @@ export function buildInternalEstimatePDF(project: Project): jsPDF {
     body: tableData,
     theme: "grid",
     headStyles: {
-      fillColor: [37, 99, 235], // Accent Blue
+      fillColor: [23, 100, 232], // Brand blue
       textColor: 255,
       fontSize: 8,
       fontStyle: "bold",
@@ -147,7 +147,7 @@ export function buildInternalEstimatePDF(project: Project): jsPDF {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.setTextColor(29, 78, 216); // Blue
+  doc.setTextColor(11, 77, 186); // Brand strong blue
   doc.text("Final Estimate Price:", 315, startSumY + lineSpacing * 4.9);
   doc.text(formatCurrency(financials.finalPrice), 555, startSumY + lineSpacing * 4.9, { align: "right" });
 
@@ -187,7 +187,7 @@ export function buildClientProposalPDF(project: Project): jsPDF {
   );
 
   // Cover / Header Banner
-  doc.setFillColor(30, 58, 138); // Dark Navy Blue
+  doc.setFillColor(11, 51, 114); // Brand deep blue
   doc.rect(0, 0, 612, 110, "F");
 
   doc.setFont("helvetica", "bold");
@@ -232,7 +232,7 @@ export function buildClientProposalPDF(project: Project): jsPDF {
     body: clientTableRows,
     theme: "striped",
     headStyles: {
-      fillColor: [30, 58, 138],
+      fillColor: [11, 51, 114],
       textColor: 255,
       fontSize: 9,
       fontStyle: "bold",
@@ -254,19 +254,19 @@ export function buildClientProposalPDF(project: Project): jsPDF {
   // Client Total Block
   const finalY = reserveBlock(doc, lastTableY(doc) + 20, 200);
 
-  doc.setFillColor(239, 246, 255);
+  doc.setFillColor(239, 245, 255);
   doc.roundedRect(300, finalY, 272, 60, 4, 4, "F");
-  doc.setDrawColor(191, 219, 254);
+  doc.setDrawColor(195, 216, 253);
   doc.roundedRect(300, finalY, 272, 60, 4, 4, "D");
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(30, 58, 138);
+  doc.setTextColor(11, 51, 114);
   doc.text("Total Proposed Investment:", 315, finalY + 22);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.setTextColor(29, 78, 216);
+  doc.setTextColor(11, 77, 186);
   doc.text(formatCurrency(financials.finalPrice), 555, finalY + 45, { align: "right" });
 
   // Terms & Acceptance

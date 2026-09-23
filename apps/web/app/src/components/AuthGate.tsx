@@ -50,7 +50,7 @@ export const AuthGate: React.FC = () => {
   };
 
   return (
-    <main className="min-h-screen bg-[#f8fafc] px-4 py-8 sm:px-6 lg:py-12 font-sans text-slate-900">
+    <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:py-12 font-sans text-slate-900">
       <div className="w-full max-w-[1180px] mx-auto">
         <div className="text-center mb-5">
           <img src="/brand/roughbid-logo.png" alt="RoughBid" className="w-60 max-w-full h-16 mx-auto object-contain" />
