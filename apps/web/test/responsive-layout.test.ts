@@ -18,8 +18,10 @@ test('app shell uses mobile viewport height and tablet-friendly collapsed sideba
   assert.match(app, /window\.innerWidth < 1180/);
 });
 
-test('header and project stepper avoid mobile text crowding', () => {
+test('header and project stepper avoid mobile and tablet crowding', () => {
   assert.match(header, /hidden sm:inline/);
+  assert.match(header, /hidden lg:grid/);
+  assert.match(header, /lg:hidden bg-\[#151713\]/);
   assert.match(header, /overflow-x-auto/);
   assert.doesNotMatch(header, /mx-auto justify-center/);
 });
