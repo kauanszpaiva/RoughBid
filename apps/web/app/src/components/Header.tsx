@@ -110,12 +110,12 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <div className="flex flex-col shrink-0 z-20 select-none bg-[#f1efe8]">
-      <header className="min-h-14 md:min-h-16 border-b border-[#151713] px-3 sm:px-4 md:px-6 xl:px-8 flex items-center justify-between gap-3">
+    <div className={`flex flex-col shrink-0 z-20 select-none ${project ? "bg-[#11130f]" : "bg-[#f1efe8]"}`}>
+      <header className={`min-h-14 md:min-h-16 border-b px-3 sm:px-4 md:px-6 xl:px-8 flex items-center justify-between gap-3 ${project ? "border-[#30332d] bg-[#11130f] text-[#f4f1e8]" : "border-[#151713]"}`}>
         <div className="flex items-center gap-2.5 md:gap-3 min-w-0">
           <button
             onClick={onToggleMobileMenu}
-            className="min-w-11 min-h-11 -ml-2 text-[#374151] hover:text-[#111827] hover:bg-[#e2e0d7] transition md:hidden cursor-pointer inline-flex items-center justify-center"
+            className={`min-w-11 min-h-11 -ml-2 transition md:hidden cursor-pointer inline-flex items-center justify-center ${project ? "text-white/70 hover:text-[#d9ff43] hover:bg-white/[.06]" : "text-[#374151] hover:text-[#111827] hover:bg-[#e2e0d7]"}`}
             aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
@@ -125,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-1.5 md:gap-2.5 min-w-0">
               <button
                 onClick={onBackToProjects}
-                className="min-w-10 min-h-10 text-[#6b7280] hover:text-[#111827] hover:bg-[#e2e0d7] transition cursor-pointer shrink-0 inline-flex items-center justify-center"
+                className="min-w-10 min-h-10 text-white/55 hover:text-[#d9ff43] hover:bg-white/[.06] transition cursor-pointer shrink-0 inline-flex items-center justify-center"
                 title="Back to all projects"
                 aria-label="Back to projects"
               >
@@ -133,15 +133,15 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                  <h2 className="font-display text-sm md:text-lg font-semibold text-[#151713] tracking-tight truncate max-w-[135px] sm:max-w-[220px] xl:max-w-[320px]">
+                  <h2 className="font-display text-sm md:text-lg font-semibold text-[#f4f1e8] tracking-tight truncate max-w-[135px] sm:max-w-[220px] xl:max-w-[320px]">
                     {project.name}
                   </h2>
-                  <span className="hidden xl:inline-block font-mono text-[9px] uppercase tracking-[.12em] text-[#6b6e66] shrink-0">
+                  <span className="hidden xl:inline-block font-mono text-[9px] uppercase tracking-[.14em] text-[#d9ff43] shrink-0">
                     RB-{project.id.toUpperCase().slice(0, 8)}
                   </span>
                 </div>
                 {activeRail && (
-                  <p className="md:hidden mt-0.5 font-mono text-[9px] uppercase tracking-[.12em] text-[#6b6e66]">
+                  <p className="md:hidden mt-0.5 font-mono text-[9px] uppercase tracking-[.12em] text-white/45">
                     {activeRail.code} / 05 · {activeRail.label} · {activeRail.detail}
                   </p>
                 )}
@@ -159,28 +159,28 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {project && (
-          <nav aria-label="Bid workflow" className="hidden lg:grid grid-cols-5 border-x border-[#151713] self-stretch min-w-[500px] max-w-[760px] flex-1 mx-3">
+          <nav aria-label="Bid workflow" className="hidden lg:grid grid-cols-5 self-stretch min-w-[520px] max-w-[820px] flex-1 mx-3 border-x border-white/15 bg-[#151713]">
             {stages.map((stage) => {
               const isActive = activeStep === stage.id;
               return (
                 <button
                   key={stage.id}
                   onClick={() => onSelectStep(stage.id)}
-                  className={`relative min-w-0 px-3 py-2 border-r border-[#151713] last:border-r-0 text-left transition-colors cursor-pointer focus-visible:z-10 ${
+                  className={`relative min-w-0 px-3.5 py-2.5 border-r border-white/15 last:border-r-0 text-left transition-colors cursor-pointer focus-visible:z-10 ${
                     isActive
-                      ? "bg-[#151713] text-[#f1efe8]"
-                      : "bg-[#f1efe8] text-[#151713] hover:bg-[#e2e0d7]"
+                      ? "bg-[#d9ff43] text-[#11130f]"
+                      : "bg-[#151713] text-[#f4f1e8] hover:bg-[#20231d]"
                   }`}
                   aria-current={isActive ? "step" : undefined}
                 >
-                  {isActive && <span className="absolute inset-x-0 bottom-0 h-1 bg-[#d9ff43]" />}
+                  {isActive && <span className="absolute inset-x-0 top-0 h-1 bg-[#11130f]" />}
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`font-mono text-[9px] uppercase tracking-[.14em] ${isActive ? "text-[#d9ff43]" : "text-[#6b6e66]"}`}>
+                    <span className={`font-mono text-[9px] uppercase tracking-[.14em] ${isActive ? "text-[#11130f]" : "text-white/45"}`}>
                       {stage.code} / {stage.label}
                     </span>
                     <span className={`w-2 h-2 shrink-0 ${stateDot(stage.state)}`} aria-hidden="true" />
                   </div>
-                  <p className={`mt-1 truncate font-mono text-[9px] uppercase tracking-[.08em] ${isActive ? "text-white/65" : "text-[#777a72]"}`}>
+                  <p className={`mt-1 truncate font-mono text-[9px] uppercase tracking-[.08em] ${isActive ? "text-[#394000]" : "text-white/40"}`}>
                     {stage.detail}
                   </p>
                 </button>
@@ -194,7 +194,7 @@ export const Header: React.FC<HeaderProps> = ({
             <>
               <button
                 onClick={onExportPDF}
-                className="hidden xl:flex min-h-10 border border-[#151713] text-[#151713] hover:bg-[#151713] hover:text-[#f1efe8] px-3 font-mono text-[10px] uppercase tracking-wide font-semibold items-center gap-1.5 transition cursor-pointer"
+                className="hidden xl:flex min-h-10 border border-white/25 text-[#f4f1e8] hover:border-[#d9ff43] hover:text-[#d9ff43] px-3 font-mono text-[10px] uppercase tracking-wide font-semibold items-center gap-1.5 transition cursor-pointer"
               >
                 <FileDown className="w-3.5 h-3.5" />
                 <span>Export</span>
@@ -203,14 +203,14 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onCreateEstimate}
                 disabled={!canWrite}
-                className="hidden lg:flex min-h-10 bg-[#d9ff43] border border-[#151713] text-[#151713] px-3.5 font-mono text-[10px] uppercase tracking-wide font-semibold hover:bg-[#151713] hover:text-[#d9ff43] items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="hidden lg:flex min-h-10 bg-[#d9ff43] border border-[#d9ff43] text-[#11130f] px-3.5 font-mono text-[10px] uppercase tracking-wide font-semibold hover:bg-transparent hover:text-[#d9ff43] items-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span>Build estimate</span>
               </button>
 
               <button
                 onClick={onExportPDF}
-                className="sm:hidden min-w-11 min-h-11 text-[#374151] border border-[#151713] transition cursor-pointer inline-flex items-center justify-center"
+                className="sm:hidden min-w-11 min-h-11 text-[#f4f1e8] border border-white/25 hover:border-[#d9ff43] hover:text-[#d9ff43] transition cursor-pointer inline-flex items-center justify-center"
                 title="Export PDF"
                 aria-label="Export PDF"
               >
@@ -232,7 +232,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenAuth}
             className={isSignedIn
-              ? "w-10 h-10 rounded-full bg-[#d1d5db] hover:bg-[#9ca3af] text-[#374151] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
+              ? "w-10 h-10 rounded-full bg-[#f4f1e8] hover:bg-[#d9ff43] text-[#11130f] font-bold text-xs flex items-center justify-center transition cursor-pointer shrink-0"
               : "h-10 px-3 bg-[#151713] hover:bg-black text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"}
             title={isSignedIn ? user?.name || "Account Profile" : "Sign in or create account"}
           >
