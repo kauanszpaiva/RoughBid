@@ -43,19 +43,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
     : amount >= 1000 ? `$${Math.round(amount / 1000)}K` : `$${Math.round(amount)}`;
 
   return (
-    <div className="min-h-full bg-[#f1efe8] text-[#151713] rb-grid">
+    <div className="min-h-full bg-[#e9e6dc] text-[#11130f] rb-grid">
       <div className="mx-auto max-w-[1500px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
-        <section className="grid border-y border-[#151713] lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,.55fr)]">
+        <section className="grid border-y-2 border-[#11130f] bg-[#f4f1e8]/80 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,.55fr)]">
           <div className="py-9 pr-0 lg:border-r lg:border-[#151713] lg:py-14 lg:pr-12">
             <div className="mb-8 flex items-center gap-3 font-mono text-[10px] font-semibold uppercase tracking-[.2em]">
               <span className="bg-[#151713] px-2 py-1 text-[#d9ff43]">Ops / Live</span>
               <span className="text-[#65685f]">Bid control workspace</span>
             </div>
             <h1 className="font-display max-w-4xl text-[clamp(3rem,7vw,6.8rem)] font-semibold leading-[.84] tracking-[-.075em]">
-              Build the bid.<br /><span className="text-[#6d7167]">Know the margin.</span>
+              Build the bid.<br /><span className="text-[#7b812f]">Know the margin.</span>
             </h1>
             <div className="mt-9 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-              <p className="max-w-xl text-sm leading-6 text-[#555950] sm:text-base">
+              <p className="max-w-xl text-sm leading-6 text-[#4d5148] sm:text-base">
                 Plans, quantities, pricing, and review—held in one accountable estimating record.
               </p>
               <button
@@ -68,29 +68,29 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
             </div>
           </div>
 
-          <div className="grid grid-cols-2 border-t border-[#151713] lg:grid-cols-1 lg:border-t-0">
-            <div className="flex flex-col justify-between border-r border-b border-[#151713] p-6 lg:border-r-0 lg:p-8">
+          <div className="grid grid-cols-2 border-t border-[#11130f] bg-[#d9ff43] lg:grid-cols-1 lg:border-t-0">
+            <div className="flex flex-col justify-between border-r border-b border-[#11130f] p-6 lg:border-r-0 lg:p-8">
               <span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#65685f]">01 / Pipeline</span>
               <strong className="font-display mt-8 text-5xl tracking-[-.06em] lg:text-6xl">{formatPipeline(totalPipeline)}</strong>
             </div>
-            <div className="flex flex-col justify-between border-b border-[#151713] p-6 lg:p-8">
-              <span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#65685f]">02 / Avg margin</span>
+            <div className="flex flex-col justify-between border-b border-[#11130f] bg-[#11130f] p-6 text-[#f4f1e8] lg:p-8">
+              <span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d9ff43]">02 / Avg margin</span>
               <strong className="font-display mt-8 text-5xl tracking-[-.06em] lg:text-6xl">{averageMargin.toFixed(1)}<small className="text-xl">%</small></strong>
             </div>
-            <div className="col-span-2 flex items-center justify-between p-5 font-mono text-[11px] uppercase tracking-[.12em] lg:col-span-1 lg:px-8">
+            <div className="col-span-2 flex items-center justify-between bg-[#f4f1e8] p-5 font-mono text-[11px] uppercase tracking-[.12em] lg:col-span-1 lg:px-8">
               <span>{activeBidsCount.toString().padStart(2, "0")} active bids</span>
-              <span className="flex items-center gap-2"><CircleDot className="h-3.5 w-3.5 text-[#789300]" /> Synced now</span>
+              <span className="flex items-center gap-2"><CircleDot className="h-3.5 w-3.5 text-[#657800]" /> Synced now</span>
             </div>
           </div>
         </section>
 
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b border-[#151713]">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-b-2 border-[#11130f] bg-[#f4f1e8]">
           {[
             { code: "A01", label: "Plans to price", value: needsPricing, detail: "Drawings without estimate lines", icon: FileSearch },
             { code: "A02", label: "Ready to issue", value: readyToSendCount, detail: "Reviewed and client-ready", icon: Send },
             { code: "A03", label: "Reading queue", value: plansInAiQueue, detail: "Plan jobs in progress", icon: Sparkles },
           ].map(({ code, label, value, detail, icon: Icon }, index) => (
-            <div key={code} className={`group p-6 transition-colors hover:bg-[#e7e5dc] lg:p-8 ${index < 2 ? "border-b border-[#151713] sm:border-b-0 sm:border-r" : "sm:col-span-2"}`}>
+            <div key={code} className={`group p-6 transition-colors hover:bg-[#d9ff43] lg:p-8 ${index < 2 ? "border-b border-[#151713] sm:border-b-0 sm:border-r" : ""}`}>
               <div className="flex items-start justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#65685f]">[{code}]</span>
                 <Icon className="h-5 w-5 transition-transform group-hover:-translate-y-1 group-hover:translate-x-1" strokeWidth={1.5} />
@@ -102,7 +102,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
           ))}
         </section>
 
-        <section className="grid gap-0 border-b border-[#151713] lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,.6fr)]">
+        <section className="grid gap-0 border-b-2 border-[#11130f] bg-[#f4f1e8] lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,.6fr)]">
           <div className="py-10 lg:border-r lg:border-[#151713] lg:pr-10">
             <div className="mb-6 flex items-end justify-between">
               <div>
@@ -120,7 +120,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
               ) : priorityProjects.map((project, index) => {
                 const financials = calculateProjectFinancials(project.estimateItems, project.overheadPercentage, project.markupPercentage);
                 return (
-                  <button key={project.id} onClick={() => onOpenProject(project)} className="group grid w-full grid-cols-[42px_minmax(0,1fr)_auto_28px] items-center gap-3 border-b border-[#b9b8b0] py-5 text-left transition-all hover:bg-[#151713] hover:px-3 hover:text-[#f1efe8]">
+                  <button key={project.id} onClick={() => onOpenProject(project)} className="group grid w-full grid-cols-[42px_minmax(0,1fr)_auto_28px] items-center gap-3 border-b border-[#b9b8b0] py-5 text-left transition-all hover:bg-[#d9ff43] hover:px-3 hover:text-[#11130f]">
                     <span className="font-mono text-[10px] text-[#7b7e75]">{String(index + 1).padStart(2, "0")}</span>
                     <span className="min-w-0"><span className="font-display block truncate text-base font-semibold">{project.name}</span><span className="mt-1 block truncate text-xs opacity-60">{project.address || "Address not set"}</span></span>
                     <span className="text-right"><span className="font-mono block text-sm font-semibold">{financials.finalPrice > 0 ? formatRoundedCurrency(financials.finalPrice) : "—"}</span><span className="font-mono text-[9px] uppercase opacity-60">{project.status}</span></span>
@@ -131,7 +131,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ projects, onOpenPr
             </div>
           </div>
 
-          <aside className="bg-[#151713] px-6 py-10 text-[#f1efe8] rb-noise lg:px-8">
+          <aside className="bg-[#11130f] px-6 py-10 text-[#f4f1e8] rb-noise lg:px-8">
             <p className="font-mono text-[10px] uppercase tracking-[.18em] text-[#d9ff43]">Sequence / 05 stages</p>
             <h2 className="font-display mt-3 text-3xl font-semibold tracking-[-.04em]">From sheet<br />to signature.</h2>
             <ol className="mt-10 border-t border-white/20">
