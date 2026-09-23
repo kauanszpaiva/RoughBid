@@ -219,13 +219,13 @@ export const BlueprintViewer: React.FC<BlueprintViewerProps> = ({ currentRevisio
                   <button type="button" key={finding.id} onClick={() => focusFinding(finding)} disabled={!pdf || !finding.page_number || finding.page_number > pdf.numPages} aria-pressed={selectedFindingId === finding.id} className={`w-full text-left py-2 px-2.5 text-xs flex justify-between gap-3 disabled:opacity-50 ${selectedFindingId === finding.id ? 'bg-emerald-50 text-emerald-900 font-medium' : 'hover:bg-slate-50'}`}>
                     <span className="min-w-0 break-words">
                       <strong className="text-slate-900">{finding.label}</strong>
-                      <span className="block text-[#6b7280]">
+                      <span className="block text-slate-500">
                         {getAreaName(finding)} · {finding.finding_type.replace('_', ' ')} · {Math.round(finding.confidence * 100)}% confidence{!pt ? ' · Unmapped page note' : ''}
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
                       <span className="font-semibold text-slate-800">{finding.quantity !== null ? `${finding.quantity} ${finding.unit ?? ''}` : 'Review'}</span>
-                      <span className="block text-[#6b7280]">Sheet {finding.page_number ?? '?'}</span>
+                      <span className="block text-slate-500">Sheet {finding.page_number ?? '?'}</span>
                     </span>
                   </button>
                 );

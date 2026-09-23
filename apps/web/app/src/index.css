@@ -1,38 +1,193 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
 
-:root {
-  color-scheme: light;
-  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-  font-synthesis: none;
-  --rb-ink: #151713;
-  --rb-paper: #f1efe8;
-  --rb-acid: #d9ff43;
+/* ==========================================================================
+   RoughBid design tokens
+   --------------------------------------------------------------------------
+   One palette for the whole product, taken from the approved brand marks:
+   royal blue #1764E8 with a near-black #080E17. Screens never invent their own
+   colours — they pull from the ramps below, so the app stays coherent.
+
+   The `slate`, `gray`, `blue`, `emerald`, `green`, `amber`, `rose` and `red`
+   ramps are re-pointed at these values on purpose, so every utility class in
+   the app inherits the brand palette instead of Tailwind's stock colours.
+   ========================================================================== */
+@theme {
+  /* ---- Brand: royal blue ------------------------------------------------- */
+  --color-brand-50: #eff5ff;
+  --color-brand-100: #dfeaff;
+  --color-brand-200: #c3d8fd;
+  --color-brand-300: #9bbef9;
+  --color-brand-400: #5f93f1;
+  --color-brand-500: #1764e8;
+  --color-brand-600: #1256cb;
+  --color-brand-700: #0b4dba;
+  --color-brand-800: #0a3e96;
+  --color-brand-900: #0b3372;
+  --color-brand-950: #071f47;
+
+  /* ---- Neutral: cool, blue-leaning --------------------------------------- */
+  --color-slate-50: #f7f9fc;
+  --color-slate-100: #eef3f9;
+  --color-slate-200: #e1e9f3;
+  --color-slate-300: #cdd9e8;
+  --color-slate-400: #7c8da6;
+  --color-slate-500: #5a6e88;
+  --color-slate-600: #465972;
+  --color-slate-700: #35455a;
+  --color-slate-800: #22303f;
+  --color-slate-900: #0e1721;
+  --color-slate-950: #070c14;
+
+  /* ---- Success ----------------------------------------------------------- */
+  --color-emerald-50: #e9f6ef;
+  --color-emerald-100: #d3eedf;
+  --color-emerald-200: #a9dcc0;
+  --color-emerald-300: #74c39b;
+  --color-emerald-400: #3fa877;
+  --color-emerald-500: #1b8a5a;
+  --color-emerald-600: #0e7a4e;
+  --color-emerald-700: #0a6440;
+  --color-emerald-800: #085033;
+  --color-emerald-900: #06402a;
+  --color-emerald-950: #032418;
+
+  /* ---- Warning ----------------------------------------------------------- */
+  --color-amber-50: #fdf4e7;
+  --color-amber-100: #fae8ce;
+  --color-amber-200: #f3d2a1;
+  --color-amber-300: #e5b269;
+  --color-amber-400: #d08f35;
+  --color-amber-500: #b4711a;
+  --color-amber-600: #a85b0b;
+  --color-amber-700: #8a4a09;
+  --color-amber-800: #6e3b0a;
+  --color-amber-900: #592f0c;
+  --color-amber-950: #331905;
+
+  /* ---- Danger ------------------------------------------------------------ */
+  --color-red-50: #fdecec;
+  --color-red-100: #fbd9d7;
+  --color-red-200: #f5b7b3;
+  --color-red-300: #e98b86;
+  --color-red-400: #da5f58;
+  --color-red-500: #c23b33;
+  --color-red-600: #b3261e;
+  --color-red-700: #96201a;
+  --color-red-800: #7c1d18;
+  --color-red-900: #671b17;
+  --color-red-950: #3b0d0b;
+
+  /* ---- Type -------------------------------------------------------------- */
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-html { background: var(--rb-paper); }
-body { margin: 0; background: var(--rb-paper); color: var(--rb-ink); }
-button, input, textarea, select { font: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible {
-  outline: 2px solid #789300;
-  outline-offset: 3px;
+/* --------------------------------------------------------------------------
+   Family aliases: older screens still name Tailwind's stock families, so those
+   names resolve to the ramps above rather than to Tailwind's own colours.
+   -------------------------------------------------------------------------- */
+@theme {
+  --color-gray-50: var(--color-slate-50);
+  --color-gray-100: var(--color-slate-100);
+  --color-gray-200: var(--color-slate-200);
+  --color-gray-300: var(--color-slate-300);
+  --color-gray-400: var(--color-slate-400);
+  --color-gray-500: var(--color-slate-500);
+  --color-gray-600: var(--color-slate-600);
+  --color-gray-700: var(--color-slate-700);
+  --color-gray-800: var(--color-slate-800);
+  --color-gray-900: var(--color-slate-900);
+  --color-gray-950: var(--color-slate-950);
+
+  --color-blue-50: var(--color-brand-50);
+  --color-blue-100: var(--color-brand-100);
+  --color-blue-200: var(--color-brand-200);
+  --color-blue-300: var(--color-brand-300);
+  --color-blue-400: var(--color-brand-400);
+  --color-blue-500: var(--color-brand-500);
+  --color-blue-600: var(--color-brand-500);
+  --color-blue-700: var(--color-brand-700);
+  --color-blue-800: var(--color-brand-800);
+  --color-blue-900: var(--color-brand-900);
+  --color-blue-950: var(--color-brand-950);
+
+  --color-green-50: var(--color-emerald-50);
+  --color-green-100: var(--color-emerald-100);
+  --color-green-200: var(--color-emerald-200);
+  --color-green-600: var(--color-emerald-600);
+  --color-green-700: var(--color-emerald-700);
+
+  --color-rose-50: var(--color-red-50);
+  --color-rose-100: var(--color-red-100);
+  --color-rose-200: var(--color-red-200);
+  --color-rose-400: var(--color-red-400);
+  --color-rose-500: var(--color-red-500);
+  --color-rose-600: var(--color-red-600);
+  --color-rose-700: var(--color-red-700);
+  --color-rose-800: var(--color-red-800);
+  --color-rose-900: var(--color-red-900);
 }
 
-.font-display { font-family: "Space Grotesk", ui-sans-serif, sans-serif; }
-.font-mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
-.rb-grid {
-  background-image:
-    linear-gradient(rgba(21, 23, 19, .045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(21, 23, 19, .045) 1px, transparent 1px);
-  background-size: 32px 32px;
+@layer base {
+  html {
+    color-scheme: light;
+    background-color: var(--color-slate-50);
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-slate-50);
+    color: var(--color-slate-900);
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  /* Editable estimate tables are full of numbers; keep the digits aligned. */
+  input[type="number"] {
+    font-variant-numeric: tabular-nums;
+  }
 }
-.rb-noise { position: relative; isolation: isolate; }
-.rb-noise::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  opacity: .16;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+
+@keyframes rb-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
+
+@layer components {
+  /* Backs the modal overlays that ask for `animate-in fade-in`. */
+  .animate-in {
+    animation: rb-fade-in 0.18s ease-out both;
+  }
+  .animate-in.fade-in {
+    animation-name: rb-fade-in;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+

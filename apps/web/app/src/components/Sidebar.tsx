@@ -108,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Logo Section */}
       <div>
         <div
-          className={`${collapsed ? "p-3 justify-center" : "px-5 py-6"} border-b border-white/10 flex items-center justify-between cursor-pointer`}
+          className={`${collapsed ? "p-3 justify-center" : "px-5 py-6"} border-b border-slate-200 flex items-center justify-between cursor-pointer`}
           onClick={() => handleItemClick("projects")}
         >
           <div className={`${collapsed ? "w-full flex justify-center" : ""}`}>
@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 e.stopPropagation();
                 onCloseMobile();
               }}
-              className="p-2 text-[#9ca3af] hover:text-[#111827] rounded-md transition"
+              className="p-2 text-slate-500 hover:text-slate-900 rounded-md transition"
               aria-label="Close menu"
             >
               <X className="w-5 h-5" />
@@ -139,9 +139,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation List */}
-        <nav className={`${collapsed ? "p-2" : "px-3 py-6"} space-y-1`}>
-          {!collapsed && <div className="px-3 pb-3 pt-1 font-mono text-[9px] font-semibold text-white/35 uppercase tracking-[.2em]">
-            [01 / Workspace]
+        <nav className={`${collapsed ? "p-2" : "px-3 py-5"} space-y-1`}>
+          {!collapsed && <div className="px-3 pb-2 pt-1 text-[10px] font-semibold text-slate-400 uppercase tracking-[0.14em]">
+            Workspace
           </div>}
           {mainNavItems.map((item) => {
             const isActive = currentTab === item.id;
@@ -150,13 +150,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 onClick={() => handleItemClick(item.id)}
                 title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm font-medium transition-all text-left cursor-pointer border-l-2 ${
+                aria-current={isActive ? "page" : undefined}
+                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
                   isActive
-                    ? "border-[#d9ff43] text-[#d9ff43] bg-white/[.06] font-semibold"
-                    : "border-transparent text-white/55 hover:border-white/30 hover:bg-white/[.04] hover:text-white"
+                    ? "bg-brand-50 text-brand-700 font-semibold"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 }`}
               >
-                <span className={isActive ? "text-[#d9ff43]" : "text-white/45"}>
+                <span className={isActive ? "text-brand-600" : "text-slate-400"}>
                   {item.icon}
                 </span>
                 {!collapsed && <span>{item.label}</span>}
@@ -164,43 +165,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
-          {!collapsed && <div className="pt-5 pb-3 px-3 font-mono text-[9px] font-semibold text-white/35 uppercase tracking-[.2em]">
-            [02 / System]
+          {!collapsed && <div className="pt-5 pb-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-[0.14em]">
+            Account
           </div>}
           <button
             onClick={() => handleItemClick("settings")}
             title={collapsed ? "Settings" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            aria-current={currentTab === "settings" ? "page" : undefined}
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
               currentTab === "settings"
-                ? "text-[#d9ff43] bg-white/[.06] font-semibold"
-                : "text-white/55 hover:bg-white/[.04] hover:text-white"
+                ? "bg-brand-50 text-brand-700 font-semibold"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
-            <Settings className="w-4 h-4 text-white/45" />
+            <Settings className={`w-4 h-4 ${currentTab === "settings" ? "text-brand-600" : "text-slate-400"}`} />
             {!collapsed && <span>Settings</span>}
           </button>
 
           <button
             onClick={() => handleItemClick("help")}
             title={collapsed ? "Help & Docs" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2 text-sm font-medium rounded-md transition-colors text-left cursor-pointer ${
+            aria-current={currentTab === "help" ? "page" : undefined}
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
               currentTab === "help"
-                ? "text-[#d9ff43] bg-white/[.06] font-semibold"
-                : "text-white/55 hover:bg-white/[.04] hover:text-white"
+                ? "bg-brand-50 text-brand-700 font-semibold"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
-            <HelpCircle className="w-4 h-4 text-white/45" />
+            <HelpCircle className={`w-4 h-4 ${currentTab === "help" ? "text-brand-600" : "text-slate-400"}`} />
             {!collapsed && <span>Help & Docs</span>}
           </button>
         </nav>
       </div>
 
       {/* Bottom Account Profile */}
-      <div className={`${collapsed ? "p-2" : "p-4"} border-t border-white/10 space-y-2`}>
+      <div className={`${collapsed ? "p-2" : "p-4"} border-t border-slate-200 space-y-2`}>
         {!isDrawer && (
           <button
             onClick={onToggleCollapsed}
-            className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-between"} px-3 py-2 rounded-md text-xs font-semibold text-white/45 hover:text-white hover:bg-white/[.04] transition`}
+            className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-between"} px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition`}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
@@ -213,10 +216,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onOpenAuth();
             if (onCloseMobile) onCloseMobile();
           }}
-          className={`border border-white/10 bg-white/[.04] hover:bg-white/[.08] ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
+          className={`border border-slate-200 bg-slate-50 hover:bg-slate-100 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
           title={collapsed ? "Account" : undefined}
         >
-          <div className={`${isSignedIn ? "bg-[#d1d5db] text-[#374151]" : "bg-[#111827] text-white"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
+          <div className={`${isSignedIn ? "bg-brand-50 text-brand-700" : "bg-slate-200 text-slate-600"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
             {isSignedIn
               ? ownerAvatar
                 ? <img src={ownerAvatar} alt="RoughBid owner profile" className="w-full h-full rounded-full bg-white p-0.5 object-contain ring-1 ring-slate-200" />
@@ -227,9 +230,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : "IN"}
           </div>
           {!collapsed && <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-white truncate">{isSignedIn ? user.name : "Sign in"}</p>
-            <p className="text-[10px] text-white/45 truncate flex items-center gap-1">
-              <Sparkles className="w-2.5 h-2.5 text-[#2563eb]" />
+            <p className="text-xs font-semibold text-slate-900 truncate">{isSignedIn ? user.name : "Sign in"}</p>
+            <p className="text-[10px] text-slate-500 truncate flex items-center gap-1">
+              <Sparkles className="w-2.5 h-2.5 text-brand-600" />
               <span>{isSignedIn ? user.plan : "Create account"}</span>
             </p>
           </div>}
@@ -242,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-[#151713] border-r border-black flex-col justify-between h-screen select-none shrink-0 transition-[width] duration-200`}>
+      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-white border-r border-slate-200 flex-col justify-between h-screen select-none shrink-0 transition-[width] duration-200`}>
         {renderNavContent(false)}
       </aside>
 
@@ -256,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {/* Slide-out Drawer Panel */}
-          <aside className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-[#e5e7eb] flex flex-col justify-between h-full shadow-2xl z-10 font-sans overflow-y-auto">
+          <aside className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-slate-200 flex flex-col justify-between h-full shadow-2xl z-10 font-sans overflow-y-auto">
             {renderNavContent(true)}
           </aside>
         </div>

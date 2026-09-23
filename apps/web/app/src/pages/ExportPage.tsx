@@ -120,17 +120,17 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-[#111827] tracking-tight">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
             Export
           </h2>
-          <p className="text-xs text-[#6b7280] mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Export client proposals, internal audit estimates, CSV raw data, and RoughBid packages.
           </p>
         </div>
 
-        <div className="self-start sm:self-auto flex items-center gap-2 text-xs font-medium text-[#4b5563] bg-white border border-[#e5e7eb] px-3 py-1.5 rounded-lg shadow-xs">
+        <div className="self-start sm:self-auto flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-xs">
           <span>Project Value:</span>
-          <strong className="text-[#2563eb] font-bold font-mono">
+          <strong className="text-brand-500 font-bold font-mono">
             {formatCurrency(financials.finalPrice)}
           </strong>
         </div>
@@ -151,37 +151,37 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       {/* 4 Export Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
         {/* CARD 1: Client Proposal (PDF) */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs hover:border-brand-500 transition flex flex-col justify-between space-y-4 group">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#eff6ff] text-[#2563eb] flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-500 flex items-center justify-center mb-3">
               <FileText className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[#111827]">
+              <h3 className="text-sm font-bold text-slate-900">
                 Client Proposal (PDF)
               </h3>
-              <span className="text-[10px] font-bold bg-[#eff6ff] text-[#2563eb] px-2 py-0.5 rounded">
+              <span className="text-[10px] font-bold bg-brand-50 text-brand-500 px-2 py-0.5 rounded">
                 Client Safe
               </span>
             </div>
-            <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
               Clean, professional proposal document showing scope descriptions, turnkey prices, terms, and signature lines. Internal margins and direct costs are strictly hidden.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 pt-3 border-t border-[#f3f4f6]">
+          <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
             <button
               onClick={() => setShowProposalModal(true)}
               disabled={!canExport}
-              className="flex-1 py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5"
+              className="flex-1 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5"
             >
-              <Eye className="w-3.5 h-3.5 text-[#6b7280]" />
+              <Eye className="w-3.5 h-3.5 text-slate-500" />
               <span>View Proposal</span>
             </button>
             <button
               onClick={() => exportClientProposalPDF(project)}
               disabled={!canExport}
-              className="flex-1 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
+              className="flex-1 py-2 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export PDF</span>
@@ -190,28 +190,28 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         </div>
 
         {/* CARD: Client Link */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs hover:border-brand-500 transition flex flex-col justify-between space-y-4 group">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#eff6ff] text-[#2563eb] flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-500 flex items-center justify-center mb-3">
               <Link2 className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[#111827]">Send Client Link</h3>
+              <h3 className="text-sm font-bold text-slate-900">Send Client Link</h3>
               <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">
                 No Client Login
               </span>
             </div>
-            <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
               Create a secure client view link. The client can open the proposal and sign acceptance without creating a RoughBid account.
             </p>
           </div>
 
           {shareLink && (
-            <div className="p-2.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-md">
-              <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-1">Client link</p>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-md">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Client link</p>
               <div className="flex gap-2">
-                <input readOnly value={shareLink} className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-[#e5e7eb] rounded text-[11px] text-[#374151]" />
-                <button type="button" onClick={handleCopyClientLink} className="px-2.5 py-1.5 bg-[#111827] text-white rounded text-xs font-semibold flex items-center gap-1">
+                <input readOnly value={shareLink} className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-200 rounded text-[11px] text-slate-600" />
+                <button type="button" onClick={handleCopyClientLink} className="px-2.5 py-1.5 bg-slate-900 text-white rounded text-xs font-semibold flex items-center gap-1">
                   <Copy className="w-3.5 h-3.5" />
                   Copy
                 </button>
@@ -220,11 +220,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           )}
           {shareState === "error" && shareError && <p className="text-xs text-red-600">{shareError}</p>}
 
-          <div className="pt-3 border-t border-[#f3f4f6]">
+          <div className="pt-3 border-t border-slate-100">
             <button
               onClick={handleCreateClientLink}
               disabled={!canPublish || !canExport || !isProjectSaved || shareState === "creating"}
-              className="w-full py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-60 text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-brand-500 hover:bg-brand-700 disabled:opacity-60 text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center justify-center gap-1.5"
             >
               <Share2 className="w-3.5 h-3.5" />
               <span>{shareState === "creating" ? "Creating link..." : "Create client view link"}</span>
@@ -233,88 +233,88 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         </div>
 
         {/* CARD 2: Internal Estimate (PDF) */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs hover:border-brand-500 transition flex flex-col justify-between space-y-4 group">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#f3f4f6] text-[#374151] flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center mb-3">
               <FileText className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[#111827]">
+              <h3 className="text-sm font-bold text-slate-900">
                 Internal Estimate (PDF)
               </h3>
               <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
                 Internal Only
               </span>
             </div>
-            <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
               Complete internal audit documentation detailing material, labor, equipment breakdown, direct costs, overhead percentages, markup calculations, and true gross margin.
             </p>
           </div>
 
-          <div className="pt-3 border-t border-[#f3f4f6]">
+          <div className="pt-3 border-t border-slate-100">
             <button
               onClick={() => exportInternalEstimatePDF(project)}
               disabled={!canExport}
-              className="w-full py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
+              className="w-full py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
             >
-              <Download className="w-3.5 h-3.5 text-[#6b7280]" />
+              <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>Export Internal Estimate PDF</span>
             </button>
           </div>
         </div>
 
         {/* CARD 3: Spreadsheet Export (CSV) */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs hover:border-brand-500 transition flex flex-col justify-between space-y-4 group">
           <div>
             <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
-            <h3 className="text-sm font-bold text-[#111827]">
+            <h3 className="text-sm font-bold text-slate-900">
               Spreadsheet Export (CSV)
             </h3>
-            <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
               Structured raw data export containing line item quantities, unit rates, sub-costs, and calculated overhead for seamless import into Excel, Google Sheets, or ERP tools.
             </p>
           </div>
 
-          <div className="pt-3 border-t border-[#f3f4f6]">
+          <div className="pt-3 border-t border-slate-100">
             <button
               onClick={() => exportProjectCSV(project)}
               disabled={!canExport}
-              className="w-full py-2 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#374151] rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
+              className="w-full py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs"
             >
-              <Download className="w-3.5 h-3.5 text-[#6b7280]" />
+              <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>Export CSV Spreadsheet</span>
             </button>
           </div>
         </div>
 
         {/* CARD 4: RoughBid Package */}
-        <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 shadow-xs hover:border-[#2563eb] transition flex flex-col justify-between space-y-4 group">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs hover:border-brand-500 transition flex flex-col justify-between space-y-4 group">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#eff6ff] text-[#2563eb] flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-500 flex items-center justify-center mb-3">
               <Database className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-[#111827]">
+              <h3 className="text-sm font-bold text-slate-900">
                 RoughBid Package
               </h3>
-              <span className="text-[10px] font-bold bg-[#eff6ff] text-[#2563eb] px-2 py-0.5 rounded">
+              <span className="text-[10px] font-bold bg-brand-50 text-brand-500 px-2 py-0.5 rounded">
                 JSON
               </span>
             </div>
-            <p className="text-xs text-[#6b7280] mt-1.5 leading-relaxed">
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
               Export a structured RoughBid project package for backups, handoff, import workflows, and operational review.
             </p>
           </div>
 
-          <div className="pt-3 border-t border-[#f3f4f6]">
+          <div className="pt-3 border-t border-slate-100">
             <button
               onClick={handleExportRoughBidPackage}
               className={`w-full py-2 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-xs ${
                 syncSuccess
                   ? "bg-emerald-600 text-white"
-                  : "bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
+                  : "bg-brand-500 hover:bg-brand-700 text-white"
               }`}
             >
               {syncSuccess ? (

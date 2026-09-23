@@ -209,7 +209,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     }
     if (!jobId) {
       return (
-        <div className="p-3.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg text-[#374151] text-xs">
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs">
           No AI plan reading has been started for <strong>{planLabel}</strong> yet. Go to the Plans step, upload a PDF plan, wait
           for it to finish processing, then click <strong>Start AI Plan Reading</strong>.
         </div>
@@ -217,7 +217,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     }
     if (isLoadingJob && !job) {
       return (
-        <div className="p-3.5 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg text-[#374151] text-xs flex items-center gap-2">
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs flex items-center gap-2">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           <span>Loading the AI plan reading job…</span>
         </div>
@@ -229,8 +229,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     if (!job) return null;
     if (job.status === "queued" || job.status === "processing") {
       return (
-        <div className="p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a] text-xs flex items-center gap-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563eb]" />
+        <div className="p-3.5 bg-brand-50 border border-blue-200 rounded-lg text-brand-900 text-xs flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-500" />
           <span>
             {job.status === "queued" ? "Queued for AI plan reading…" : "Reading the plan…"} This updates automatically.
           </span>
@@ -248,12 +248,12 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
     return (
       <div className="space-y-4">
-        <div className="p-3 sm:p-3.5 bg-[#eff6ff] border border-blue-200 rounded-lg text-[#1e3a8a]">
-          <div className="font-semibold text-[#1e40af] mb-1 flex items-center gap-1.5">
-            <FileSearch className="w-4 h-4 text-[#2563eb]" />
+        <div className="p-3 sm:p-3.5 bg-brand-50 border border-blue-200 rounded-lg text-brand-900">
+          <div className="font-semibold text-brand-800 mb-1 flex items-center gap-1.5">
+            <FileSearch className="w-4 h-4 text-brand-500" />
             <span>Takeoff review for {planLabel}</span>
           </div>
-          <p className="text-xs text-[#3b82f6] leading-relaxed">
+          <p className="text-xs text-brand-400 leading-relaxed">
             Every item below came from the AI reading of your uploaded plan. Nothing here is final — accept or ignore each one
             before it becomes part of your estimate.
           </p>
@@ -289,11 +289,11 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         )}
 
         <div>
-          <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
+          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">
             Quantities & Areas (Requires Your Confirmation)
           </h4>
           {priceableFindings.length === 0 ? (
-            <p className="text-xs text-[#6b7280]">No supported quantities were extracted in this review. Check the remaining plan manually.</p>
+            <p className="text-xs text-slate-500">No supported quantities were extracted in this review. Check the remaining plan manually.</p>
           ) : (
             <div className="space-y-2.5">
               {priceableFindings.map((finding) => {
@@ -301,19 +301,19 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                 return (
                   <div
                     key={finding.id}
-                    className="p-3 sm:p-3.5 border border-[#e5e7eb] rounded-lg bg-white hover:border-[#2563eb] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
+                    className="p-3 sm:p-3.5 border border-slate-200 rounded-lg bg-white hover:border-brand-500 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
                   >
                     <div>
-                      <div className="font-bold text-[#111827] flex items-center gap-1.5">
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
                         <span>{finding.label}</span>
-                        <span className="text-[9px] font-mono uppercase bg-[#f3f4f6] text-[#6b7280] px-1.5 py-0.5 rounded">
+                        <span className="text-[9px] font-mono uppercase bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
                           {finding.finding_type}
                         </span>
                       </div>
-                      <div className="text-xs text-[#6b7280] mt-0.5">
+                      <div className="text-xs text-slate-500 mt-0.5">
                         {finding.quantity != null && finding.unit ? (
                           <>
-                            Quantity: <strong className="text-[#111827]">{finding.quantity.toLocaleString()} {finding.unit}</strong>
+                            Quantity: <strong className="text-slate-900">{finding.quantity.toLocaleString()} {finding.unit}</strong>
                             {" • "}
                           </>
                         ) : null}
@@ -328,13 +328,13 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                           <Check className="w-3.5 h-3.5" /> Added
                         </span>
                       ) : finding.status === "rejected" ? (
-                        <span className="text-xs font-semibold text-[#9ca3af] px-2.5 py-1">Ignored</span>
+                        <span className="text-xs font-semibold text-slate-400 px-2.5 py-1">Ignored</span>
                       ) : (
                         <>
                           <button
                             onClick={() => handleAcceptFinding(finding)}
                             disabled={isPending}
-                            className="px-3 py-1.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-50"
+                            className="px-3 py-1.5 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold transition flex items-center gap-1 shadow-xs disabled:opacity-50"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>{isPending ? "Adding…" : "Add Item"}</span>
@@ -342,7 +342,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                           {finding.status === 'needs_review' && <button
                             onClick={() => handleRejectFinding(finding)}
                             disabled={isPending}
-                            className="px-2.5 py-1.5 text-[#6b7280] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md text-xs transition disabled:opacity-50"
+                            className="px-2.5 py-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md text-xs transition disabled:opacity-50"
                           >
                             Ignore
                           </button>}
@@ -358,15 +358,15 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
         {noteFindings.length > 0 && (
           <div>
-            <h4 className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wider mb-2.5">
+            <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">
               Other Findings (Measurements, Notes & Risks)
             </h4>
             <div className="space-y-2">
               {noteFindings.map((finding) => (
-                <div key={finding.id} className="p-2.5 border border-[#e5e7eb] rounded-lg bg-[#f9fafb] text-xs">
-                  <span className="font-semibold text-[#111827]">{finding.label}</span>
-                  {finding.value_text ? <span className="text-[#374151]"> — {finding.value_text}</span> : null}
-                  <span className="text-[#9ca3af]"> ({finding.finding_type})</span>
+                <div key={finding.id} className="p-2.5 border border-slate-200 rounded-lg bg-slate-50 text-xs">
+                  <span className="font-semibold text-slate-900">{finding.label}</span>
+                  {finding.value_text ? <span className="text-slate-600"> — {finding.value_text}</span> : null}
+                  <span className="text-slate-400"> ({finding.finding_type})</span>
                 </div>
               ))}
             </div>
@@ -378,41 +378,41 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-2 sm:p-4 select-none animate-in fade-in duration-150">
-      <div className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-[#e5e7eb] flex items-center justify-between gap-2">
+        <div className="px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-2.5">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#2563eb] flex items-center justify-center text-white shrink-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white shrink-0">
               <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <div className="text-xs sm:text-sm font-bold text-[#111827] flex items-center gap-1.5 sm:gap-2">
+              <div className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5 sm:gap-2">
                 <span>AI Estimator Assistant</span>
-                <span className="text-[9px] sm:text-[10px] bg-[#eff6ff] text-[#2563eb] px-1.5 py-0.5 rounded font-mono font-medium">
+                <span className="text-[9px] sm:text-[10px] bg-brand-50 text-brand-500 px-1.5 py-0.5 rounded font-mono font-medium">
                   Advisory
                 </span>
               </div>
-              <div className="text-[10px] sm:text-xs text-[#6b7280]">
+              <div className="text-[10px] sm:text-xs text-slate-500">
                 Plan-reading workflow • User approval required
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-[#9ca3af] hover:text-[#111827] rounded-md transition"
+            className="p-1.5 text-slate-400 hover:text-slate-900 rounded-md transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-[#e5e7eb] bg-[#f9fafb] px-4 sm:px-6 text-xs font-medium text-[#6b7280] gap-4 sm:gap-6 overflow-x-auto">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 text-xs font-medium text-slate-500 gap-4 sm:gap-6 overflow-x-auto">
           <button
             onClick={() => setActiveTab("analyze")}
             className={`py-2.5 sm:py-3 flex items-center gap-1.5 transition whitespace-nowrap ${
               activeTab === "analyze"
-                ? "text-[#2563eb] border-b-2 border-[#2563eb] font-semibold"
-                : "hover:text-[#111827]"
+                ? "text-brand-500 border-b-2 border-brand-500 font-semibold"
+                : "hover:text-slate-900"
             }`}
           >
             <FileSearch className="w-4 h-4" />
@@ -422,8 +422,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             onClick={() => setActiveTab("missing")}
             className={`py-2.5 sm:py-3 flex items-center gap-1.5 transition whitespace-nowrap ${
               activeTab === "missing"
-                ? "text-[#2563eb] border-b-2 border-[#2563eb] font-semibold"
-                : "hover:text-[#111827]"
+                ? "text-brand-500 border-b-2 border-brand-500 font-semibold"
+                : "hover:text-slate-900"
             }`}
           >
             <Layers className="w-4 h-4" />
@@ -433,8 +433,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             onClick={() => setActiveTab("explain")}
             className={`py-2.5 sm:py-3 flex items-center gap-1.5 transition whitespace-nowrap ${
               activeTab === "explain"
-                ? "text-[#2563eb] border-b-2 border-[#2563eb] font-semibold"
-                : "hover:text-[#111827]"
+                ? "text-brand-500 border-b-2 border-brand-500 font-semibold"
+                : "hover:text-slate-900"
             }`}
           >
             <HelpCircle className="w-4 h-4" />
@@ -464,27 +464,27 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           {/* TAB 3: Explanation */}
           {activeTab === "explain" && (
             <div className="space-y-4">
-              <div className="p-3 sm:p-4 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
-                <h4 className="font-bold text-[#111827] text-sm mb-2">
+              <div className="p-3 sm:p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 className="font-bold text-slate-900 text-sm mb-2">
                   ROUGHbid Financial Formulas
                 </h4>
-                <div className="space-y-2.5 font-mono text-xs text-[#374151]">
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
-                    <span className="text-[#2563eb] font-bold">1. Direct Cost</span> = Sum(Material + Labor + Equipment)
+                <div className="space-y-2.5 font-mono text-xs text-slate-600">
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
+                    <span className="text-brand-500 font-bold">1. Direct Cost</span> = Sum(Material + Labor + Equipment)
                   </div>
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
-                    <span className="text-[#2563eb] font-bold">2. Overhead Amount</span> = Direct Cost × (Overhead % / 100)
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
+                    <span className="text-brand-500 font-bold">2. Overhead Amount</span> = Direct Cost × (Overhead % / 100)
                   </div>
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
-                    <span className="text-[#2563eb] font-bold">3. Cost Before Markup</span> = Direct Cost + Overhead Amount
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
+                    <span className="text-brand-500 font-bold">3. Cost Before Markup</span> = Direct Cost + Overhead Amount
                   </div>
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
-                    <span className="text-[#2563eb] font-bold">4. Markup Amount</span> = Cost Before Markup × (Markup % / 100)
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
+                    <span className="text-brand-500 font-bold">4. Markup Amount</span> = Cost Before Markup × (Markup % / 100)
                   </div>
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
-                    <span className="text-[#2563eb] font-bold">5. Final Price</span> = Cost Before Markup + Markup Amount
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
+                    <span className="text-brand-500 font-bold">5. Final Price</span> = Cost Before Markup + Markup Amount
                   </div>
-                  <div className="p-2 bg-white rounded-md border border-[#e5e7eb]">
+                  <div className="p-2 bg-white rounded-md border border-slate-200">
                     <span className="text-emerald-600 font-bold">6. Margin %</span> = (Markup Amount / Final Price) × 100
                   </div>
                 </div>
@@ -498,13 +498,13 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-[#f9fafb] border-t border-[#e5e7eb] flex items-center justify-between gap-2">
-          <span className="text-[10px] sm:text-[11px] text-[#6b7280] truncate">
+        <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+          <span className="text-[10px] sm:text-[11px] text-slate-500 truncate">
             Additions recalculate financial engine instantly.
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 sm:py-2 bg-[#111827] hover:bg-black text-white rounded-md text-xs font-semibold transition shrink-0"
+            className="px-4 py-1.5 sm:py-2 bg-slate-900 hover:bg-black text-white rounded-md text-xs font-semibold transition shrink-0"
           >
             Done
           </button>

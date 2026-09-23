@@ -58,16 +58,16 @@ export const ClientProposalPage: React.FC<ClientProposalPageProps> = ({ token })
   };
 
   if (state === "loading") {
-    return <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-sm text-[#475569]">Loading proposal...</div>;
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm text-slate-600">Loading proposal...</div>;
   }
 
   if (state === "error" || !proposal) {
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-6">
-        <div className="max-w-md bg-white border border-[#e5e7eb] rounded-lg p-6 text-center shadow-xs">
-          <FileText className="w-8 h-8 mx-auto text-[#94a3b8]" />
-          <h1 className="text-lg font-bold text-[#111827] mt-3">Proposal unavailable</h1>
-          <p className="text-sm text-[#64748b] mt-1">{error ?? "This link is expired, revoked, or invalid."}</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md bg-white border border-slate-200 rounded-lg p-6 text-center shadow-xs">
+          <FileText className="w-8 h-8 mx-auto text-slate-400" />
+          <h1 className="text-lg font-bold text-slate-900 mt-3">Proposal unavailable</h1>
+          <p className="text-sm text-slate-500 mt-1">{error ?? "This link is expired, revoked, or invalid."}</p>
         </div>
       </div>
     );
@@ -76,46 +76,46 @@ export const ClientProposalPage: React.FC<ClientProposalPageProps> = ({ token })
   const payload = proposal.public_payload;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-[#111827]">
-      <header className="bg-white border-b border-[#e5e7eb] px-4 py-3">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="bg-white border-b border-slate-200 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
           <img src="/brand/roughbid-logo.png" alt="RoughBid" className="w-32 sm:w-40 h-10 object-contain object-left" />
           <div className="text-right">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">Client Proposal</div>
-            <div className="text-xs text-[#2563eb] font-semibold">Secure RoughBid view</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Client Proposal</div>
+            <div className="text-xs text-brand-500 font-semibold">Secure RoughBid view</div>
           </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto p-4 sm:p-6 space-y-5">
-        <section className="bg-white border border-[#e5e7eb] rounded-lg p-5 sm:p-7 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-[#e5e7eb] pb-5">
+        <section className="bg-white border border-slate-200 rounded-lg p-5 sm:p-7 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-200 pb-5">
             <div>
               <h1 className="text-2xl font-black tracking-tight">{proposal.title}</h1>
-              <p className="text-sm text-[#64748b] mt-1">{payload.projectAddress}</p>
-              <p className="text-xs text-[#64748b] mt-1">Prepared for {proposal.client_name}</p>
+              <p className="text-sm text-slate-500 mt-1">{payload.projectAddress}</p>
+              <p className="text-xs text-slate-500 mt-1">Prepared for {proposal.client_name}</p>
             </div>
             <div className="sm:text-right">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">Total Proposal</div>
-              <div className="text-3xl font-black text-[#2563eb] font-mono">{formatCurrency(Number(proposal.total_amount))}</div>
-              <div className="text-xs text-[#64748b] mt-1">Valid through {expiresLabel}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Proposal</div>
+              <div className="text-3xl font-black text-brand-500 font-mono">{formatCurrency(Number(proposal.total_amount))}</div>
+              <div className="text-xs text-slate-500 mt-1">Valid through {expiresLabel}</div>
             </div>
           </div>
 
           <div className="mt-6 overflow-x-auto">
             <table className="w-full text-sm min-w-[520px]">
-              <thead className="text-[10px] uppercase tracking-wider text-[#64748b] border-b border-[#e5e7eb]">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="text-left py-2">Scope</th>
                   <th className="text-right py-2">Qty</th>
                   <th className="text-right py-2">Price</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#f1f5f9]">
+              <tbody className="divide-y divide-slate-100">
                 {payload.lineItems.map((item, index) => (
                   <tr key={`${item.name}-${index}`}>
                     <td className="py-3 font-semibold">{item.name}</td>
-                    <td className="py-3 text-right text-[#64748b]">{item.quantity.toLocaleString()} {item.unit}</td>
+                    <td className="py-3 text-right text-slate-500">{item.quantity.toLocaleString()} {item.unit}</td>
                     <td className="py-3 text-right font-bold">{formatCurrency(item.price)}</td>
                   </tr>
                 ))}
@@ -123,18 +123,18 @@ export const ClientProposalPage: React.FC<ClientProposalPageProps> = ({ token })
             </table>
           </div>
 
-          <div className="mt-6 bg-[#f8fafc] border border-[#e5e7eb] rounded-lg p-4">
+          <div className="mt-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
             <div className="flex items-center gap-2 text-sm font-bold">
-              <ShieldCheck className="w-4 h-4 text-[#2563eb]" />
+              <ShieldCheck className="w-4 h-4 text-brand-500" />
               Terms
             </div>
-            <ul className="mt-2 space-y-1 text-xs text-[#475569]">
+            <ul className="mt-2 space-y-1 text-xs text-slate-600">
               {payload.terms.map((term) => <li key={term}>{term}</li>)}
             </ul>
           </div>
         </section>
 
-        <section className="bg-white border border-[#e5e7eb] rounded-lg p-5 sm:p-6 shadow-xs">
+        <section className="bg-white border border-slate-200 rounded-lg p-5 sm:p-6 shadow-xs">
           {proposal.status === "signed" || state === "signed" ? (
             <div className="flex items-start gap-3 text-emerald-800">
               <CheckCircle2 className="w-5 h-5 mt-0.5" />
@@ -146,24 +146,24 @@ export const ClientProposalPage: React.FC<ClientProposalPageProps> = ({ token })
           ) : (
             <form onSubmit={handleSign} className="space-y-3">
               <div className="flex items-center gap-2">
-                <PenLine className="w-4 h-4 text-[#2563eb]" />
+                <PenLine className="w-4 h-4 text-brand-500" />
                 <h2 className="text-sm font-bold">Accept proposal</h2>
               </div>
               <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">Signature name</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Signature name</span>
                 <input
                   value={signerName}
                   onChange={(event) => setSignerName(event.target.value)}
                   required
                   maxLength={160}
-                  className="mt-1 w-full border border-[#cbd5e1] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563eb]"
+                  className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </label>
               {error && <p className="text-xs text-red-600">{error}</p>}
               <button
                 type="submit"
                 disabled={state === "signing"}
-                className="w-full sm:w-auto px-4 py-2 rounded-md bg-[#2563eb] text-white text-sm font-bold disabled:opacity-60"
+                className="w-full sm:w-auto px-4 py-2 rounded-md bg-brand-500 text-white text-sm font-bold disabled:opacity-60"
               >
                 {state === "signing" ? "Signing..." : "Sign and accept"}
               </button>

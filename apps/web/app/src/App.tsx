@@ -491,7 +491,7 @@ export default function App() {
 
   if (isAuthConfigured && sessionLoading) {
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-sm font-semibold text-slate-600">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm font-semibold text-slate-600">
         Loading RoughBid...
       </div>
     );
@@ -526,7 +526,7 @@ export default function App() {
   const saveErrors = pendingSaveEntries.filter(([, value]) => value.state === "error");
 
   return (
-    <div className="flex h-dvh bg-[#f1efe8] text-[#151713] overflow-hidden">
+    <div className="flex h-dvh bg-slate-50 text-slate-900 overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         currentTab={activeTab}
@@ -562,11 +562,11 @@ export default function App() {
 
         {!canWrite && <div className="border-b border-blue-200 bg-blue-50 px-4 sm:px-6 py-3 text-sm text-blue-950" role="status">{pilotLocksWorkspace ? "Your limited pilot access has ended. Saved projects remain read-only. Future paid use requires checkout; no automatic charge is scheduled." : "Read-only workspace. You can review saved projects and download their estimates. Editing and sharing new proposal links require an estimator or admin role."}</div>}
 
-        <div className="border-b border-[#c8c6bd] bg-[#e7e5dc] px-4 sm:px-6 py-2 font-mono text-[10px] uppercase tracking-[.08em] flex flex-wrap items-center gap-x-4 gap-y-2" aria-live="polite">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 sm:px-6 py-2 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1" aria-live="polite">
           <span className={saveErrors.length ? "font-semibold text-amber-800" : "text-slate-500"}>
             {operationCount > 0 ? "Saving project changes…" : saveErrors.length ? `${saveErrors.length} project${saveErrors.length > 1 ? "s" : ""} with unsaved changes` : pendingSaveEntries.length ? "Saving changes…" : "All changes saved"}
           </span>
-          {saveErrors.length > 0 && <button className="font-semibold text-blue-600 underline" onClick={() => saveErrors.forEach(([id]) => saveQueueRef.current?.retry(id))}>Retry saving</button>}
+          {saveErrors.length > 0 && <button className="font-semibold text-brand-700 underline" onClick={() => saveErrors.forEach(([id]) => saveQueueRef.current?.retry(id))}>Retry saving</button>}
           {operationNotice && <span role="status" className="text-slate-700">{operationNotice}</span>}
           {localCacheWarning && <span className="text-amber-800" role="alert">Browser backup is unavailable. Keep this tab open until changes are saved.</span>}
         </div>
@@ -574,7 +574,7 @@ export default function App() {
 
         {/* Dynamic Page Views */}
         <main ref={mainRef} className="flex-1 overflow-y-auto min-w-0">
-          {inviteNotice && <div role="status" className="px-4 py-3 bg-blue-50 text-blue-900 text-xs">{inviteNotice}</div>}
+          {inviteNotice && <div role="status" className="px-4 py-3 bg-brand-50 text-brand-900 text-xs sm:px-6">{inviteNotice}</div>}
           {(!isPlatformOwner || activeTab === 'access') && <PilotAccessPanel owner={isPlatformOwner} userId={session.user.id} refreshKey={projects.length} onBilling={() => setActiveTab('billing')} />}
           {activeTab === "dashboard" && (
             <DashboardPage

@@ -93,23 +93,23 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-2xs p-2 sm:p-4 select-none animate-in fade-in duration-150">
-      <div role="dialog" aria-modal="true" aria-labelledby="new-project-title" className="bg-white rounded-xl shadow-xl border border-[#e5e7eb] w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
+      <div role="dialog" aria-modal="true" aria-labelledby="new-project-title" className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-[#e5e7eb] flex items-center justify-between">
+        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center text-white font-bold text-xs shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white font-bold text-xs shrink-0">
               <Plus className="w-4 h-4" />
             </div>
             <div>
-              <h3 id="new-project-title" className="text-sm font-bold text-[#111827]">Create New Project</h3>
-              <p className="text-[11px] sm:text-xs text-[#6b7280]">Start with project details, then upload plans and confirm quantities</p>
+              <h3 id="new-project-title" className="text-sm font-bold text-slate-900">Create New Project</h3>
+              <p className="text-[11px] sm:text-xs text-slate-500">Start with project details, then upload plans and confirm quantities</p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={saving}
             aria-label="Close new project"
-            className="p-1.5 text-[#9ca3af] hover:text-[#111827] rounded-md transition"
+            className="p-1.5 text-slate-400 hover:text-slate-900 rounded-md transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -124,7 +124,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           )}
 
           <div>
-            <label className="block text-xs font-bold text-[#374151] mb-1">
+            <label className="block text-xs font-bold text-slate-600 mb-1">
               Project Name *
             </label>
             <div className="relative">
@@ -136,42 +136,42 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   setError("");
                 }}
                 placeholder="e.g., Smith Residence — Deck Renovation"
-                className="w-full px-3 py-2 pl-9 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] focus:outline-hidden focus:ring-2 focus:ring-[#2563eb]"
+                className="w-full px-3 py-2 pl-9 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 required
               />
-              <Building2 className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
+              <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             </div>
           </div>
 
-          <fieldset className="rounded-lg border border-[#e5e7eb] p-3">
-            <legend className="px-1 text-xs font-bold text-[#374151]">New England jurisdiction *</legend>
-            <p className="mb-3 text-[11px] leading-relaxed text-[#6b7280]">Used to select dated local requirements and regional pricing sources. Confirm with the permitting authority before release.</p>
+          <fieldset className="rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-bold text-slate-600">New England jurisdiction *</legend>
+            <p className="mb-3 text-[11px] leading-relaxed text-slate-500">Used to select dated local requirements and regional pricing sources. Confirm with the permitting authority before release.</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="jurisdiction-state">State</label>
-                <select id="jurisdiction-state" value={jurisdictionState} onChange={(event) => setJurisdictionState(event.target.value as Project["jurisdictionState"])} className="w-full rounded-lg border border-[#e5e7eb] bg-white px-3 py-2 text-xs" required>
+                <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="jurisdiction-state">State</label>
+                <select id="jurisdiction-state" value={jurisdictionState} onChange={(event) => setJurisdictionState(event.target.value as Project["jurisdictionState"])} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs" required>
                   <option value="CT">Connecticut</option><option value="MA">Massachusetts</option><option value="ME">Maine</option>
                   <option value="NH">New Hampshire</option><option value="RI">Rhode Island</option><option value="VT">Vermont</option>
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="municipality">Municipality</label>
-                <input id="municipality" value={municipality} onChange={(event) => setMunicipality(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" placeholder="e.g., Boston" required />
+                <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="municipality">Municipality</label>
+                <input id="municipality" value={municipality} onChange={(event) => setMunicipality(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" placeholder="e.g., Boston" required />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="postal-code">ZIP code</label>
-                <input id="postal-code" value={postalCode} onChange={(event) => setPostalCode(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" inputMode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="02108" required />
+                <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="postal-code">ZIP code</label>
+                <input id="postal-code" value={postalCode} onChange={(event) => setPostalCode(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" inputMode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" placeholder="02108" required />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-[#6b7280]" htmlFor="permit-date">Permit or pricing date</label>
-                <input id="permit-date" type="date" value={permitDate} onChange={(event) => setPermitDate(event.target.value)} className="w-full rounded-lg border border-[#e5e7eb] px-3 py-2 text-xs" required />
+                <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="permit-date">Permit or pricing date</label>
+                <input id="permit-date" type="date" value={permitDate} onChange={(event) => setPermitDate(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" required />
               </div>
             </div>
           </fieldset>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[#374151] mb-1">
+              <label className="block text-xs font-bold text-slate-600 mb-1">
                 Client Name *
               </label>
               <div className="relative">
@@ -180,21 +180,21 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
                   placeholder="e.g., J. Smith"
-                  className="w-full px-3 py-2 pl-9 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] focus:outline-hidden focus:ring-2 focus:ring-[#2563eb]"
+                  className="w-full px-3 py-2 pl-9 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                   required
                 />
-                <User className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
+                <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-[#374151] mb-1">
+              <label className="block text-xs font-bold text-slate-600 mb-1">
                 Project Type
               </label>
               <select
                 value={projectType}
                 onChange={(e) => setProjectType(e.target.value)}
-                className="w-full px-3 py-2 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] bg-white focus:outline-hidden focus:ring-2 focus:ring-[#2563eb]"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="Deck Renovation">Deck Renovation</option>
                 <option value="Kitchen Remodel">Kitchen Remodel</option>
@@ -207,7 +207,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-[#374151] mb-1">
+            <label className="block text-xs font-bold text-slate-600 mb-1">
               Project Address *
             </label>
             <div className="relative">
@@ -216,16 +216,16 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g., 124 Maple Street, Springfield"
-                className="w-full px-3 py-2 pl-9 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] focus:outline-hidden focus:ring-2 focus:ring-[#2563eb]"
+                className="w-full px-3 py-2 pl-9 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 required
               />
-              <MapPin className="w-4 h-4 text-[#9ca3af] absolute left-3 top-2.5" />
+              <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-[#6b7280] mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Default Overhead (%)
               </label>
               <input
@@ -235,11 +235,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 step="0.5"
                 value={overheadPct}
                 onChange={(e) => setOverheadPct(Number(e.target.value))}
-                className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] font-semibold"
+                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-900 font-semibold"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-[#6b7280] mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Default Markup (%)
               </label>
               <input
@@ -249,7 +249,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 step="0.5"
                 value={markupPct}
                 onChange={(e) => setMarkupPct(Number(e.target.value))}
-                className="w-full px-3 py-1.5 border border-[#e5e7eb] rounded-lg text-xs text-[#111827] font-semibold"
+                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-900 font-semibold"
               />
             </div>
           </div>
@@ -263,13 +263,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="px-4 py-2 text-xs font-medium text-[#4b5563] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-md transition"
+              className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition"
             >
               Cancel
             </button>
             <button
               type="submit" disabled={saving} aria-busy={saving}
-              className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="px-5 py-2 bg-brand-500 hover:bg-brand-700 text-white rounded-md text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>{saving ? "Creating project…" : "Create Project"}</span>
