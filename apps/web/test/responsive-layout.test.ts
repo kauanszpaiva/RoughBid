@@ -47,8 +47,8 @@ test('plan viewer renders the uploaded PDF under the markup layer', () => {
   assert.match(api, /fetch\(preview\.url/);
 });
 
-test('dashboard and projects stack dense metrics on phones', () => {
-  assert.match(dashboard, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-4/);
+test('dashboard and projects stack dense metrics on phones with intentional desktop column counts', () => {
+  assert.match(dashboard, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-3/);
   assert.match(projects, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-4/);
 });
 
