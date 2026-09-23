@@ -51,7 +51,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
   const unsentCount = projects.filter((p) => p.estimateItems.length > 0 && p.status !== "Completed").length;
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <section className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>

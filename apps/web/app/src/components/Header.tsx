@@ -84,7 +84,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <h2 className="text-sm md:text-lg font-bold text-slate-900 tracking-tight truncate max-w-[140px] sm:max-w-[220px] md:max-w-none">
                   {project.name}
                 </h2>
-                <span className="hidden sm:inline-block px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase shrink-0">
+                {/* Shown only where the header has room next to the stepper and actions;
+                    below lg it was being clipped to an unreadable "PRO.". */}
+                <span className="hidden lg:inline-block shrink-0 px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-semibold rounded uppercase tracking-wide">
                   {project.id.toUpperCase().slice(0, 8)}
                 </span>
               </div>

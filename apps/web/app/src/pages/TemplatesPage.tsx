@@ -47,7 +47,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onUseTemplate }) =
   ];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">
