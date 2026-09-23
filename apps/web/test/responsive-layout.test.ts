@@ -9,6 +9,8 @@ const materials = readFileSync(new URL('../app/src/pages/MaterialsPage.tsx', imp
 const dashboard = readFileSync(new URL('../app/src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
 const projects = readFileSync(new URL('../app/src/pages/ProjectsPage.tsx', import.meta.url), 'utf8');
 const plansContent = readFileSync(new URL('../app/src/pages/PlansPageContent.tsx', import.meta.url), 'utf8');
+const templates = readFileSync(new URL('../app/src/pages/TemplatesPage.tsx', import.meta.url), 'utf8');
+const help = readFileSync(new URL('../app/src/pages/HelpPage.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../app/src/services/api.ts', import.meta.url), 'utf8');
 
 test('app shell uses mobile viewport height and tablet-friendly collapsed sidebar default', () => {
@@ -50,6 +52,15 @@ test('plan viewer renders the uploaded PDF under the markup layer', () => {
 test('dashboard and projects stack dense metrics on phones with intentional desktop column counts', () => {
   assert.match(dashboard, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-3/);
   assert.match(projects, /grid-cols-1 sm:grid-cols-2 lg:grid-cols-4/);
+});
+
+test('secondary pages keep mobile spacing and touch targets usable', () => {
+  assert.match(templates, /p-4 sm:p-6 md:p-8/);
+  assert.match(templates, /w-full sm:w-auto min-h-11/);
+  assert.match(help, /p-4 sm:p-6 md:p-8/);
+  assert.match(help, /flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4/);
+  assert.match(projects, /min-w-11 min-h-11/);
+  assert.match(plansContent, /min-h-11 flex items-center/);
 });
 
 test('materials uses mobile cards instead of forcing a wide table', () => {
