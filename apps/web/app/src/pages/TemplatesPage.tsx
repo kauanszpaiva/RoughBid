@@ -47,7 +47,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onUseTemplate }) =
   ];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+    <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
@@ -63,7 +63,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onUseTemplate }) =
         {templates.map((tpl) => (
           <div
             key={tpl.id}
-            className="bg-white border border-slate-200 rounded-xl p-5 hover:border-blue-400 shadow-xs transition flex flex-col justify-between space-y-3"
+            className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 hover:border-blue-400 shadow-xs transition flex flex-col justify-between space-y-3"
           >
             <div>
               <span className="text-[10.5px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
@@ -77,14 +77,14 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onUseTemplate }) =
               </p>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <span className="text-[12px] text-slate-600">
                 {tpl.itemsCount} Items • Avg. Margin: <strong className="text-emerald-700 font-bold">{tpl.typicalMargin}</strong>
               </span>
 
               <button
                 onClick={() => onUseTemplate(tpl.name)}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[12px] font-semibold flex items-center gap-1 shadow-2xs cursor-pointer"
+                className="w-full sm:w-auto min-h-11 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[12px] font-semibold flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
               >
                 <span>Use Template</span>
                 <ArrowRight className="w-3.5 h-3.5" />
