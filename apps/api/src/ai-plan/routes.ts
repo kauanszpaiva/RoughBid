@@ -74,6 +74,13 @@ export interface AiPlanRequestDependencies {
   /** Production always resolves cohort membership before selecting any reader. */
   pilotEnforcement?: boolean;
   pilotReader?: PlanReader;
+  /**
+   * Enabled only when a configured provider consumes rendered page images.
+   * The page-by-page owner path is the main beneficiary: it reviews one
+   * physical page at a time, so a plan set that exceeds the pilot's 10 MB PDF
+   * ceiling can still be read page by page.
+   */
+  pageImagesEnabled?: boolean | undefined;
   /** Durable BullMQ queue. Required only when AI_PLAN_DURABLE_ENABLED=true. */
   durableQueue?: DurableAiPlanQueue | undefined;
   /** Closed-by-default provider factory for the explicit Full/Deep V2 path. */
@@ -87,7 +94,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400, 'x-workspace-id header is required');
 
-    const service = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, deps.freeReader);
+    const service = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, deps.freeReader, false, undefined, deps.pageImagesEnabled === true);
     const url = new URL(request.url);
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
@@ -101,7 +108,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       if (Object.prototype.hasOwnProperty.call(body, 'page_number')) {
         if (!await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) throw new ProjectApiError(403, 'Page-by-page review is not enabled for this account.');
         if (deps.paidReaderAvailable !== true) throw new ProjectApiError(503, 'The page-reading provider is unavailable. No job was started.');
-        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, undefined, true);
+        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, undefined, true, undefined, deps.pageImagesEnabled === true);
         return json(await owner.create(parts[1], body), 201);
       }
       if (body.mode === FULL_TAKEOFF_V2_MODE) {
@@ -138,7 +145,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
           // queue's payment invariant.
           const adminService = new AiPlanReadingService(
             db, deps.findingsWriter, deps.storage, deps.reader,
-            data.user.id, workspaceId, undefined, deps.freeReader, true,
+            data.user.id, workspaceId, undefined, deps.freeReader, true, undefined, deps.pageImagesEnabled === true,
           );
           return json(await adminService.create(parts[1], body), 201);
         }
