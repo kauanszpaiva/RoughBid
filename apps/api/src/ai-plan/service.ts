@@ -9,6 +9,7 @@ import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
 import { persistPlanPricingContext } from '../pricing/context.ts';
+import { loadPlanPageImages } from './page-images.ts';
 import { ProviderSpendLimitError, UsageAccountingError } from '../owner-usage/meter.ts';
 
 export type PlanReadingStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed';
@@ -83,6 +84,8 @@ export class AiPlanReadingService {
   private readonly workspaceId: string;
   private readonly platformAdmin: boolean;
   private readonly pilotReader: PlanReader | undefined;
+  /** Only true when at least one configured provider consumes page images. */
+  private readonly pageImagesEnabled: boolean;
 
   constructor(
     db: SupabaseLike,
@@ -95,6 +98,7 @@ export class AiPlanReadingService {
     freeReader?: PlanReader,
     platformAdmin = false,
     pilotReader?: PlanReader,
+    pageImagesEnabled = false,
   ) {
     if (!userId || !workspaceId) throw new ProjectApiError(401, 'Authentication and workspace are required');
     this.db = db;
@@ -107,6 +111,7 @@ export class AiPlanReadingService {
     this.freeReader = freeReader;
     this.platformAdmin = platformAdmin;
     this.pilotReader = pilotReader;
+    this.pageImagesEnabled = pageImagesEnabled;
   }
 
   async create(projectId: string, input: Record<string, unknown>) {
@@ -308,12 +313,29 @@ export class AiPlanReadingService {
       }
 
       const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
+
+      // `documents/worker.ts` already renders every page to JPEG for the
+      // blueprint viewer, but nothing ever read it, so every image-native
+      // provider failed closed before a request. These assets are that wire.
+      // Best-effort by design: an unrendered set leaves this empty and the
+      // existing PDF path still serves the reading.
+      const pageImages = this.pageImagesEnabled
+        ? await loadPlanPageImages({
+            db: this.db,
+            storage: this.storage,
+            fetcher: this.fetcher,
+            fileId,
+            ...(pageRequest ? { pageNumbers: [requestedPage as number] } : {}),
+          })
+        : [];
+
       const result = await withUsageMeter({ writer: this.findingsWriter, userId: this.userId,
         workspaceId: this.workspaceId, projectId, jobId: job.id,
         billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
       }, () => activeReader.read({
         fileBytes: selectedPageBytes ?? fileBytes,
         mimeType: 'application/pdf',
+        ...(pageImages.length ? { pageImages } : {}),
         sheetName: pageRequest
           ? `${file.original_name} - source page ${requestedPage}. Only ONE physical page is attached. Return page_number 1 for its evidence; the server restores original numbering. Enumerate every visible labeled room, note, schedule, opening and material relevant to the scope; disclose illegible content and missing dimensions. Do not infer wall drywall SF from room floor SF.`
           : file.original_name,

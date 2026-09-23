@@ -116,12 +116,63 @@ function sanitizeProjectAddressEvidence(raw: unknown, sheetCount: number): { add
   };
 }
 
+/** Units that describe a size, never an amount. `IN`/`GA`/`MM` are dimensions. */
+const DIMENSION_UNITS: ReadonlySet<string> = new Set(['IN', 'INCH', 'INCHES', 'GA', 'GAUGE', 'MM', 'CM', 'MIL']);
+
+/**
+ * Printed dimension designators: `4"`, `4 in`, `5/8 in`, `4 thk`, `20 ga`, `#4`.
+ *
+ * The allowed unit list is SF/LF/EA/CY/SY/HR/LS — it has no thickness code. A 4"
+ * slab thickness therefore had to be expressed as a quantity, and the nearest
+ * available unit was a length, producing "4 LF". That misread is exactly what the
+ * 2026-09-10 estimator review rejected, and no unit whitelist can catch it because
+ * LF is a valid unit. The guard below is dimensional, not lexical: it only fires
+ * when the reported quantity restates a designator printed in that same finding.
+ */
+const PRINTED_DESIGNATOR = /(?:(\d+(?:[./]\d+)?)\s*(?:"|''|in\b|in\.|inch(?:es)?\b|thk\b|thick(?:ness)?\b|ga\b|gauge\b|mm\b|cm\b))|(?:#\s*(\d+))/gi;
+
+const roundQuantity = (value: number) => Math.round(value * 1000) / 1000;
+
+/** Every number printed as a dimension designator in `text`. */
+function printedDesignatorValues(text: string): number[] {
+  const values: number[] = [];
+  for (const match of text.matchAll(PRINTED_DESIGNATOR)) {
+    const raw = match[1] ?? match[2];
+    if (!raw) continue;
+    // 5/8 is one dimension, not a quotient of two measurements.
+    const [numerator, denominator] = raw.split('/');
+    const value = denominator ? Number(numerator) / Number(denominator) : Number(numerator);
+    if (Number.isFinite(value) && value > 0) values.push(roundQuantity(value));
+  }
+  return values;
+}
+
+/** True when the reported quantity merely restates a designator printed in the same evidence. */
+function restatesPrintedDimension(quantity: number, evidence: string): boolean {
+  const rounded = roundQuantity(quantity);
+  // A model may round a printed fraction (5/8 in -> 0.63), so allow a hundredth.
+  return printedDesignatorValues(evidence).some(value => Math.abs(value - rounded) <= 0.01);
+}
+
+/** Keeps a printed dimension as evidence without inventing or overwriting the printed value text. */
+function evidenceValueText(rawValueText: unknown, printedDimension: string | null): string | null {
+  const base = typeof rawValueText === 'string' ? rawValueText.trim().slice(0, 400) : '';
+  if (!printedDimension) return base ? base.slice(0, 500) : null;
+  const dimension = printedDimension.trim();
+  if (base.toLowerCase().includes(dimension.toLowerCase())) return base.slice(0, 500);
+  return `${base ? `${base} ` : ''}[printed dimension: ${dimension}]`.slice(0, 500);
+}
+
 /**
  * Cleans raw model (or fallback-generator) output into safe, storable
  * findings — the same hard validation rule an untrusted model output needs
  * regardless of provider: a quantity is only ever trusted alongside a
  * verbatim source excerpt and an allowed imperial unit. Anything that fails
  * is dropped and disclosed in `summary.limitations`, never silently coerced.
+ *
+ * Dimensional consistency is part of that rule: a thickness, gauge or nominal
+ * size is specification evidence, so it is kept in `value_text` and never
+ * becomes a quantity, however valid its unit would otherwise be.
  */
 export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = [], synthetic = false): PlanReadingResult {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -134,6 +185,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   const projectAddress = sanitizeProjectAddressEvidence(rawSummary.project_address, sheetCount);
   const dropped: string[] = [];
   const findings: PlanReadingFinding[] = [];
+  const dimensionRestatements: string[] = [];
 
   for (const entry of rawFindings) {
     if (!entry || typeof entry !== 'object') continue;
@@ -141,13 +193,27 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
     const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim().slice(0, 160) : null;
     if (!label) { dropped.push('a finding with no label'); continue; }
 
-    const hasQuantity = typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0;
+    const reportedQuantity = typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : null;
     const unit = typeof item.unit === 'string' ? item.unit.trim().toUpperCase() : null;
     const sourceExcerpt = typeof item.source_excerpt === 'string' && item.source_excerpt.trim() ? item.source_excerpt.trim() : null;
+    const reportedDimension = safeNullableText(item.dimension, 60);
+    const evidence = [label, reportedDimension, typeof item.value_text === 'string' ? item.value_text : null, sourceExcerpt].filter(Boolean).join(' ');
+
+    let hasQuantity = reportedQuantity !== null;
+    let printedDimension = reportedDimension;
 
     if (hasQuantity) {
       if (!sourceExcerpt) { dropped.push(`"${label}": quantity without a verbatim source excerpt`); continue; }
-      if (!unit || !ALLOWED_UNITS.has(unit)) { dropped.push(`"${label}": unit "${String(item.unit)}" is not an allowed imperial unit`); continue; }
+      if (unit && DIMENSION_UNITS.has(unit)) {
+        // 4" is a thickness, not four of anything. Keep it as evidence instead of dropping it.
+        printedDimension = printedDimension ?? `${roundQuantity(reportedQuantity!)} ${unit.toLowerCase()}`;
+        hasQuantity = false;
+      } else if (!unit || !ALLOWED_UNITS.has(unit)) {
+        dropped.push(`"${label}": unit "${String(item.unit)}" is not an allowed imperial unit`); continue;
+      } else if (restatesPrintedDimension(reportedQuantity!, evidence)) {
+        hasQuantity = false;
+        dimensionRestatements.push(label);
+      }
     }
 
     const findingType = ALLOWED_FINDING_TYPES.has(item.finding_type as PlanReadingFindingType)
@@ -167,7 +233,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       page_number: pageNumber,
       finding_type: findingType,
       label,
-      value_text: typeof item.value_text === 'string' ? item.value_text.slice(0, 500) : null,
+      value_text: evidenceValueText(item.value_text, printedDimension),
       quantity: hasQuantity ? Math.round((item.quantity as number) * 100) / 100 : null,
       unit: hasQuantity ? unit : null,
       confidence,
@@ -180,6 +246,9 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   const limitations = [...notices, ...(Array.isArray(rawSummary.limitations) ? rawSummary.limitations.filter((v): v is string => typeof v === 'string').map(v => v.slice(0, 1000)) : [])];
   if (projectAddress.limitation) limitations.push(projectAddress.limitation);
   if (dropped.length) limitations.push(`${dropped.length} item(s) dropped for missing a verbatim source citation or an invalid unit.`);
+  if (dimensionRestatements.length) {
+    limitations.push(`${dimensionRestatements.length} item(s) restated a printed dimension (thickness, gauge or nominal size) as a quantity. The quantity was removed and the printed dimension kept as evidence: ${dimensionRestatements.slice(0, 3).join('; ')}.`);
+  }
   if (findings.length > MAX_FINDINGS) limitations.push(`Findings capped at ${MAX_FINDINGS} (${findings.length} detected).`);
 
   return {
