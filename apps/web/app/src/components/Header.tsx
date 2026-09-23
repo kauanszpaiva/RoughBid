@@ -49,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (aiStatus === "failed") return { state: "attention", detail: "AI FAILED" };
     if (aiStatus === "queued" || aiStatus === "processing") return { state: "attention", detail: "RB.AI READING" };
     if (aiStatus === "needs_review" || aiStatus === "ready") return { state: "attention", detail: "AI REVIEW" };
-    if (readiness.hasPlan) return { state: "complete", detail: `${currentPlan?.pages ?? 0} SHEETS` };
+    if (readiness.hasPlan) return { state: "complete", detail: currentPlan?.pages ? `${currentPlan.pages} SHEETS` : "PLAN READY" };
     return { state: "pending", detail: "NO PLAN" };
   };
 
@@ -159,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {project && (
-          <nav aria-label="Bid workflow" className="hidden md:grid grid-cols-5 border-x border-[#151713] self-stretch min-w-[500px] max-w-[760px] flex-1 mx-3">
+          <nav aria-label="Bid workflow" className="hidden lg:grid grid-cols-5 border-x border-[#151713] self-stretch min-w-[500px] max-w-[760px] flex-1 mx-3">
             {stages.map((stage) => {
               const isActive = activeStep === stage.id;
               return (
@@ -249,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
       </header>
 
       {project && (
-        <div className="md:hidden bg-[#151713] border-b border-black px-3 py-2 overflow-x-auto no-scrollbar">
+        <div className="lg:hidden bg-[#151713] border-b border-black px-3 py-2 overflow-x-auto no-scrollbar">
           <div className="flex items-stretch min-w-max">
             {stages.map((stage) => {
               const isActive = activeStep === stage.id;
