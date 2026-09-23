@@ -21,8 +21,8 @@ export const Stepper: React.FC<StepperProps> = ({ currentStep, onSelectStep }) =
   ];
 
   return (
-    <div className="hidden md:flex items-center border-y border-[#b9b8b0] select-none">
-      <span className="pr-4 py-2 font-mono text-[9px] uppercase tracking-[.16em] text-[#777a72]">
+    <div className="hidden md:flex items-center border-y border-[#151713] bg-[#f4f1e8] select-none">
+      <span className="pr-4 py-2 font-mono text-[9px] uppercase tracking-[.18em] text-[#5d6258]">
         Bid sequence
       </span>
       {steps.map((step) => {
@@ -32,10 +32,10 @@ export const Stepper: React.FC<StepperProps> = ({ currentStep, onSelectStep }) =
             key={step.id}
             onClick={() => onSelectStep(step.id)}
             aria-current={isActive ? "step" : undefined}
-            className={`group min-h-9 px-3 border-l border-[#b9b8b0] font-mono text-[9px] uppercase tracking-[.1em] transition-colors cursor-pointer ${
+            className={`group min-h-10 px-3.5 border-l border-[#151713] font-mono text-[9px] uppercase tracking-[.12em] transition-colors cursor-pointer ${
               isActive
-                ? "bg-[#151713] text-[#d9ff43]"
-                : "text-[#777a72] hover:bg-[#e2e0d7] hover:text-[#151713]"
+                ? "bg-[#d9ff43] text-[#11130f]"
+                : "text-[#5d6258] hover:bg-[#151713] hover:text-[#d9ff43]"
             }`}
           >
             <span className="mr-1.5 opacity-60">0{step.stepNum}</span>
