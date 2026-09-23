@@ -19,6 +19,8 @@ interface HeaderProps {
   onOpenAuth?: () => void;
   isSignedIn?: boolean;
   pageTitle?: string;
+  /** Tabs that already own a primary create action hide the header duplicate. */
+  showNewProjectAction?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   isSignedIn = false,
   pageTitle = "Projects",
+  showNewProjectAction = true,
 }) => {
   const steps: { id: ProjectStep; label: string }[] = [
     { id: "plans", label: "Plans" },
@@ -155,15 +158,17 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </>
           ) : (
-            <button
-              onClick={onOpenNewProject}
-              aria-label="New Project"
-              disabled={!canWrite}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">New Project</span>
-            </button>
+            showNewProjectAction && (
+              <button
+                onClick={onOpenNewProject}
+                aria-label="New Project"
+                disabled={!canWrite}
+                className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">New Project</span>
+              </button>
+            )
           )}
 
           <button

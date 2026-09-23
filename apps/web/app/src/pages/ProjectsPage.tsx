@@ -56,7 +56,7 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-brand-500">Project Workspace</p>
-            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-1">Projects</h2>
+            <h2 className="font-display text-2xl font-semibold text-slate-900 tracking-tight mt-1">Projects</h2>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
               Every job stays separate: plans, quantities, estimate, client proposal, organization access, and audit trail.
             </p>

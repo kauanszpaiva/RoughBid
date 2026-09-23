@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+/* Brand faces are self-hosted from @fontsource and imported in main.tsx: the
+   deployment CSP blocks a remote Google Fonts stylesheet, so importing it here
+   would silently render every screen in a system fallback. */
 @import "tailwindcss";
 
 /* ==========================================================================
