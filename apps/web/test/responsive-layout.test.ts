@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('../app/src/App.tsx', import.meta.url), 'utf8');
 const header = readFileSync(new URL('../app/src/components/Header.tsx', import.meta.url), 'utf8');
+const sidebar = readFileSync(new URL('../app/src/components/Sidebar.tsx', import.meta.url), 'utf8');
 const blueprint = readFileSync(new URL('../app/src/components/BlueprintViewer.tsx', import.meta.url), 'utf8');
 const materials = readFileSync(new URL('../app/src/pages/MaterialsPage.tsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../app/src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
@@ -63,6 +64,7 @@ test('secondary pages keep mobile spacing and touch targets usable', () => {
   assert.match(help, /flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4/);
   assert.match(projects, /min-w-11 min-h-11/);
   assert.match(plansContent, /min-h-11 flex items-center/);
+  assert.match(sidebar, /min-h-11 py-2\.5 text-sm/);
 });
 
 test('materials uses mobile cards instead of forcing a wide table', () => {
