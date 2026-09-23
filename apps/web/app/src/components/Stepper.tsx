@@ -34,8 +34,8 @@ export const Stepper: React.FC<StepperProps> = ({ currentStep, onSelectStep }) =
             aria-current={isActive ? "step" : undefined}
             className={`group min-h-10 px-3.5 border-l border-[#151713] font-mono text-[9px] uppercase tracking-[.12em] transition-colors cursor-pointer ${
               isActive
-                ? "bg-[#d9ff43] text-[#11130f]"
-                : "text-[#5d6258] hover:bg-[#151713] hover:text-[#d9ff43]"
+                ? "bg-[#2563eb] text-[#11130f]"
+                : "text-[#5d6258] hover:bg-[#151713] hover:text-[#2563eb]"
             }`}
           >
             <span className="mr-1.5 opacity-60">0{step.stepNum}</span>
