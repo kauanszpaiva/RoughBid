@@ -536,7 +536,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         <button
           onClick={onOpenAIAssistant}
           disabled={!canWrite || !currentRevision}
-          className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
+          className="self-start sm:self-auto min-h-11 flex items-center gap-1.5 px-3 py-2 bg-[#eff6ff] border border-blue-200 text-[#2563eb] hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
           <span>AI Plan Assistant</span>
@@ -565,7 +565,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <p className="text-xs text-[#6b7280] max-w-sm mt-1 mb-4">
                 Upload your construction drawing set (PDF) to start taking off quantities.
               </p>
-              <label className="px-4 py-2 bg-[#2563eb] text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-[#1d4ed8] transition">
+              <label className="min-h-11 inline-flex items-center px-4 py-2.5 bg-[#2563eb] text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-[#1d4ed8] transition">
                 <span>Upload PDF Plan</span>
                 <input
                   type="file"
@@ -669,7 +669,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             </fieldset>
 
             {/* Upload New Revision */}
-            <label className="w-full flex items-center justify-between px-3 py-2 bg-[#f9fafb] hover:bg-[#f3f4f6] border border-[#e5e7eb] rounded-lg text-xs font-medium text-[#111827] transition cursor-pointer">
+            <label className="w-full min-h-11 flex items-center justify-between px-3 py-2 bg-[#f9fafb] hover:bg-[#f3f4f6] border border-[#e5e7eb] rounded-lg text-xs font-medium text-[#111827] transition cursor-pointer">
               <div className="flex items-center gap-2">
                 <Upload className="w-3.5 h-3.5 text-[#2563eb]" />
                 <span>Upload New Revision</span>
@@ -691,7 +691,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <button
                 onClick={handleStartFreeReading}
                 disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
-                className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full min-h-11 flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
@@ -704,7 +704,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {paidReading && !readingQuote && <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !quoteRecoveryReady || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
-              className="w-full flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-11 flex items-center justify-between px-3 py-2 bg-[#eff6ff] hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-[#1d4ed8] transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#2563eb]" />
