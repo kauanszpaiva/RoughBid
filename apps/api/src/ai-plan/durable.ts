@@ -326,6 +326,7 @@ export class DurableAiPlanJobProcessor {
           scope: context.requested_scope,
           ...(linework ? { linework } : {}),
           ...(sheetText ? { sheetText } : {}),
+          pageCount: context.page_count,
         }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
         if (linework) {

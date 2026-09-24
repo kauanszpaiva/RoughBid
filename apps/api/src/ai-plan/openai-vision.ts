@@ -1,8 +1,9 @@
 import { ProjectApiError } from '../projects/service.ts';
 import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingError } from '../owner-usage/meter.ts';
-import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, systemPrompt } from './gemini.ts';
-import { describePlanEvidenceDigest } from './sheet-text.ts';
+import { sanitizePlanReadingResult, type PlanReadingFinding, type PlanProjectAddressEvidence, type PlanReadingResult } from './types.ts';
+import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, type PlanPageImage, systemPrompt } from './gemini.ts';
+import { describePlanEvidenceDigest, describePlanEvidenceWindow } from './sheet-text.ts';
+import { boundedBatchPages, boundedMaxBatches, integerFromEnv, planPageWindows, slicePdfPages, unreadPages, type PageWindow } from './plan-batches.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -12,6 +13,12 @@ export interface OpenAiVisionProviderConfig {
   baseUrl: string;
   model: string;
   maxImages: number;
+  /** Pages per request when a whole set must be swept. 0 disables sweeping. */
+  batchPages: number;
+  /** Hard cap on sweep requests, so one plan set cannot fan out unbounded. */
+  maxBatches: number;
+  /** Ceiling on findings kept from a whole-set sweep. */
+  maxTotalFindings: number;
 }
 
 const DEFAULT_MAX_IMAGES = 8;
@@ -46,6 +53,9 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     baseUrl: safeHttpsBaseUrl(env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com', ['api.deepseek.com']),
     model,
     maxImages: maxImagesFromEnv(env),
+    batchPages: 0,
+    maxBatches: 0,
+    maxTotalFindings: 200,
   };
 }
 
@@ -64,6 +74,9 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
     baseUrl: safeHttpsBaseUrl(baseUrl, ['api.moonshot.ai', 'api.moonshot.cn']),
     model,
     maxImages: maxImagesFromEnv(env),
+    batchPages: 0,
+    maxBatches: 0,
+    maxTotalFindings: 200,
   };
 }
 
@@ -80,6 +93,9 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     baseUrl: safeHttpsBaseUrl(env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1', ['api.openai.com']),
     model,
     maxImages: maxImagesFromEnv(env),
+    batchPages: env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 8, 50)),
+    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, 60)),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
   };
 }
 
@@ -92,10 +108,13 @@ export function configuredProviderOrder(env: Record<string, string | undefined>)
   return unique;
 }
 
-function userPrompt(input: GeminiPlanReadInput): string {
-  const source = input.pageImages?.length
-    ? 'The images are ordered and individually labeled with their physical PDF page numbers.'
-    : 'The attached document is the complete construction plan; report the physical page number of every finding.';
+function userPrompt(input: GeminiPlanReadInput, window?: PageWindow): string {
+  const localPages = window ? window.to - window.from + 1 : 1;
+  const source = window
+    ? `This request contains physical PDF pages ${window.from}-${window.to} of a larger set, in order: its first page is page 1 of this request. Report page_number 1-${localPages} for every finding in this request and cite only the pages attached here; the server restores the original physical numbering. Nothing outside this window is attached, so never cite or describe a page you were not given.`
+    : input.pageImages?.length
+      ? 'The images are ordered and individually labeled with their physical PDF page numbers.'
+      : 'The attached document is the complete construction plan; report the physical page number of every finding.';
   return `Read this construction drawing set for takeoff preparation.
 Return JSON only. Every quantity must cite a visible physical page and verbatim source excerpt.
 Do not estimate prices or infer hidden dimensions. If the drawing is ambiguous, return a risk/question instead.
@@ -103,6 +122,13 @@ Locate rooms, walls, outlines and symbols from what is actually drawn on the she
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
 ${source}`;
+}
+
+/** A sweep never invents coverage: a failed batch is named by its classified reason only. */
+function sweepFailureReason(error: unknown): string {
+  if (error instanceof AiProviderError) return error.diagnostic.code;
+  if (error instanceof ProjectApiError) return `status ${error.status}`;
+  return 'the provider call failed';
 }
 
 type ChatCompletionResponse = {
@@ -125,7 +151,7 @@ export class OpenAiCompatibleVisionPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
-      this.assertReady();
+    this.assertReady();
     const images = (input.pageImages || []).slice(0, this.config.maxImages);
     // OpenAI reads construction PDFs natively, so it needs no renderer; the
     // image-native low-cost providers still fail closed without page images.
@@ -133,20 +159,45 @@ export class OpenAiCompatibleVisionPlanReader {
     if (!images.length && !attachesPdf) {
       throw new ProjectApiError(503, `${this.config.provider} requires server-rendered plan page images. No provider request was sent.`);
     }
+    const pageCount = Number.isSafeInteger(input.pageCount) && (input.pageCount as number) > 0 ? input.pageCount as number : null;
+    // A whole set does not fit one honest request: the model skims it and the
+    // output limit truncates the last third. Read it window by window instead —
+    // one metered request per window — with physical numbering restored locally.
+    if (attachesPdf && !images.length && this.config.batchPages > 0
+      && pageCount !== null && pageCount > this.config.batchPages) {
+      return this.readWholeSet(input, pageCount);
+    }
     if (!images.length && input.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
       throw new ProjectApiError(413, 'This plan is too large to attach as a document. No provider request was sent.');
     }
     if (images.some(image => image.bytes.byteLength < 1 || image.bytes.byteLength > MAX_IMAGE_BYTES)) {
       throw new ProjectApiError(413, 'A rendered plan page is outside the low-cost vision size limit. No provider request was sent.');
     }
+    return this.readOnce(input, { fileBytes: input.fileBytes, images });
+  }
 
-    const evidenceDigest = describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
-    const content: Array<Record<string, unknown>> = [{ type: 'text', text: userPrompt(input) }];
+  /** One provider request over one document: the whole set, or one window of it. */
+  private async readOnce(
+    input: GeminiPlanReadInput,
+    options: { fileBytes: Uint8Array; images?: readonly PlanPageImage[]; window?: PageWindow },
+  ): Promise<PlanReadingResult> {
+    const images = options.images ?? [];
+    if (options.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
+      throw new ProjectApiError(413, 'This plan is too large to attach as a document. No provider request was sent.');
+    }
+
+    const evidenceDigest = options.window
+      ? describePlanEvidenceWindow({ linework: input.linework, sheetText: input.sheetText }, options.window)
+      : describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
+    const content: Array<Record<string, unknown>> = [{ type: 'text', text: userPrompt(input, options.window) }];
     if (evidenceDigest) content.push({ type: 'text', text: evidenceDigest });
     if (!images.length) {
       content.push({
         type: 'file',
-        file: { filename: 'construction-plan.pdf', file_data: `data:${input.mimeType};base64,${Buffer.from(input.fileBytes).toString('base64')}` },
+        file: {
+          filename: options.window ? `plan-pages-${options.window.from}-${options.window.to}.pdf` : 'construction-plan.pdf',
+          file_data: `data:${input.mimeType};base64,${Buffer.from(options.fileBytes).toString('base64')}`,
+        },
       });
     }
     for (const image of images) {
@@ -222,7 +273,20 @@ export class OpenAiCompatibleVisionPlanReader {
 
     try {
       const parsed = JSON.parse(choice?.message?.content || '{}');
-      const result = sanitizePlanReadingResult(parsed);
+      // A windowed request is told how many pages it carries, so pin that count:
+      // the sanitizer then validates every citation against this window's pages
+      // instead of the whole set. The caller restores physical numbering.
+      const normalized = options.window && parsed && typeof parsed === 'object'
+        ? {
+            ...(parsed as Record<string, unknown>),
+            summary: {
+              ...((parsed as Record<string, unknown>).summary && typeof (parsed as Record<string, unknown>).summary === 'object'
+                ? (parsed as Record<string, unknown>).summary as Record<string, unknown> : {}),
+              sheet_count: options.window.to - options.window.from + 1,
+            },
+          }
+        : parsed;
+      const result = sanitizePlanReadingResult(normalized);
       if (!result.findings.length) throw new Error('empty');
       return result;
     } catch (error) {
@@ -233,5 +297,82 @@ export class OpenAiCompatibleVisionPlanReader {
       logProviderFailure(failure);
       throw failure;
     }
+  }
+
+  /**
+   * Reads every physical page of a set that is too large for one request.
+   *
+   * Each window's findings are renumbered to physical pages, so a downstream
+   * review, takeoff or coverage report sees the real sheet. Nothing is invented
+   * to cover a gap: a batch that fails, or a window the batch cap never reached,
+   * is named in summary.limitations, and a sweep that produces no findings at
+   * all rethrows the provider failure so the orchestrator can try another reader.
+   */
+  private async readWholeSet(input: GeminiPlanReadInput, pageCount: number): Promise<PlanReadingResult> {
+    const windows = planPageWindows(pageCount, this.config.batchPages, this.config.maxBatches);
+    const limitations: string[] = [
+      `This plan was read as ${windows.length} separate provider request(s) of at most ${this.config.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`,
+    ];
+    const findings: PlanReadingFinding[] = [];
+    const trades = new Set<string>();
+    const batchNotes: string[] = [];
+    const failed: PageWindow[] = [];
+    let address: PlanProjectAddressEvidence | undefined;
+    let scaleConflict = false;
+    let scaleDetected = false;
+    let lastError: unknown = null;
+
+    for (const window of windows) {
+      try {
+        const bytes = await slicePdfPages(input.fileBytes, window);
+        const result = await this.readOnce(input, { fileBytes: bytes, window });
+        const localPages = window.to - window.from + 1;
+        const accepted = result.findings.filter(finding =>
+          typeof finding.page_number === 'number' && finding.page_number >= 1 && finding.page_number <= localPages);
+        for (const finding of accepted) findings.push({ ...finding, page_number: (finding.page_number as number) + window.from - 1 });
+        for (const trade of result.summary.detected_trade_scope) trades.add(trade);
+        if (!address && result.summary.project_address) {
+          address = { ...result.summary.project_address, page_number: result.summary.project_address.page_number + window.from - 1 };
+        }
+        if (result.summary.scale_status === 'conflicting') scaleConflict = true;
+        if (result.summary.scale_status === 'detected') scaleDetected = true;
+        if (result.findings.length > accepted.length) {
+          batchNotes.push(`${result.findings.length - accepted.length} finding(s) from the batch for physical pages ${window.from}-${window.to} cited a page outside that batch and were dropped.`);
+        }
+        for (const note of result.summary.limitations) batchNotes.push(`Physical pages ${window.from}-${window.to}: ${note}`);
+      } catch (error) {
+        failed.push(window);
+        lastError = error;
+        batchNotes.push(`Physical pages ${window.from}-${window.to} could not be read and produced no evidence in this reading: ${sweepFailureReason(error)}`);
+      }
+    }
+
+    if (!findings.length) {
+      throw lastError instanceof Error ? lastError : new ProjectApiError(502, 'No usable findings were returned for this set.');
+    }
+
+    const unread = unreadPages(pageCount, windows);
+    if (unread.length) {
+      limitations.push(`Physical pages ${unread[0]}-${unread[unread.length - 1]} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
+    }
+    if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
+
+    const ordered = [...findings].sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
+    const capped = ordered.slice(0, this.config.maxTotalFindings);
+    if (ordered.length > capped.length) {
+      limitations.push(`Findings capped at ${this.config.maxTotalFindings} for this set (${ordered.length} were reported across all batches).`);
+    }
+
+    return {
+      summary: {
+        sheet_count: pageCount,
+        detected_trade_scope: [...trades],
+        scale_status: scaleConflict ? 'conflicting' : scaleDetected ? 'detected' : 'missing',
+        human_review_required: true,
+        limitations: [...new Set([...limitations, ...batchNotes])],
+        ...(address ? { project_address: address } : {}),
+      },
+      findings: capped,
+    };
   }
 }

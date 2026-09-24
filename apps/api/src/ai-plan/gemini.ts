@@ -26,6 +26,8 @@ export interface GeminiPlanReadInput {
   linework?: DrawingLinework;
   /** Deterministic per-page transcript of printed notes, labels and title blocks. */
   sheetText?: SheetText;
+  /** Physical pages in the complete set (from PDF preflight), so a reader can sweep a large set reliably. */
+  pageCount?: number;
   /** Deep orchestrators opt into HIGH per-sheet reasoning; Quick/Pilot remains LOW. */
   reasoningEffort?: 'low' | 'high';
 }

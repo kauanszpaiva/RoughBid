@@ -372,6 +372,7 @@ export class AiPlanReadingService {
         scope,
         ...(linework ? { linework } : {}),
         ...(sheetText ? { sheetText } : {}),
+        pageCount: readingPageCount,
         ...(pageRequest ? { reasoningEffort: 'high' as const } : {}),
       }));
       // A provider failure still fails closed: deterministic linework is only

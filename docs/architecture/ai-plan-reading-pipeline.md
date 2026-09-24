@@ -39,15 +39,25 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Every reader receives a bounded `DETERMINISTIC VECTOR LINEWORK` digest in its prompt (Gemini/Claude as an extra content part, OpenAI-compatible providers as prompt text, OpenRouter as `linework_digest`), so the model can locate walls, outlines and rooms against measured geometry instead of guessing.
    - The largest closed outlines are also appended to the reading as `measurement` findings carrying normalized `geometry.bbox` and a deterministic source excerpt. Their quantity and unit stay `null`: a vector outline is a location, not a takeoff, and it is never priced. Every addition is disclosed in `summary.limitations`.
    - Control: `AI_PLAN_VECTOR_LINEWORK_ENABLED` (default on; set `false` to skip local geometry). A page review reads linework only for the single physical page it sends.
+   - The same pass transcribes the sheet's **printed text layer** (`apps/api/src/ai-plan/sheet-text.ts`): notes, keynotes, tags, schedule lines, heading candidates, the title-block sheet number and the printed scale, page by page, inside a per-page and per-set character budget.
+   - It is attached to every reader as a `NATIVE SHEET TEXT` block, so a model citing a note quotes the printed characters instead of paraphrasing them, and small printed detail is not lost to a page skim. A sheet with an image and no text layer is reported as having little or no text layer rather than as an empty sheet, and a page review transcribes only the page it sends.
+   - Control: `AI_PLAN_SHEET_TEXT_ENABLED` (default on), `AI_PLAN_SHEET_TEXT_MAX_PAGES` (80), `AI_PLAN_SHEET_TEXT_MAX_CHARS` (30000), `AI_PLAN_SHEET_TEXT_MAX_CHARS_PER_PAGE` (1500).
 
-7. **Evidence and review**
+7. **Whole-set reading (one request per window)**
+   - A 60-sheet set cannot be read honestly in one request: the model skims it, the output ceiling truncates the tail, and nothing records which sheets were examined. `apps/api/src/ai-plan/plan-batches.ts` splits a set into ordered windows of physical pages, and `OpenAiCompatibleVisionPlanReader` sweeps them for the PDF-native OpenAI route, one metered provider request per window.
+   - Each window is a standalone PDF (`pdf-lib` copies only its pages), so the provider is told to cite page `1..n` **local to that request** and the reader restores the original physical numbering deterministically. A finding that cites a page outside its own window is dropped and counted in `summary.limitations`.
+   - Every window is reserved against the company spend breaker separately, so one oversized set cannot slip past the cap unnoticed.
+   - Nothing invents coverage: a failed batch, a window the request cap never reached, and a whole-set findings cap are each named in `summary.limitations`. A sweep that produces no findings at all rethrows the provider failure so the multi-provider orchestrator can try the next reader.
+   - Controls: `AI_PLAN_OPENAI_BATCH_PAGES` (8, max 50), `AI_PLAN_OPENAI_MAX_BATCHES` (25, max 60), `AI_PLAN_MAX_TOTAL_FINDINGS` (400, max 1000), `AI_PLAN_OPENAI_SWEEP=false` to send the whole set in one request. The image-native providers never sweep: they read exactly the rendered pages they were given.
+
+8. **Evidence and review**
    - Save every extracted item as a `plan_reading_findings` row.
    - Include confidence, page number, geometry/source excerpt, and review status.
    - Default every finding to `needs_review`.
    - Allow accepted findings to generate draft takeoff quantities; rejected findings never affect estimate math.
    - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
-8. **Pricing and model behavior**
+9. **Pricing and model behavior**
    - Gemini is the production reader. The request handler uses one configured `GEMINI_MODEL` and disables SDK retries so one paid attempt does not silently fan out into provider retries.
    - If Gemini is missing, unavailable, or returns no usable source-backed quantity, the job is marked failed and no substitute quantities are stored.
    - Every reader output goes through `apps/api/src/ai-plan/types.ts`'s `sanitizePlanReadingResult`: a quantity without a source page and source excerpt, or a unit outside SF/LF/EA/CY/SY/HR/LS, is dropped and disclosed in `summary.limitations` rather than trusted.
@@ -57,7 +67,7 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Every Gemini generation separately reserves against the database-atomic company-wide `provider_spend_policy`. Failed or missing telemetry retains the full reservation instead of being treated as $0.
    - Findings are written through a service-role Supabase connection constructed inline in the request handler (`apps/api/src/http/handler.ts`), the same way the billing endpoint already builds a service-role repository per-request — never a separate always-on process, and never a key sent to the browser.
 
-9. **Estimate integration**
+10. **Estimate integration**
    - Accepted measurements map into RoughBid quantity groups.
    - Accepted material and labor findings carry a priced suggestion (see Pricing above) an estimator can accept, adjust, or reject before it becomes a real estimate line.
    - Proposal/export remains blocked until plan, quantity, estimate, and review gates are complete.
@@ -70,6 +80,9 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 - `OPENAI_PLAN_READING_ENABLED` + `OPENAI_API_KEY` + `OPENAI_MODEL` (+ optional host-pinned `OPENAI_BASE_URL`): OpenAI as a paid plan reader. It attaches the plan PDF directly (`data:application/pdf;base64,...`), so it needs no server-side page renderer, and prefers rendered page images when they exist. Default model `gpt-4.1`.
 - `AI_PLAN_PROVIDER_ORDER`: default `gemini,claude,openai,kimi,deepseek`. Unknown or unconfigured names are skipped; a reader is only built when its own gate passes.
 - `AI_PLAN_VECTOR_LINEWORK_ENABLED`: default on. Set `false` to skip local PDF vector-linework reading and its geometry findings.
+- `AI_PLAN_SHEET_TEXT_ENABLED` / `AI_PLAN_SHEET_TEXT_MAX_PAGES` / `AI_PLAN_SHEET_TEXT_MAX_CHARS` / `AI_PLAN_SHEET_TEXT_MAX_CHARS_PER_PAGE`: local printed-text transcript and its bounds.
+- `AI_PLAN_OPENAI_BATCH_PAGES` / `AI_PLAN_OPENAI_MAX_BATCHES` / `AI_PLAN_OPENAI_SWEEP`: whole-set sweep window size, request cap and off switch for the OpenAI reader.
+- `AI_PLAN_MAX_TOTAL_FINDINGS`: ceiling on findings kept from a whole-set sweep.
 - `SUPABASE_SERVICE_ROLE_KEY`: used inline for paid quote creation, webhook reconciliation, job reservation, and inserting `plan_reading_findings`.
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`: required before project-reading checkout can charge or grant a paid quote.
 - `PROJECT_PRICING_VERSION`, `PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`, `PROJECT_PAYMENT_FIXED_CENTS`, `PROJECT_PAYMENT_FEE_BPS`: required measured cost policy for dynamic per-project charges.
