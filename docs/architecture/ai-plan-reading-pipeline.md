@@ -38,6 +38,9 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Nothing leaves the process and no provider is billed for this step. It is the only part of the pipeline that reads *lines and shapes* rather than text and pixels.
    - Every reader receives a bounded `DETERMINISTIC VECTOR LINEWORK` digest in its prompt (Gemini/Claude as an extra content part, OpenAI-compatible providers as prompt text, OpenRouter as `linework_digest`), so the model can locate walls, outlines and rooms against measured geometry instead of guessing.
    - The largest closed outlines are also appended to the reading as `measurement` findings carrying normalized `geometry.bbox` and a deterministic source excerpt. Their quantity and unit stay `null`: a vector outline is a location, not a takeoff, and it is never priced. Every addition is disclosed in `summary.limitations`.
+   - **A closed outline is not a room.** Measured on a real school set, the closed axis-aligned outlines the path walk finds are 2305x137 and 1948x120 point rectangles — window bands and wall runs — because a plan draws a room as four separate wall lines, not as one closed path. Rooms, closets and bathrooms are therefore found the way a person finds them: the long straight runs are rasterized onto a wall grid, the free space is flood filled, and each enclosed region becomes a space. Because a room connects to the corridor through its doorway, the grid is one connected circulation zone until the doorways are closed, so the gaps are detected first: **a doorway is not drawn as an object, it is a wall that stops and starts again.** Collinear runs are swept in offset buckets, and a gap between 5 and 44 points that is no wider than half its shorter neighbour becomes an opening. Those openings are reported in their own right — they are the doors — and are closed on the grid so the flood fill returns rooms rather than circulation.
+   - Spaces and openings are appended as `measurement` findings with a normalized bbox and no quantity, for the same reason a closed outline has none. **The space budget is split between the largest and the smallest spaces**, because a largest-first list is what made closets invisible: on the real set the closet-sized spaces are exactly the ones the top of a size-sorted list never reaches. Caps: `MAX_SPACE_FINDINGS`, `MAX_OPENING_FINDINGS`, `MAX_SPACES_PER_PAGE`, `MAX_OPENINGS_PER_PAGE`.
+   - What this still cannot do: where a doorway is missed, two rooms read as one space, and a sheet of detail panels reads as a set of room-sized boxes. Both are disclosed rather than hidden, and finding the opening is what fixes the first.
    - Control: `AI_PLAN_VECTOR_LINEWORK_ENABLED` (default on; set `false` to skip local geometry), `AI_PLAN_LINEWORK_MAX_PAGES` (100, max 200 — the product accepts at most 100 physical pages, so the default covers a whole supported set) and `AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE` (200000, max 500000). Both limits are bounded so one oversized set cannot monopolize a request. A page review reads linework only for the single physical page it sends.
    - The two limits are reported **separately**, because they mean different things and the old wording conflated them. The page limit means later sheets were never read, so the digest tells the model which sheets it does not describe and `summary.limitations` records that a partial drawing must not read as a complete one. The per-page segment limit means one dense sheet was cut while every other sheet was measured in full, so the notice names those sheets instead of claiming later sheets have no measured lines at all.
    - The per-page limit matters in practice: on a real 19-page school set the previous 20000 cap saturated the four densest sheets — the demolition and floor plans that carry every door and window tag — and the file reported 1477 closed outlines. At 200000 the same file saturated nothing and reported 1900, in the same wall-clock time, because walking the PDF operator list (not the arithmetic over its segments) dominates the cost. Real sets were measured at up to ~99000 segments on a single sheet.
@@ -76,6 +79,38 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Accepted measurements map into RoughBid quantity groups.
    - Accepted material and labor findings carry a priced suggestion (see Pricing above) an estimator can accept, adjust, or reject before it becomes a real estimate line.
    - Proposal/export remains blocked until plan, quantity, estimate, and review gates are complete.
+
+## Drawing Versus Document Checks
+
+A cost estimate can be internally consistent and still contradict the drawings it was prepared
+from. The North Elementary School (Somerset, MA) design-development estimate sums to 2,467 SF of
+window/storefront — exactly the total of the window types printed in its own line items — while the
+sheets it cites print `17'-8 1/2"` and `17'-9"` for two of those types and never print the
+`11'-8 1/2"` they were priced at. Three window types were under-measured by about 146 SF, roughly
+5.9% of the largest trade line, and nothing in the estimate gave it away.
+
+`apps/api/src/ai-plan/drawing-conflicts.ts` compares a document that claims sized openings against
+the dimensions the drawings print. It is deterministic, local, and needs no provider: both sides are
+text already extracted from the PDFs, so it runs even when no reader is configured.
+
+- `claimedWindowTypes` reads window and storefront type lines (`Window type D; 11'-8 1/2" x 8'-0"
+  1 ea`), including type groups such as `A1/A2/A1-AC`, with the printed line as evidence. A line
+  printing alternative sizes (`5'-7" / 5'-8 1/2" x 7'-0"`) is skipped rather than guessed at.
+- `drawnRoughOpenings` reads every size the drawings mark `R.O.` — that marker is what makes a
+  printed dimension attributable to an opening rather than to a wall, a room or a level.
+- `compareWindowTypes` reports a priced size the drawings never print, and a drawn rough opening no
+  priced type matches, each with its sheet and excerpt. Matching is by size within a tolerance, not
+  by type label, so a conflict says only that much: it never claims to know which opening the
+  document meant. An empty side reports nothing, because an empty transcript is not evidence of
+  absence and would otherwise turn "nothing to compare" into a page of conflicts.
+- Doors are out of scope: their sizes live in a schedule table without an `R.O.` marker, and
+  estimate door lines routinely carry pairs and alternative sizes, so comparing them here would
+  manufacture disagreements.
+- `describeOpeningConflictNotice` writes the result into `summary.limitations`, so a reading that
+  could not confirm the quantities says so instead of reading as agreement.
+
+Run it against a real pair with `node --experimental-strip-types
+scripts/plan-budget-conflicts.ts <drawings.pdf> <estimate.pdf>`.
 
 ## Required Runtime Configuration
 

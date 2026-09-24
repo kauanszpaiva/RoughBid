@@ -136,12 +136,17 @@ test('a page review reads the drawing vector linework and saves it as reviewable
   assert.equal(page.regions[0].heightPoints,60);
   // Deterministic shape evidence is saved as reviewable geometry with no quantity.
   const geometry=result.plan_reading_findings.filter((f:any)=>String(f.source_excerpt).startsWith('Deterministic PDF vector linework'));
-  assert.equal(geometry.length,1);
+  assert.ok(geometry.length>=1);
+  // Every piece of measured geometry, whether a closed outline, a space enclosed
+  // by the walls or an opening between wall runs, stays a location: no scale was
+  // verified, so none of them may carry a quantity or a unit.
+  for(const finding of geometry){
+    assert.equal(finding.quantity,null);
+    assert.equal(finding.unit,null);
+    assert.equal(finding.finding_type,'measurement');
+    assert.equal(finding.geometry.bbox.length,4);
+  }
   assert.equal(geometry[0].page_number,2);
-  assert.equal(geometry[0].quantity,null);
-  assert.equal(geometry[0].unit,null);
-  assert.equal(geometry[0].finding_type,'measurement');
-  assert.equal(geometry[0].geometry.bbox.length,4);
   // The model's own finding is untouched and still first.
   assert.equal(result.plan_reading_findings[0].label,'Bedroom');
   assert.equal(result.plan_reading_findings[0].quantity,100);

@@ -102,10 +102,11 @@ test('a capped outline list says how many were detected in total', () => {
   const many = linework([page(1, 3)], false, 100);
   const capped = mergeLineworkFindings([], many, { maxFindings: 1 });
   assert.equal(capped.added, 1);
-  assert.match(capped.note!, /closed outline\(s\) were added as unlabeled geometry evidence/);
-  assert.match(capped.note!, /3 closed outline\(s\) were detected in total/);
+  assert.match(capped.note!, /closed outline\(s\)/);
+  assert.match(capped.note!, /3 closed outline\(s\)/);
+  assert.match(capped.note!, /are not listed again/);
 
   const all = mergeLineworkFindings([], linework([page(1, 1)], false, 100));
   assert.equal(all.added, 1);
-  assert.doesNotMatch(all.note!, /were detected in total/);
+  assert.doesNotMatch(all.note!, /are not listed again/);
 });

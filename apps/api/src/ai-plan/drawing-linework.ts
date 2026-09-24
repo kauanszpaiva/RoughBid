@@ -55,6 +55,22 @@ export const DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE = 200_000;
 export const MAX_LINEWORK_MAX_SEGMENTS_PER_PAGE = 500_000;
 export const DEFAULT_LINEWORK_MAX_REGIONS_PER_PAGE = 200;
 export const MAX_LINEWORK_FINDINGS = 40;
+/**
+ * A closed outline is not a room. Measured on a real school set, the closed
+ * axis-aligned outlines the path walk finds are 2305x137 and 1948x120 point
+ * rectangles — window bands and wall runs — because a plan draws a room as four
+ * separate wall lines, not as one closed path. A room, a closet and a bathroom
+ * are therefore found the way a person finds them: rasterize the walls and look
+ * at the space they enclose.
+ */
+const SPACE_GRID_LONG_EDGE = 1024;
+/** Cells painted either side of a wall stroke, so line ends and joints seal. */
+const WALL_BRUSH_CELLS = 1;
+/** Smaller than this share of the sheet is raster noise, not a space. */
+const MIN_SPACE_AREA_FRACTION = 0.00008;
+/** Below this share of the sheet a space is closet-sized rather than a room. */
+const SMALL_SPACE_AREA_FRACTION = 0.0025;
+export const MAX_SPACES_PER_PAGE = 160;
 /** Bounded so a digest can never crowd out the plan itself in a provider prompt. */
 export const MAX_DIGEST_CHARACTERS = 4_000;
 
@@ -71,6 +87,22 @@ export interface LineworkRegion {
   heightPoints: number;
   vertices: number;
   areaPoints2: number;
+}
+
+/**
+ * A space the drawn walls enclose: a room, a closet, a bathroom, a corridor.
+ * It exists because the drawing closes it off, not because anything is printed
+ * inside it, which is what makes an unlabelled closet visible at all.
+ */
+export interface EnclosedSpace {
+  /** [x, y, width, height] normalized 0..1 from the top-left of the displayed page. */
+  bbox: [number, number, number, number];
+  widthPoints: number;
+  heightPoints: number;
+  /** Share of the analysable sheet this space covers. */
+  areaFraction: number;
+  /** Aspect-free size band: a closet-sized space versus a room-sized one. */
+  size: 'small' | 'room';
 }
 
 export interface PageLinework {
@@ -90,6 +122,10 @@ export interface PageLinework {
   diagonal: LineworkRunSummary;
   wallLikeSegments: number;
   regions: LineworkRegion[];
+  /** Spaces the wall strokes enclose on this sheet, largest first. */
+  spaces: EnclosedSpace[];
+  /** Gaps between collinear wall runs: the doorways and openings. */
+  openings: LineworkOpening[];
   truncated: boolean;
 }
 
@@ -274,8 +310,222 @@ function summarizePage(pageNumber: number, geometry: {
     diagonal: emptyRun(),
     wallLikeSegments: 0,
     regions: [],
+    spaces: [],
+    openings: [],
     truncated: false,
   };
+}
+
+/** Paints one device-space segment onto the wall raster with a square brush. */
+function paintWallStroke(
+  grid: Uint8Array,
+  gridWidth: number,
+  gridHeight: number,
+  from: readonly [number, number],
+  to: readonly [number, number],
+  pageWidthPoints: number,
+  pageHeightPoints: number,
+): void {
+  const cellX = (value: number): number => Math.round((value / pageWidthPoints) * (gridWidth - 1));
+  const cellY = (value: number): number => Math.round((value / pageHeightPoints) * (gridHeight - 1));
+  const x0 = cellX(from[0]);
+  const y0 = cellY(from[1]);
+  const x1 = cellX(to[0]);
+  const y1 = cellY(to[1]);
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let step = 0; step <= steps; step += 1) {
+    const t = steps === 0 ? 0 : step / steps;
+    const cx = Math.round(x0 + (x1 - x0) * t);
+    const cy = Math.round(y0 + (y1 - y0) * t);
+    for (let dy = -WALL_BRUSH_CELLS; dy <= WALL_BRUSH_CELLS; dy += 1) {
+      const y = cy + dy;
+      if (y < 0 || y >= gridHeight) continue;
+      for (let dx = -WALL_BRUSH_CELLS; dx <= WALL_BRUSH_CELLS; dx += 1) {
+        const x = cx + dx;
+        if (x < 0 || x >= gridWidth) continue;
+        grid[y * gridWidth + x] = 1;
+      }
+    }
+  }
+}
+
+/** A straight wall run in device space, bucketed later by axis and offset. */
+interface WallRun {
+  orientation: 'horizontal' | 'vertical' | 'diagonal';
+  offset: number;
+  start: number;
+  end: number;
+  from: [number, number];
+  to: [number, number];
+}
+
+/**
+ * A gap between two collinear wall runs. This is the door: a plan does not draw
+ * a doorway as an object, it draws a wall that stops and starts again, and the
+ * gap is the opening. It is also what makes rooms separable at all — a room
+ * connects to the corridor through its doorway, so until the gaps are closed the
+ * free space is one connected circulation zone instead of a set of rooms.
+ */
+export interface LineworkOpening {
+  /** [x, y, width, height] normalized 0..1 from the top-left of the displayed page. */
+  bbox: [number, number, number, number];
+  /** The clear width of the gap, in points. Without a scale it is not a door size. */
+  widthPoints: number;
+  orientation: 'horizontal' | 'vertical';
+}
+
+/** Below this a gap is a drafting break; above it the runs are not one wall. */
+const OPENING_MIN_POINTS = 5;
+const OPENING_MAX_POINTS = 44;
+/** A gap wider than this share of its shorter neighbour is a different wall. */
+const OPENING_MAX_GAP_RATIO = 0.5;
+/** Runs within this many points of each other are the same wall line. */
+const OPENING_OFFSET_TOLERANCE_POINTS = 1.5;
+/** Angles within this many points off axis still count as axis-aligned. */
+const OPENING_AXIS_TOLERANCE_POINTS = 1.5;
+export const MAX_OPENINGS_PER_PAGE = 400;
+
+function wallRunFromSegment(from: readonly [number, number], to: readonly [number, number]): WallRun {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  if (Math.abs(dy) <= OPENING_AXIS_TOLERANCE_POINTS) {
+    return { orientation: 'horizontal', offset: (from[1] + to[1]) / 2, start: Math.min(from[0], to[0]), end: Math.max(from[0], to[0]), from: [from[0], from[1]], to: [to[0], to[1]] };
+  }
+  if (Math.abs(dx) <= OPENING_AXIS_TOLERANCE_POINTS) {
+    return { orientation: 'vertical', offset: (from[0] + to[0]) / 2, start: Math.min(from[1], to[1]), end: Math.max(from[1], to[1]), from: [from[0], from[1]], to: [to[0], to[1]] };
+  }
+  return { orientation: 'diagonal', offset: 0, start: 0, end: 0, from: [from[0], from[1]], to: [to[0], to[1]] };
+}
+
+/**
+ * Sweeps collinear runs in offset buckets and reports the gaps between them.
+ * Bucketing keeps this near-linear: comparing every run with every other run on
+ * a sheet carrying a hundred thousand strokes would not finish.
+ */
+function detectOpenings(
+  runs: readonly WallRun[],
+  pageWidthPoints: number,
+  pageHeightPoints: number,
+): { openings: Array<LineworkOpening & { from: [number, number]; to: [number, number] }>; gaps: Array<[[number, number], [number, number]]> } {
+  const buckets = new Map<string, WallRun[]>();
+  for (const run of runs) {
+    if (run.orientation === 'diagonal') continue;
+    const key = `${run.orientation}|${Math.round(run.offset / OPENING_OFFSET_TOLERANCE_POINTS)}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(run);
+    else buckets.set(key, [run]);
+  }
+  const openings: Array<LineworkOpening & { from: [number, number]; to: [number, number] }> = [];
+  const gaps: Array<[[number, number], [number, number]]> = [];
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2 || openings.length >= MAX_OPENINGS_PER_PAGE) continue;
+    bucket.sort((a, b) => a.start - b.start);
+    for (let index = 1; index < bucket.length; index += 1) {
+      if (openings.length >= MAX_OPENINGS_PER_PAGE) break;
+      const before = bucket[index - 1] as WallRun;
+      const after = bucket[index] as WallRun;
+      const gap = after.start - before.end;
+      if (gap < OPENING_MIN_POINTS || gap > OPENING_MAX_POINTS) continue;
+      const shorter = Math.min(before.end - before.start, after.end - after.start);
+      if (shorter > 0 && gap > shorter * OPENING_MAX_GAP_RATIO) continue;
+      const horizontal = before.orientation === 'horizontal';
+      const offset = (before.offset + after.offset) / 2;
+      const first: [number, number] = horizontal ? [before.end, offset] : [offset, before.end];
+      const second: [number, number] = horizontal ? [after.start, offset] : [offset, after.start];
+      const ratioOf = (value: number, total: number): number => Math.round((value / total) * 10_000) / 10_000;
+      openings.push({
+        bbox: horizontal
+          ? [ratioOf(Math.min(first[0], second[0]), pageWidthPoints), ratioOf(offset, pageHeightPoints), ratioOf(gap, pageWidthPoints), 0]
+          : [ratioOf(offset, pageWidthPoints), ratioOf(Math.min(first[1], second[1]), pageHeightPoints), 0, ratioOf(gap, pageHeightPoints)],
+        widthPoints: round(gap, 3),
+        orientation: horizontal ? 'horizontal' : 'vertical',
+        from: first,
+        to: second,
+      });
+      gaps.push([first, second]);
+    }
+  }
+  return { openings, gaps };
+}
+
+interface RawSpace {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  cells: number;
+  touchesBorder: boolean;
+}
+
+/** Four-connected flood fill of everything the walls do not block. */
+function floodFillSpaces(grid: Uint8Array, gridWidth: number, gridHeight: number): RawSpace[] {
+  const seen = new Uint8Array(grid.length);
+  const spaces: RawSpace[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < grid.length; start += 1) {
+    if (grid[start] || seen[start]) continue;
+    seen[start] = 1;
+    stack.length = 0;
+    stack.push(start);
+    let cells = 0;
+    let x0 = gridWidth;
+    let y0 = gridHeight;
+    let x1 = -1;
+    let y1 = -1;
+    let touchesBorder = false;
+    while (stack.length) {
+      const index = stack.pop() as number;
+      const x = index % gridWidth;
+      const y = (index - x) / gridWidth;
+      cells += 1;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (x === 0 || y === 0 || x === gridWidth - 1 || y === gridHeight - 1) touchesBorder = true;
+      if (x > 0) { const next = index - 1; if (!grid[next] && !seen[next]) { seen[next] = 1; stack.push(next); } }
+      if (x < gridWidth - 1) { const next = index + 1; if (!grid[next] && !seen[next]) { seen[next] = 1; stack.push(next); } }
+      if (y > 0) { const next = index - gridWidth; if (!grid[next] && !seen[next]) { seen[next] = 1; stack.push(next); } }
+      if (y < gridHeight - 1) { const next = index + gridWidth; if (!grid[next] && !seen[next]) { seen[next] = 1; stack.push(next); } }
+    }
+    spaces.push({ x0, y0, x1, y1, cells, touchesBorder });
+  }
+  return spaces;
+}
+
+/**
+ * Turns the wall raster into the spaces it encloses. The largest region that
+ * reaches the sheet border is the world outside the building and is dropped;
+ * everything else that is big enough to be a space is kept, smallest included,
+ * because a closet is exactly the thing a label-only reading never finds.
+ */
+function enclosedSpacesFrom(
+  grid: Uint8Array,
+  gridWidth: number,
+  gridHeight: number,
+  pageWidthPoints: number,
+  pageHeightPoints: number,
+): EnclosedSpace[] {
+  const raw = floodFillSpaces(grid, gridWidth, gridHeight);
+  const total = gridWidth * gridHeight;
+  const outside = raw.filter(space => space.touchesBorder).sort((a, b) => b.cells - a.cells)[0];
+  const kept = raw
+    .filter(space => space !== outside)
+    .filter(space => space.cells / total >= MIN_SPACE_AREA_FRACTION)
+    .sort((a, b) => b.cells - a.cells)
+    .slice(0, MAX_SPACES_PER_PAGE);
+  return kept.map(space => {
+    const width = (space.x1 - space.x0 + 1) / gridWidth;
+    const height = (space.y1 - space.y0 + 1) / gridHeight;
+    const areaFraction = space.cells / total;
+    return {
+      bbox: [round(space.x0 / gridWidth, 4), round(space.y0 / gridHeight, 4), round(width, 4), round(height, 4)],
+      widthPoints: round(width * pageWidthPoints, 3),
+      heightPoints: round(height * pageHeightPoints, 3),
+      areaFraction: round(areaFraction, 6),
+      size: areaFraction < SMALL_SPACE_AREA_FRACTION ? 'small' as const : 'room' as const,
+    };
+  });
 }
 
 /**
@@ -328,6 +578,17 @@ export async function extractDrawingLinework(
         let ctm: number[] = [...viewport.transform];
         const stack: Array<{ ctm: number[]; lineWidthPoints: number }> = [];
         let lineWidthPoints = 1;
+        // Wall raster for this sheet: painted as the strokes are walked, then
+        // flood filled once the walk is done.
+        const gridLongEdge = SPACE_GRID_LONG_EDGE;
+        const gridWidth = viewport.width >= viewport.height
+          ? gridLongEdge
+          : Math.max(64, Math.round(gridLongEdge * (viewport.width / viewport.height)));
+        const gridHeight = viewport.width >= viewport.height
+          ? Math.max(64, Math.round(gridLongEdge * (viewport.height / viewport.width)))
+          : gridLongEdge;
+        const walls = new Uint8Array(gridWidth * gridHeight);
+        const wallRuns: WallRun[] = [];
 
         for (let index = 0; index < fnArray.length; index += 1) {
           const fn = fnArray[index];
@@ -388,6 +649,15 @@ export async function extractDrawingLinework(
             else if (Math.abs(dx) <= tolerance) addRun(summary.vertical, lengthPoints);
             else { addRun(summary.diagonal, lengthPoints); axisAligned = false; }
             if (thicknessPoints >= WALL_MIN_THICKNESS_POINTS && lengthPoints >= WALL_MIN_LENGTH_POINTS) summary.wallLikeSegments += 1;
+            // Every long straight run blocks, whether it is stroked or the edge
+            // of a filled shape: a plan draws walls as thick lines and as filled
+            // bands depending on the author, and a single unblocked gap merges
+            // every room on the sheet into the space outside the building.
+            // Text, tags and hatching are short and never reach this length.
+            if (lengthPoints >= WALL_MIN_LENGTH_POINTS) {
+              paintWallStroke(walls, gridWidth, gridHeight, from, to, viewport.width, viewport.height);
+              wallRuns.push(wallRunFromSegment(from, to));
+            }
             minX = Math.min(minX, from[0], to[0]); maxX = Math.max(maxX, from[0], to[0]);
             minY = Math.min(minY, from[1], to[1]); maxY = Math.max(maxY, from[1], to[1]);
           }
@@ -413,6 +683,14 @@ export async function extractDrawingLinework(
         }
 
         if (summary.truncated) segmentLimitedPages.push(pageNumber);
+        // Close the doorways before flooding: a room connects to the corridor
+        // through its opening, so unclosed gaps merge every room into one space.
+        const detected = detectOpenings(wallRuns, viewport.width, viewport.height);
+        for (const [from, to] of detected.gaps) {
+          paintWallStroke(walls, gridWidth, gridHeight, from, to, viewport.width, viewport.height);
+        }
+        summary.openings = detected.openings.map(({ bbox, widthPoints, orientation }) => ({ bbox, widthPoints, orientation }));
+        summary.spaces = enclosedSpacesFrom(walls, gridWidth, gridHeight, viewport.width, viewport.height);
         regions.sort((a, b) => b.areaPoints2 - a.areaPoints2);
         summary.totalLengthPoints = round(summary.totalLengthPoints, 3);
         for (const run of [summary.horizontal, summary.vertical, summary.diagonal]) {
@@ -527,6 +805,79 @@ export function lineworkGeometryFindings(
   }));
 }
 
+export const MAX_SPACE_FINDINGS = 60;
+export const MAX_OPENING_FINDINGS = 60;
+
+/**
+ * Turns the spaces the walls enclose, and the openings between them, into
+ * reviewable findings. Quantities stay null for the same reason they do for a
+ * closed outline: without a verified scale this is a location, not a takeoff.
+ *
+ * The space budget is split between the largest and the smallest spaces on
+ * purpose. A largest-first list is what made a closets invisible: on a real
+ * school set the smallest spaces are the closets and the bathrooms, and they are
+ * exactly the ones the top of a size-sorted list never reaches.
+ */
+export function lineworkSpaceFindings(
+  linework: DrawingLinework | undefined,
+  options: { maxSpaces?: number; maxOpenings?: number } = {},
+): PlanReadingFinding[] {
+  if (!linework?.pages.length) return [];
+  const maxSpaces = Math.max(0, Math.min(options.maxSpaces ?? MAX_SPACE_FINDINGS, MAX_SPACE_FINDINGS));
+  const maxOpenings = Math.max(0, Math.min(options.maxOpenings ?? MAX_OPENING_FINDINGS, MAX_OPENING_FINDINGS));
+  const findings: PlanReadingFinding[] = [];
+
+  if (maxSpaces) {
+    const entries = linework.pages.flatMap(page => (page.spaces ?? []).map(space => ({ page, space })));
+    const largest = [...entries].sort((a, b) => b.space.areaFraction - a.space.areaFraction);
+    const smallest = [...entries].sort((a, b) => a.space.areaFraction - b.space.areaFraction);
+    const chosen = [...largest.slice(0, Math.ceil(maxSpaces / 2)), ...smallest.slice(0, Math.floor(maxSpaces / 2))];
+    const seen = new Set<string>();
+    for (const { page, space } of chosen) {
+      const key = `${page.pageNumber}|${space.bbox.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push({
+        page_number: page.pageNumber,
+        finding_type: 'measurement' as const,
+        label: space.size === 'small'
+          ? `Unlabeled enclosed space, closet-sized (page ${page.pageNumber})`
+          : `Unlabeled enclosed space, room-sized (page ${page.pageNumber})`,
+        value_text: `${space.size === 'small' ? 'closet-sized' : 'room-sized'} space ${space.widthPoints}x${space.heightPoints} pt; `
+          + 'found from the drawn walls, not from a printed label; no scale applied, no quantity measured.',
+        quantity: null,
+        unit: null,
+        confidence: 0.4,
+        geometry: { bbox: space.bbox, coordinate_space: 'normalized', area: `${space.size} enclosed space` },
+        source_excerpt: `Deterministic PDF vector linework: free space enclosed by the drawn walls on page ${page.pageNumber}, `
+          + `page bbox [${space.bbox.join(', ')}] normalized. Doorway gaps on this page were closed before measuring, `
+          + 'so a space here is a room, closet or bathroom rather than the circulation that connects them.',
+      });
+    }
+  }
+
+  if (maxOpenings) {
+    const entries = linework.pages.flatMap(page => (page.openings ?? []).map(opening => ({ page, opening })));
+    for (const { page, opening } of entries.slice(0, maxOpenings)) {
+      findings.push({
+        page_number: page.pageNumber,
+        finding_type: 'measurement' as const,
+        label: `Wall opening ${opening.widthPoints} pt wide (page ${page.pageNumber})`,
+        value_text: `${opening.orientation} opening between two collinear wall runs, clear width ${opening.widthPoints} pt; `
+          + 'a doorway or an opening in a wall, not a wall itself; no scale applied, no quantity measured.',
+        quantity: null,
+        unit: null,
+        confidence: 0.35,
+        geometry: { bbox: opening.bbox, coordinate_space: 'normalized', area: 'opening between wall runs' },
+        source_excerpt: `Deterministic PDF vector linework: a ${opening.orientation} wall run stops and resumes after `
+          + `${opening.widthPoints} pt on page ${page.pageNumber}, page bbox [${opening.bbox.join(', ')}] normalized.`,
+      });
+    }
+  }
+
+  return findings;
+}
+
 /**
  * Adds the measured linework to a reading result without displacing what the
  * model found. Deterministic geometry is appended (never substituted) and
@@ -538,20 +889,26 @@ export function mergeLineworkFindings(
   options: { pageCount?: number; maxFindings?: number } = {},
 ): { findings: PlanReadingFinding[]; added: number; note: string | null } {
   const pageCount = options.pageCount;
-  const extra = lineworkGeometryFindings(linework, options)
+  const geometry = [...lineworkGeometryFindings(linework, options), ...lineworkSpaceFindings(linework)];
+  const extra = geometry
     .filter(finding => finding.page_number !== null
       && (pageCount === undefined || (finding.page_number >= 1 && finding.page_number <= pageCount)))
     .filter(finding => !findings.some(existing => existing.page_number === finding.page_number
       && JSON.stringify(existing.geometry?.bbox) === JSON.stringify(finding.geometry.bbox)));
   if (!extra.length) return { findings: [...findings], added: 0, note: null };
   // A capped or duplicate-suppressed list must not look like the whole drawing.
-  const detected = linework?.pages.reduce((sum, page) => sum + page.regions.length, 0) ?? 0;
+  const regionsDetected = linework?.pages.reduce((sum, page) => sum + page.regions.length, 0) ?? 0;
+  const spacesDetected = linework?.pages.reduce((sum, page) => sum + (page.spaces?.length ?? 0), 0) ?? 0;
+  const openingsDetected = linework?.pages.reduce((sum, page) => sum + (page.openings?.length ?? 0), 0) ?? 0;
   return {
     findings: [...findings, ...extra],
     added: extra.length,
-    note: `PDF vector linework was read locally and ${extra.length} closed outline(s) were added as unlabeled geometry evidence needing review; they carry no quantity because no scale was applied.`
-      + (detected > extra.length
-        ? ` ${detected} closed outline(s) were detected in total; locations already reported by the model and the per-reading outline cap are not listed again.`
+    note: `PDF vector linework was read locally and ${extra.length} piece(s) of geometry evidence were added for review: `
+      + `${regionsDetected} closed outline(s), ${spacesDetected} space(s) enclosed by the drawn walls (rooms, closets, bathrooms, `
+      + `including ones with no printed label) and ${openingsDetected} wall opening(s) where a wall run stops and resumes — the doorways. `
+      + 'None of them carries a quantity, because no scale was applied.'
+      + (regionsDetected + spacesDetected + openingsDetected > extra.length
+        ? ' Locations the model already reported and the per-reading caps are not listed again.'
         : ''),
   };
 }

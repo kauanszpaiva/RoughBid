@@ -112,9 +112,12 @@ test('linework findings merge alongside model findings, dedupe, and disclose the
     findings: [{ page_number: 1, finding_type: 'room', label: 'KITCHEN', quantity: null, unit: null, confidence: 0.8, source_excerpt: 'KITCHEN', geometry: { bbox: [0.05, 0.05, 0.1, 0.1] } }],
   }).findings;
   const merged = mergeLineworkFindings(modelFinding, linework, { pageCount: 1 });
-  assert.equal(merged.findings.length, 3);
-  assert.equal(merged.added, 2);
-  assert.match(merged.note!, /closed outline\(s\) were added as unlabeled geometry evidence/);
+  assert.ok(merged.added >= 2, `expected the measured geometry to be added, added ${merged.added}`);
+  assert.equal(merged.findings.length, modelFinding.length + merged.added);
+  // The note names every kind of geometry added, so a reader is never left to
+  // guess where the extra findings came from.
+  assert.match(merged.note!, /closed outline\(s\)/);
+  assert.match(merged.note!, /space\(s\) enclosed by the drawn walls/);
   // Re-merging the same result must not duplicate geometry.
   const again = mergeLineworkFindings(merged.findings, linework, { pageCount: 1 });
   assert.equal(again.added, 0);
