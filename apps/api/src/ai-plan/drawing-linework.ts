@@ -66,6 +66,15 @@ export const MAX_LINEWORK_FINDINGS = 40;
 const SPACE_GRID_LONG_EDGE = 1024;
 /** Cells painted either side of a wall stroke, so line ends and joints seal. */
 const WALL_BRUSH_CELLS = 1;
+/**
+ * Morphological closing applied to the wall mask before the flood fill. Where
+ * two wall strokes meet with a sub-point break, or a wall arrives as several
+ * short strokes, the free space leaks through the hairline crack and every room
+ * on the sheet becomes one. One cell seals cracks of a cell or two, which is far
+ * narrower than the narrowest doorway this detector accepts, so it can close a
+ * drafting break but never a real opening.
+ */
+const WALL_CLOSING_CELLS = 1;
 /** Smaller than this share of the sheet is raster noise, not a space. */
 const MIN_SPACE_AREA_FRACTION = 0.00008;
 /** Below this share of the sheet a space is closet-sized rather than a room. */
@@ -457,6 +466,44 @@ interface RawSpace {
   touchesBorder: boolean;
 }
 
+/** Separable square max/min filter: dilate when `grow`, erode otherwise. */
+function morph(source: Uint8Array, width: number, height: number, radius: number, grow: boolean): Uint8Array {
+  const horizontal = new Uint8Array(source.length);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      let value = grow ? 0 : 1;
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const nx = x + dx;
+        const cell = nx < 0 || nx >= width ? 0 : source[row + nx] as number;
+        if (grow) { if (cell) { value = 1; break; } }
+        else if (!cell) { value = 0; break; }
+      }
+      horizontal[row + x] = value;
+    }
+  }
+  const vertical = new Uint8Array(source.length);
+  for (let x = 0; x < width; x += 1) {
+    for (let y = 0; y < height; y += 1) {
+      let value = grow ? 0 : 1;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const ny = y + dy;
+        const cell = ny < 0 || ny >= height ? 0 : horizontal[ny * width + x] as number;
+        if (grow) { if (cell) { value = 1; break; } }
+        else if (!cell) { value = 0; break; }
+      }
+      vertical[y * width + x] = value;
+    }
+  }
+  return vertical;
+}
+
+/** Closing: dilate then erode, which seals cracks without thickening the walls. */
+function closeCracks(grid: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+  if (radius <= 0) return grid;
+  return morph(morph(grid, width, height, radius, true), width, height, radius, false);
+}
+
 /** Four-connected flood fill of everything the walls do not block. */
 function floodFillSpaces(grid: Uint8Array, gridWidth: number, gridHeight: number): RawSpace[] {
   const seen = new Uint8Array(grid.length);
@@ -621,7 +668,8 @@ export async function extractDrawingLinework(
           if (!path) continue;
           summary.paths += 1;
           if (strokeOps.has(paintOp)) summary.strokedPaths += 1;
-          if (fillOps.has(paintOp) || fillStrokeOps.has(paintOp)) summary.filledPaths += 1;
+          const isFilled = fillOps.has(paintOp) || fillStrokeOps.has(paintOp);
+          if (isFilled) summary.filledPaths += 1;
           summary.curvedSegments += path.curved;
 
           // Stroking scales with the transform; the same factor converts a
@@ -634,6 +682,29 @@ export async function extractDrawingLinework(
             device.push([applyMatrix(from, ctm), applyMatrix(to, ctm)]);
           }
           if (summary.truncated) continue;
+
+          // The path's own extent, measured before the segment loop so a filled
+          // shape can be judged by the thickness of its band rather than by the
+          // line width, which a fill does not use.
+          let pathMinX = Infinity; let pathMinY = Infinity; let pathMaxX = -Infinity; let pathMaxY = -Infinity;
+          for (const [from, to] of device) {
+            if (from[0] < pathMinX) pathMinX = from[0];
+            if (to[0] < pathMinX) pathMinX = to[0];
+            if (from[0] > pathMaxX) pathMaxX = from[0];
+            if (to[0] > pathMaxX) pathMaxX = to[0];
+            if (from[1] < pathMinY) pathMinY = from[1];
+            if (to[1] < pathMinY) pathMinY = to[1];
+            if (from[1] > pathMaxY) pathMaxY = from[1];
+            if (to[1] > pathMaxY) pathMaxY = to[1];
+          }
+          // A schedule table exported from a spreadsheet draws each rule as a
+          // filled rectangle a fraction of a point tall. That is not a wall, and
+          // without this test every cell of the estimate became a room: the
+          // sample estimate produced 977 spaces on its own tables, 717 of them
+          // "closet-sized".
+          const pathBandPoints = Math.min(pathMaxX - pathMinX, pathMaxY - pathMinY);
+          const blocksAsWall = thicknessPoints >= WALL_MIN_THICKNESS_POINTS
+            || (isFilled && pathBandPoints >= WALL_MIN_THICKNESS_POINTS);
 
           let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
           let axisAligned = path.segments.length >= 3;
@@ -649,12 +720,11 @@ export async function extractDrawingLinework(
             else if (Math.abs(dx) <= tolerance) addRun(summary.vertical, lengthPoints);
             else { addRun(summary.diagonal, lengthPoints); axisAligned = false; }
             if (thicknessPoints >= WALL_MIN_THICKNESS_POINTS && lengthPoints >= WALL_MIN_LENGTH_POINTS) summary.wallLikeSegments += 1;
-            // Every long straight run blocks, whether it is stroked or the edge
-            // of a filled shape: a plan draws walls as thick lines and as filled
-            // bands depending on the author, and a single unblocked gap merges
-            // every room on the sheet into the space outside the building.
-            // Text, tags and hatching are short and never reach this length.
-            if (lengthPoints >= WALL_MIN_LENGTH_POINTS) {
+            // Only something that behaves like a wall blocks the space grid: a
+            // stroke drawn with real thickness, or the edge of a filled band at
+            // least as thick. A drafting hairline does not, which is what keeps
+            // the rules of a schedule table from turning every cell into a room.
+            if (lengthPoints >= WALL_MIN_LENGTH_POINTS && blocksAsWall) {
               paintWallStroke(walls, gridWidth, gridHeight, from, to, viewport.width, viewport.height);
               wallRuns.push(wallRunFromSegment(from, to));
             }
@@ -690,7 +760,13 @@ export async function extractDrawingLinework(
           paintWallStroke(walls, gridWidth, gridHeight, from, to, viewport.width, viewport.height);
         }
         summary.openings = detected.openings.map(({ bbox, widthPoints, orientation }) => ({ bbox, widthPoints, orientation }));
-        summary.spaces = enclosedSpacesFrom(walls, gridWidth, gridHeight, viewport.width, viewport.height);
+        summary.spaces = enclosedSpacesFrom(
+          closeCracks(walls, gridWidth, gridHeight, WALL_CLOSING_CELLS),
+          gridWidth,
+          gridHeight,
+          viewport.width,
+          viewport.height,
+        );
         regions.sort((a, b) => b.areaPoints2 - a.areaPoints2);
         summary.totalLengthPoints = round(summary.totalLengthPoints, 3);
         for (const run of [summary.horizontal, summary.vertical, summary.diagonal]) {

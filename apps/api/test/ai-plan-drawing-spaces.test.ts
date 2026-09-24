@@ -24,7 +24,11 @@ async function planWithRoomsAndDoorway(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([612, 792]);
   const wall = (x1: number, y1: number, x2: number, y2: number) =>
-    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 1 });
+    // A wall is drawn with real thickness. A drafting hairline is not a wall, and
+    // the detector relies on that to keep the rules of a schedule table from
+    // becoming rooms, so a fixture that drew walls as hairlines would be testing
+    // something no drawing does.
+    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 4 });
   // Outer walls.
   wall(60, 60, 552, 60);
   wall(552, 60, 552, 732);
