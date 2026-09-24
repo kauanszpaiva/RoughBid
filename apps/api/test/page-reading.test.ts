@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { AiPlanReadingService } from '../src/ai-plan/service.ts';
 import { PDF_DIGEST } from '../src/billing/project-preflight.ts';
 
-async function harness(options: { owner?: boolean; fail?: boolean; sourcePage?: number; consent?: boolean; withLinework?: boolean } = {}) {
+async function harness(options: { owner?: boolean; fail?: boolean; sourcePage?: number; consent?: boolean; withLinework?: boolean; withText?: boolean; excerpt?: string } = {}) {
   const doc = await PDFDocument.create();
+  const font = options.withText ? await doc.embedFont(StandardFonts.Helvetica) : null;
   for (let i=1;i<=3;i++) {
     const page = doc.addPage([200+i*10,400]);
+    if (font) page.drawText('KITCHEN 180 SF', { x: 20, y: 300, size: 9, font });
     if (options.withLinework) {
       // Known drawing linework: a 4' tall vertical run, a horizontal run and a closed room outline.
       page.drawLine({ start: { x: 40, y: 360 }, end: { x: 40, y: 240 }, thickness: 2 });
@@ -54,7 +56,7 @@ async function harness(options: { owner?: boolean; fail?: boolean; sourcePage?: 
   const reader:any={read:async(input:any)=>{
     reads.push(input);
     if(options.fail)throw Error('PRIVATE_PROVIDER_DETAIL');
-    return {summary:{sheet_count:1,detected_trade_scope:['Framing'],scale_status:'missing',human_review_required:true,limitations:[]},findings:[{page_number:options.sourcePage??1,finding_type:'room',label:'Bedroom',quantity:100,unit:'SF',value_text:'100 SF',confidence:0.8,geometry:{},source_excerpt:'Bedroom 100 SF'}]};
+    return {summary:{sheet_count:1,detected_trade_scope:['Framing'],scale_status:'missing',human_review_required:true,limitations:[]},findings:[{page_number:options.sourcePage??1,finding_type:'room',label:'Bedroom',quantity:100,unit:'SF',value_text:'100 SF',confidence:0.8,geometry:{},source_excerpt:options.excerpt ?? 'Bedroom 100 SF'}]};
   }};
   const service=new AiPlanReadingService(db,writer,{presign:()=>({url:'https://storage.test/test'})},reader,'u','w',(async()=>new Response(bytes))as typeof fetch,undefined,options.owner!==false);
   const input={file_id:'f',mode:'detailed',page_number:2,source_sha256:PDF_DIGEST(bytes),trades:['Framing'],scope:'New construction'};
@@ -161,4 +163,23 @@ test('local vector linework can be switched off without changing provider readin
     if(previous===undefined)delete process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED;
     else process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED=previous;
   }
+});
+test('a quoted excerpt that is nowhere on the transcribed page is disclosed, not trusted',async()=>{
+  const h=await harness({withText:true,excerpt:'BEDROOM 100 SF'});
+  const result=await h.service.create('p',h.input);
+  assert.equal(h.reads[0].sheetText.pages[0].text,'KITCHEN 180 SF');
+  assert.ok(result.output_summary.limitations.some((line:string)=>/was not located on any transcribed page/.test(line)));
+});
+
+test('a quoted excerpt found on the transcribed page raises no citation warning',async()=>{
+  const h=await harness({withText:true,excerpt:'KITCHEN 180 SF'});
+  const result=await h.service.create('p',h.input);
+  assert.equal(result.output_summary.limitations.some((line:string)=>/quoted text/.test(line)),false);
+});
+
+test('a sheet with no text layer is never reported as an unverifiable citation',async()=>{
+  const h=await harness();
+  const result=await h.service.create('p',h.input);
+  // Nothing to check against, so nothing is claimed either way.
+  assert.equal(result.output_summary.limitations.some((line:string)=>/transcribed page/.test(line)),false);
 });

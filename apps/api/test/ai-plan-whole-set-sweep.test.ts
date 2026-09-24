@@ -234,7 +234,7 @@ test('the image-native providers never sweep: they read the supplied images only
   const { fetcher, calls } = recorder([() => ({ json: answer(1, [finding(1, 'Partition')]) })]);
   const kimi = new OpenAiCompatibleVisionPlanReader({
     provider: 'kimi', apiKey: 'kimi-key', baseUrl: 'https://api.moonshot.ai/v1', model: 'kimi-k2.6',
-    maxImages: 4, batchPages: 0, maxBatches: 0, maxTotalFindings: 200,
+    maxImages: 4, batchPages: 0, maxBatches: 0, maxTotalFindings: 200, timeoutMs: 60_000,
   }, fetcher);
   const bytes = await planBytes(12);
 

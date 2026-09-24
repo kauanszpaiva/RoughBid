@@ -48,7 +48,7 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Each window is a standalone PDF (`pdf-lib` copies only its pages), so the provider is told to cite page `1..n` **local to that request** and the reader restores the original physical numbering deterministically. A finding that cites a page outside its own window is dropped and counted in `summary.limitations`.
    - Every window is reserved against the company spend breaker separately, so one oversized set cannot slip past the cap unnoticed.
    - Nothing invents coverage: a failed batch, a window the request cap never reached, and a whole-set findings cap are each named in `summary.limitations`. A sweep that produces no findings at all rethrows the provider failure so the multi-provider orchestrator can try the next reader.
-   - Controls: `AI_PLAN_OPENAI_BATCH_PAGES` (8, max 50), `AI_PLAN_OPENAI_MAX_BATCHES` (25, max 60), `AI_PLAN_MAX_TOTAL_FINDINGS` (400, max 1000), `AI_PLAN_OPENAI_SWEEP=false` to send the whole set in one request. The image-native providers never sweep: they read exactly the rendered pages they were given.
+   - Controls: `AI_PLAN_OPENAI_BATCH_PAGES` (8, max 50), `AI_PLAN_OPENAI_MAX_BATCHES` (25, max 60), `AI_PLAN_MAX_TOTAL_FINDINGS` (400, max 1000), `AI_PLAN_OPENAI_TIMEOUT_MS` (120000, max 300000), `AI_PLAN_OPENAI_SWEEP=false` to send the whole set in one request. The image-native providers never sweep: they read exactly the rendered pages they were given.
 
 8. **Evidence and review**
    - Save every extracted item as a `plan_reading_findings` row.
@@ -83,6 +83,8 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 - `AI_PLAN_SHEET_TEXT_ENABLED` / `AI_PLAN_SHEET_TEXT_MAX_PAGES` / `AI_PLAN_SHEET_TEXT_MAX_CHARS` / `AI_PLAN_SHEET_TEXT_MAX_CHARS_PER_PAGE`: local printed-text transcript and its bounds.
 - `AI_PLAN_OPENAI_BATCH_PAGES` / `AI_PLAN_OPENAI_MAX_BATCHES` / `AI_PLAN_OPENAI_SWEEP`: whole-set sweep window size, request cap and off switch for the OpenAI reader.
 - `AI_PLAN_MAX_TOTAL_FINDINGS`: ceiling on findings kept from a whole-set sweep.
+- `AI_PLAN_OPENAI_TIMEOUT_MS`: per-request ceiling for the OpenAI-compatible reader (default 120000, max 300000). Multi-page PDF requests are slower than single images.
+- `provider_spend_policy.call_reservation_usd`: the company breaker reserves this much per provider request and releases it once real telemetry is captured, so a reading is admitted only while `used + reservation <= spend_cap_usd`. The shipped default (2.50 of 25.00) allows about nine requests per 24 h; a measured four-sheet reading on gpt-4o-mini costs roughly $0.0016, so a lower reservation admits far more readings inside the same real budget. `reserve_provider_spend` accepts only providers that migration 20260924134500 approves (gemini, deepseek, kimi, openai, claude); anything else fails closed before a request is made.
 - `SUPABASE_SERVICE_ROLE_KEY`: used inline for paid quote creation, webhook reconciliation, job reservation, and inserting `plan_reading_findings`.
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`: required before project-reading checkout can charge or grant a paid quote.
 - `PROJECT_PRICING_VERSION`, `PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`, `PROJECT_PAYMENT_FIXED_CENTS`, `PROJECT_PAYMENT_FEE_BPS`: required measured cost policy for dynamic per-project charges.

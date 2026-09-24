@@ -6,7 +6,7 @@ import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
 import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
-import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, type SheetText } from './sheet-text.ts';
+import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
@@ -383,6 +383,19 @@ export class AiPlanReadingService {
         if (merged.added) {
           result.findings = merged.findings;
           if (merged.note) localEvidenceNotices.push(merged.note);
+        }
+      }
+      // The local transcript is deterministic evidence, so it settles a page
+      // number the model got wrong without another provider call. This must run
+      // before the single-page renumbering below, whose slice is page-local.
+      if (sheetText && result.findings.length) {
+        const citation = verifyFindingPages(result.findings, sheetText);
+        result.findings = citation.findings;
+        if (citation.corrected) {
+          localEvidenceNotices.push(`${citation.corrected} of ${citation.checked} checked finding(s) cited a page that did not contain their quoted text; the page was corrected from the locally transcribed text layer.`);
+        }
+        if (citation.unlocated) {
+          localEvidenceNotices.push(`${citation.unlocated} finding(s) quote text that was not located on any transcribed page; confirm them against the sheet (a scan or drawing text has no text layer to check).`);
         }
       }
       if (pageRequest) {

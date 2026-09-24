@@ -5,7 +5,7 @@ import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { requireFreeProviderConfig } from './free-provider.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
 import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
-import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, type SheetText } from './sheet-text.ts';
+import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
 import type { PlanReadingResult } from './types.ts';
 
 export type DurableEntitlement = 'paid' | 'owner_free';
@@ -332,6 +332,19 @@ export class DurableAiPlanJobProcessor {
         if (linework) {
           const merged = mergeLineworkFindings(result.findings, linework, { pageCount: context.page_count });
           if (merged.added) result.findings = merged.findings;
+        }
+        // The local transcript settles a page number the model got wrong.
+        if (sheetText && result.findings.length) {
+          const citation = verifyFindingPages(result.findings, sheetText);
+          result.findings = citation.findings;
+          if (citation.corrected) {
+            result.summary.limitations = [...result.summary.limitations,
+              `${citation.corrected} of ${citation.checked} checked finding(s) cited a page that did not contain their quoted text; the page was corrected from the locally transcribed text layer.`];
+          }
+          if (citation.unlocated) {
+            result.summary.limitations = [...result.summary.limitations,
+              `${citation.unlocated} finding(s) quote text that was not located on any transcribed page; confirm them against the sheet.`];
+          }
         }
         if (result.findings.some((f) => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > context.page_count))) {
           throw new Error('The reading contains quantities or locations without valid source pages.');

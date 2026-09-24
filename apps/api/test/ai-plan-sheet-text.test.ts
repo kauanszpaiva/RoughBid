@@ -8,6 +8,7 @@ import {
   extractSheetText,
   sheetTextEnabled,
   sheetTextOptionsFromEnv,
+  verifyFindingPages,
 } from '../src/ai-plan/sheet-text.ts';
 
 async function sheetWithText(extra: (page: any) => void = () => {}): Promise<Uint8Array> {
@@ -114,4 +115,81 @@ test('the shared evidence digest carries the measured linework and the transcrip
   assert.match(combined, /NATIVE SHEET TEXT/);
   assert.ok(combined.indexOf('DETERMINISTIC VECTOR LINEWORK') < combined.indexOf('NATIVE SHEET TEXT'));
   assert.equal(describePlanEvidenceDigest({}), null);
+});
+
+const findingOn = (page: number, excerpt: string) => ({
+  page_number: page, finding_type: 'scope_note' as const, label: 'Evidence',
+  value_text: null, quantity: null, unit: null, confidence: 0.7, geometry: {}, source_excerpt: excerpt,
+});
+
+const transcript = {
+  pages: [
+    { pageNumber: 1, characters: 60, text: 'GENERAL NOTES\nPROVIDE 24 LF OF KITCHEN BASE CABINET', truncated: false, headings: [], sheetNumber: 'A-000', scale: null, likelyScanned: false },
+    { pageNumber: 2, characters: 60, text: 'KEYNOTES\n1. HARDWOOD FLOOR AT LIVING AND BEDROOM.', truncated: false, headings: [], sheetNumber: 'A-101', scale: null, likelyScanned: false },
+    { pageNumber: 3, characters: 60, text: "D1 3'-0\" x 6'-8\" HOLLOW METAL DOOR 4 EA", truncated: false, headings: [], sheetNumber: 'A-601', scale: null, likelyScanned: false },
+  ],
+  pageLimit: 80, characterLimit: 30000, characters: 180, truncated: false,
+};
+
+test('a finding is kept when its quoted text really is on the cited page', () => {
+  const check = verifyFindingPages([findingOn(2, 'KEYNOTES 1. HARDWOOD FLOOR AT LIVING AND BEDROOM.')], transcript);
+  assert.equal(check.corrected, 0);
+  assert.equal(check.unlocated, 0);
+  assert.equal(check.checked, 1);
+  assert.equal(check.findings[0]!.page_number, 2);
+});
+
+test('a page number the model got wrong is corrected from the local transcript', () => {
+  // Observed on a real call: keynote rooms reported on the schedule sheet.
+  const check = verifyFindingPages([findingOn(3, 'KEYNOTES\n1. HARDWOOD FLOOR AT LIVING AND BEDROOM.')], transcript);
+  assert.equal(check.corrected, 1);
+  assert.equal(check.findings[0]!.page_number, 2);
+  assert.equal(check.findings[0]!.source_excerpt, 'KEYNOTES\n1. HARDWOOD FLOOR AT LIVING AND BEDROOM.');
+});
+
+test('matching ignores case, whitespace and punctuation differences', () => {
+  const check = verifyFindingPages([findingOn(3, "d1 3'-0\"  x  6'-8\" hollow-metal door 4 ea")], transcript);
+  // The cited page is right, so nothing is corrected: normalization is what locates it.
+  assert.equal(check.corrected, 0);
+  assert.equal(check.unlocated, 0);
+  assert.equal(check.findings[0]!.page_number, 3);
+});
+
+test('a finding whose text appears on two pages is left alone rather than guessed', () => {
+  const ambiguous = {
+    ...transcript,
+    pages: [
+      transcript.pages[0]!,
+      { ...transcript.pages[1]!, text: 'GENERAL NOTES\nPROVIDE 24 LF OF KITCHEN BASE CABINET' },
+      transcript.pages[2]!,
+    ],
+  };
+  const check = verifyFindingPages([findingOn(3, 'PROVIDE 24 LF OF KITCHEN BASE CABINET')], ambiguous);
+  assert.equal(check.corrected, 0);
+  assert.equal(check.unlocated, 1);
+  assert.equal(check.findings[0]!.page_number, 3);
+});
+
+test('evidence that no transcribed page contains is kept and counted, never dropped', () => {
+  const check = verifyFindingPages([findingOn(1, 'JOG IN EXTERIOR SHEATHING AT CORNER')], transcript);
+  assert.equal(check.findings.length, 1);
+  assert.equal(check.unlocated, 1);
+  assert.equal(check.corrected, 0);
+});
+
+test('short excerpts and this pipeline own geometry citations are not page-checked', () => {
+  const check = verifyFindingPages([
+    findingOn(1, 'SF'),
+    findingOn(1, 'Deterministic PDF vector linework: closed axis-aligned outline of 6 segments, page bbox [0.1, 0.2, 0.3, 0.2] normalized.'),
+  ], transcript);
+  assert.equal(check.checked, 0);
+  assert.equal(check.corrected, 0);
+  assert.equal(check.unlocated, 0);
+});
+
+test('without a transcript nothing is changed or claimed', () => {
+  const findings = [findingOn(3, 'KEYNOTES 1. HARDWOOD FLOOR AT LIVING AND BEDROOM.')];
+  const check = verifyFindingPages(findings, undefined);
+  assert.deepEqual(check.findings, findings);
+  assert.deepEqual([check.checked, check.corrected, check.unlocated], [0, 0, 0]);
 });

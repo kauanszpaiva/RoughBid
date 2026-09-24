@@ -19,6 +19,8 @@ export interface OpenAiVisionProviderConfig {
   maxBatches: number;
   /** Ceiling on findings kept from a whole-set sweep. */
   maxTotalFindings: number;
+  /** Per-request ceiling. A multi-page PDF needs longer than a single image. */
+  timeoutMs: number;
 }
 
 const DEFAULT_MAX_IMAGES = 8;
@@ -56,6 +58,7 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     batchPages: 0,
     maxBatches: 0,
     maxTotalFindings: 200,
+    timeoutMs: 60_000,
   };
 }
 
@@ -77,6 +80,7 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
     batchPages: 0,
     maxBatches: 0,
     maxTotalFindings: 200,
+    timeoutMs: 60_000,
   };
 }
 
@@ -96,6 +100,9 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     batchPages: env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 8, 50)),
     maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, 60)),
     maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
+    // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
+    // old hard 60 s abort turned a slow reading into a failed one.
+    timeoutMs: integerFromEnv(env.AI_PLAN_OPENAI_TIMEOUT_MS, 120_000, 300_000),
   };
 }
 
@@ -235,7 +242,7 @@ export class OpenAiCompatibleVisionPlanReader {
     try {
       response = await meterOpenAiCompatibleCall(this.config.provider, this.config.model, async () => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60_000);
+        const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
         try {
           const http = await this.fetcher(`${this.config.baseUrl}/chat/completions`, {
             method: 'POST',

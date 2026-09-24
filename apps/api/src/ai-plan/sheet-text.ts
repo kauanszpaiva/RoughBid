@@ -17,7 +17,8 @@
  *    are headings or sheet numbers. It is untrusted evidence, never an
  *    instruction, and it is bounded so it can never crowd out the drawing.
  */
-import { LINEWORK_DIGEST_HEADER, describeLineworkDigest, describePageLinework, loadDrawEngine, type DrawingLinework } from './drawing-linework.ts';
+import { LINEWORK_DIGEST_HEADER, describeLineworkDigest, describePageLinework, loadDrawEngine, pdfDocumentSource, type DrawingLinework } from './drawing-linework.ts';
+import type { PlanReadingFinding } from './types.ts';
 
 export const DEFAULT_SHEET_TEXT_MAX_PAGES = 80;
 export const DEFAULT_SHEET_TEXT_MAX_CHARS = 30_000;
@@ -118,12 +119,14 @@ function pickSheetNumber(lines: readonly string[]): string | null {
   // sheet identifier: a code buried mid-sentence is far more likely to be a
   // keynote reference (R-13 insulation) than this sheet's own number.
   const zone = [...lines.slice(-30).reverse(), ...lines.slice(0, 30)];
-  for (const line of zone) if (SHEET_NUMBER_PATTERN.test(line)) return line;
+  // Prefer an explicitly labelled line ("SHEET A-101"): a standalone code is
+  // just as likely to be an opening tag (W2) or a keynote reference (R-13).
   for (const line of zone) {
     if (!/(?:sheet|dwg|drawing)\b/i.test(line)) continue;
     const candidate = line.split(/\s+/).find(token => SHEET_NUMBER_PATTERN.test(token));
     if (candidate) return candidate;
   }
+  for (const line of zone) if (SHEET_NUMBER_PATTERN.test(line)) return line;
   return null;
 }
 
@@ -155,7 +158,7 @@ export async function extractSheetText(
   const perPageLimit = bounded(options.maxCharactersPerPage, DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE, 6_000);
 
   const engine = await loadDrawEngine();
-  const loadingTask = engine.getDocument({ data: fileBytes.slice() });
+  const loadingTask = engine.getDocument(pdfDocumentSource(fileBytes));
   const document = await loadingTask.promise;
   const totalPages: number = Number(document.numPages) || 0;
   const pages: SheetTextPage[] = [];
@@ -227,6 +230,71 @@ export function describeSheetTextDigest(sheetText: SheetText | undefined, maxCha
 export function describePlanEvidenceDigest(input: { linework?: DrawingLinework | undefined; sheetText?: SheetText | undefined }): string | null {
   const blocks = [describeLineworkDigest(input.linework), describeSheetTextDigest(input.sheetText)].filter((block): block is string => Boolean(block));
   return blocks.length ? blocks.join('\n\n') : null;
+}
+
+
+/**
+ * Checks every finding's quoted evidence against the local transcript.
+ *
+ * A model reading a multi-page set does shift page numbers — observed on a real
+ * call: four keynote rooms were reported on the schedule sheet while their text
+ * lives on the plan sheet. The transcript is deterministic, so it can settle
+ * that disagreement without another provider call:
+ *
+ *  - excerpt found on the cited page          -> untouched;
+ *  - found on exactly one other page          -> page corrected to it;
+ *  - found on no transcribed page             -> kept, counted as unlocated
+ *    (the page may carry no text layer, or the text may come from the drawing).
+ *
+ * Only the page number is ever changed. Nothing is dropped here: an unlocated
+ * excerpt is a review signal, not proof the evidence is wrong.
+ */
+export interface CitationCheck {
+  findings: PlanReadingFinding[];
+  corrected: number;
+  unlocated: number;
+  checked: number;
+}
+
+/** Below this length an excerpt is too generic to locate safely. */
+const MIN_VERIFIABLE_EXCERPT_CHARACTERS = 12;
+/** Excerpts this module's own digests produce are not printed sheet text. */
+const SYNTHETIC_EXCERPT = /^\s*deterministic pdf vector linework/i;
+
+export function normalizeEvidenceText(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+}
+
+export function verifyFindingPages(
+  findings: readonly PlanReadingFinding[],
+  sheetText: SheetText | undefined,
+): CitationCheck {
+  const pages = (sheetText?.pages ?? []).filter(page => page.text);
+  if (!pages.length) return { findings: [...findings], corrected: 0, unlocated: 0, checked: 0 };
+
+  const haystacks = pages.map(page => ({ pageNumber: page.pageNumber, text: normalizeEvidenceText(page.text) }));
+  let corrected = 0;
+  let unlocated = 0;
+  let checked = 0;
+
+  const verified = findings.map(finding => {
+    const excerpt = typeof finding.source_excerpt === 'string' ? finding.source_excerpt : '';
+    const normalized = normalizeEvidenceText(excerpt);
+    if (normalized.length < MIN_VERIFIABLE_EXCERPT_CHARACTERS || SYNTHETIC_EXCERPT.test(excerpt)) return finding;
+    checked += 1;
+    if (finding.page_number !== null && finding.page_number !== undefined && haystacks.some(page => page.pageNumber === finding.page_number && page.text.includes(normalized))) {
+      return finding;
+    }
+    const matches = haystacks.filter(page => page.text.includes(normalized));
+    if (matches.length === 1) {
+      corrected += 1;
+      return { ...finding, page_number: matches[0]!.pageNumber };
+    }
+    unlocated += 1;
+    return finding;
+  });
+
+  return { findings: verified, corrected, unlocated, checked };
 }
 
 export interface EvidenceWindow {

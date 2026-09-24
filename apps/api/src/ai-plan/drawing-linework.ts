@@ -13,6 +13,7 @@
  * quantity is produced: geometry alone is not a takeoff until a scale is
  * verified and a human accepts the location.
  */
+import { createRequire } from 'node:module';
 import type { PlanReadingFinding } from './types.ts';
 
 /** DrawOPS codes inside PDF.js's `constructPath` argument (see pdfjs makePathFromDrawOPS). */
@@ -95,7 +96,7 @@ const addRun = (run: LineworkRunSummary, lengthPoints: number) => {
 const round = (value: number, digits = 2) => Number.isFinite(value) ? Number(value.toFixed(digits)) : 0;
 
 interface DrawEngine {
-  getDocument: (source: { data: Uint8Array }) => { promise: Promise<any>; destroy?: () => Promise<void> };
+  getDocument: (source: { data: Uint8Array; standardFontDataUrl?: string }) => { promise: Promise<any>; destroy?: () => Promise<void> };
   OPS: Record<string, number>;
   Util: {
     applyTransform: (point: number[], m: number[]) => number[];
@@ -110,14 +111,35 @@ function loadEngine(): Promise<DrawEngine> {
   return enginePromise;
 }
 
+let standardFontsUrl: string | null = null;
+/**
+ * PDF.js warns and loses glyph mapping when it cannot find its standard font
+ * data ("Ensure that the standardFontDataUrl API parameter is provided"), which
+ * garbles text on sheets that use the base 14 fonts — the common case for a
+ * construction set. Resolved once from the installed package.
+ */
+function standardFontDataUrl(): string | undefined {
+  if (standardFontsUrl !== null) return standardFontsUrl || undefined;
+  try {
+    const require = createRequire(import.meta.url);
+    const nodePath = require('node:path') as typeof import('node:path');
+    const packageJson = require.resolve('pdfjs-dist/package.json') as string;
+    // PDF.js requires a URL-style trailing slash, so the Windows separator is
+    // not accepted here.
+    standardFontsUrl = nodePath.join(nodePath.dirname(packageJson), 'standard_fonts').split(nodePath.sep).join('/') + '/';
+  } catch { standardFontsUrl = ''; }
+  return standardFontsUrl || undefined;
+}
+
+/** The single place a PDF is handed to PDF.js, so both local readers share it. */
+export function pdfDocumentSource(fileBytes: Uint8Array): { data: Uint8Array; standardFontDataUrl?: string } {
+  const standardFonts = standardFontDataUrl();
+  return { data: fileBytes.slice(), ...(standardFonts ? { standardFontDataUrl: standardFonts } : {}) };
+}
+
 /** Test seam: lets a suite load PDF.js through the same narrow surface. */
 export async function loadDrawEngine(): Promise<DrawEngine> {
   return loadEngine();
-}
-
-function wayToBytes(fileBytes: Uint8Array): Uint8Array {
-  // PDF.js transfers/detaches its input buffer; never let it touch the caller's bytes.
-  return fileBytes.slice();
 }
 
 /** Applies a PDF 6-value matrix. Implemented locally: PDF.js's applyTransform mutates in place. */
@@ -232,7 +254,7 @@ export async function extractDrawingLinework(
   const fillStrokeOps = new Set([OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
   const clipOps = new Set([OPS.clip, OPS.eoClip]);
 
-  const task = getDocument({ data: wayToBytes(fileBytes) });
+  const task = getDocument(pdfDocumentSource(fileBytes));
   const pages: PageLinework[] = [];
   let truncated = false;
   let document: any;
