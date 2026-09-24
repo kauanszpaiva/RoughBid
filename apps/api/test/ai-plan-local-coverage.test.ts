@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_LINEWORK_MAX_PAGES,
+  DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE,
   MAX_LINEWORK_MAX_PAGES,
+  MAX_LINEWORK_MAX_SEGMENTS_PER_PAGE,
   describeLineworkCoverageNotice,
   lineworkOptionsFromEnv,
   mergeLineworkFindings,
@@ -32,19 +34,47 @@ function page(pageNumber: number, regions: number): PageLinework {
   };
 }
 
-const linework = (pages: PageLinework[], truncated: boolean, pageLimit: number): DrawingLinework => ({ pages, pageLimit, truncated });
+const linework = (pages: PageLinework[], truncated: boolean, pageLimit: number, segmentLimitedPages: number[] = []): DrawingLinework => ({
+  pages, pageLimit, pageLimitReached: truncated && !segmentLimitedPages.length, segmentLimitedPages, truncated,
+});
 
 test('the linework page limit covers a whole supported set and stays bounded', () => {
   // The product accepts at most 100 physical pages, so the default must not stop earlier.
   assert.equal(DEFAULT_LINEWORK_MAX_PAGES, 100);
   assert.equal(MAX_LINEWORK_MAX_PAGES, 200);
-  assert.deepEqual(lineworkOptionsFromEnv({}), { maxPages: 100 });
-  assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: '12' }), { maxPages: 12 });
+  assert.deepEqual(lineworkOptionsFromEnv({}), { maxPages: 100, maxSegmentsPerPage: DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE });
+  assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: '12' }), { maxPages: 12, maxSegmentsPerPage: DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE });
   // A nonsensical or oversized value falls back, never widens past the ceiling.
   for (const value of ['0', '-3', 'abc', '']) {
-    assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: value }), { maxPages: 100 }, value);
+    assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: value }), { maxPages: 100, maxSegmentsPerPage: DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE }, value);
   }
-  assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: '9999' }), { maxPages: 200 });
+  assert.deepEqual(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_PAGES: '9999' }), { maxPages: 200, maxSegmentsPerPage: DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE });
+  assert.deepEqual(
+    lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE: '4000' }),
+    { maxPages: 100, maxSegmentsPerPage: 4000 },
+  );
+  assert.equal(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE: '99999999' }).maxSegmentsPerPage, MAX_LINEWORK_MAX_SEGMENTS_PER_PAGE);
+  assert.equal(lineworkOptionsFromEnv({ AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE: 'nope' }).maxSegmentsPerPage, DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE);
+});
+
+test('a saturated sheet is disclosed as that sheet, never as later sheets having no linework', () => {
+  // Measured on a real 19-page school set: 20,000 segments per page cut the four
+  // densest sheets (the demolition and floor plans holding every door and window
+  // tag) while every sheet was in fact read. The notice used to claim the
+  // opposite — that later sheets carried no measured lines at all.
+  const saturated = linework([page(6, 2), page(7, 2)], true, 100, [6, 7]);
+  const notice = describeLineworkCoverageNotice(saturated, 19)!;
+  assert.match(notice, /per-page segment limit/i);
+  assert.match(notice, /2 sheet\(s\)/);
+  assert.match(notice, /physical page 6, 7/);
+  assert.match(notice, /every other sheet was measured in full/i);
+  assert.doesNotMatch(notice, /later sheets have no locally measured lines/i);
+
+  // Both causes at once: each is still reported on its own terms.
+  const both: DrawingLinework = { pages: [page(1, 1)], pageLimit: 3, pageLimitReached: true, segmentLimitedPages: [2], truncated: true };
+  const bothNotice = describeLineworkCoverageNotice(both, 10)!;
+  assert.match(bothNotice, /at most 3 of 10 physical pages/);
+  assert.match(bothNotice, /physical page 2/);
 });
 
 test('an incomplete linework pass is disclosed in the saved reading, not only to the model', () => {

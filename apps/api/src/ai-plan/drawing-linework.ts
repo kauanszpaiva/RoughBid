@@ -40,7 +40,19 @@ const WALL_MIN_LENGTH_POINTS = 18;
  */
 export const DEFAULT_LINEWORK_MAX_PAGES = 100;
 export const MAX_LINEWORK_MAX_PAGES = 200;
-export const DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE = 20_000;
+/**
+ * Segments measured per page before a sheet counts as saturated.
+ *
+ * Measured on real school sets: 20,000 cut the densest sheets of a 19-page
+ * demolition/floor-plan set — the very sheets that carry every door and window
+ * tag — and reported 1,477 closed outlines for the file. Raising it to 200,000
+ * saturated nothing and reported 1,900 outlines for the same file in the same
+ * wall-clock time, because walking the PDF operator list dominates the cost, not
+ * the arithmetic over the segments. Overridable through
+ * `AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE`.
+ */
+export const DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE = 200_000;
+export const MAX_LINEWORK_MAX_SEGMENTS_PER_PAGE = 500_000;
 export const DEFAULT_LINEWORK_MAX_REGIONS_PER_PAGE = 200;
 export const MAX_LINEWORK_FINDINGS = 40;
 /** Bounded so a digest can never crowd out the plan itself in a provider prompt. */
@@ -84,6 +96,16 @@ export interface PageLinework {
 export interface DrawingLinework {
   pages: PageLinework[];
   pageLimit: number;
+  /** True when the file has more pages than the page limit, so later sheets were never read. */
+  pageLimitReached: boolean;
+  /**
+   * Physical pages whose reading stopped at the per-page segment limit. Their
+   * linework is partial while every other sheet was measured in full, so this is
+   * reported separately from `pageLimitReached`: saying "later sheets have no
+   * measured lines" when a single dense sheet saturated would be false.
+   */
+  segmentLimitedPages: number[];
+  /** True when either limit cut linework away from the reading. */
   truncated: boolean;
 }
 
@@ -99,7 +121,14 @@ function optionFromEnv(value: string | undefined, fallback: number, ceiling: num
 }
 
 export function lineworkOptionsFromEnv(env: Record<string, string | undefined> = process.env): DrawingLineworkOptions {
-  return { maxPages: optionFromEnv(env.AI_PLAN_LINEWORK_MAX_PAGES, DEFAULT_LINEWORK_MAX_PAGES, MAX_LINEWORK_MAX_PAGES) };
+  return {
+    maxPages: optionFromEnv(env.AI_PLAN_LINEWORK_MAX_PAGES, DEFAULT_LINEWORK_MAX_PAGES, MAX_LINEWORK_MAX_PAGES),
+    maxSegmentsPerPage: optionFromEnv(
+      env.AI_PLAN_LINEWORK_MAX_SEGMENTS_PER_PAGE,
+      DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE,
+      MAX_LINEWORK_MAX_SEGMENTS_PER_PAGE,
+    ),
+  };
 }
 
 const emptyRun = (): LineworkRunSummary => ({ count: 0, totalLengthPoints: 0, longestPoints: 0 });
@@ -274,11 +303,13 @@ export async function extractDrawingLinework(
   const task = getDocument(pdfDocumentSource(fileBytes));
   const pages: PageLinework[] = [];
   let truncated = false;
+  let pageLimitReached = false;
+  const segmentLimitedPages: number[] = [];
   let document: any;
   try {
     document = await task.promise;
     const analyzed = Math.min(document.numPages, maxPages);
-    if (document.numPages > maxPages) truncated = true;
+    if (document.numPages > maxPages) { truncated = true; pageLimitReached = true; }
     for (let pageNumber = 1; pageNumber <= analyzed; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
       try {
@@ -381,6 +412,7 @@ export async function extractDrawingLinework(
           }
         }
 
+        if (summary.truncated) segmentLimitedPages.push(pageNumber);
         regions.sort((a, b) => b.areaPoints2 - a.areaPoints2);
         summary.totalLengthPoints = round(summary.totalLengthPoints, 3);
         for (const run of [summary.horizontal, summary.vertical, summary.diagonal]) {
@@ -399,7 +431,7 @@ export async function extractDrawingLinework(
   } finally {
     await task.destroy?.().catch(() => {});
   }
-  return { pages, pageLimit: maxPages, truncated };
+  return { pages, pageLimit: maxPages, pageLimitReached, segmentLimitedPages, truncated };
 }
 
 /** True unless an operator explicitly disables local linework reading (it costs nothing and leaves the process). */
@@ -438,7 +470,10 @@ export function describeLineworkDigest(linework: DrawingLinework | undefined): s
     if (lines.join('\n').length + line.length > MAX_DIGEST_CHARACTERS) { lines.push('Additional pages omitted from this digest by its size limit.'); break; }
     lines.push(line);
   }
-  if (linework.truncated) lines.push(`Linework was read for at most ${linework.pageLimit} pages; later pages are not described here.`);
+  if (linework.pageLimitReached) lines.push(`Linework was read for at most ${linework.pageLimit} pages; later pages are not described here.`);
+  if (linework.segmentLimitedPages?.length) {
+    lines.push(`Linework stopped at the per-page segment limit on physical page ${linework.segmentLimitedPages.join(', ')}; the rest of those sheets is not described here.`);
+  }
   return lines.join('\n').slice(0, MAX_DIGEST_CHARACTERS);
 }
 
@@ -449,10 +484,18 @@ export function describeLineworkDigest(linework: DrawingLinework | undefined): s
  */
 export function describeLineworkCoverageNotice(linework: DrawingLinework | undefined, pageCount?: number): string | null {
   if (!linework?.truncated) return null;
-  const scope = Number.isSafeInteger(pageCount) && (pageCount as number) > linework.pageLimit
-    ? `at most ${linework.pageLimit} of ${pageCount} physical pages`
-    : `at most ${linework.pageLimit} physical pages`;
-  return `Deterministic vector linework was measured for ${scope}; later sheets have no locally measured lines, wall runs or closed outlines.`;
+  const notices: string[] = [];
+  if (linework.pageLimitReached) {
+    const scope = Number.isSafeInteger(pageCount) && (pageCount as number) > linework.pageLimit
+      ? `at most ${linework.pageLimit} of ${pageCount} physical pages`
+      : `at most ${linework.pageLimit} physical pages`;
+    notices.push(`Deterministic vector linework was measured for ${scope}; later sheets have no locally measured lines, wall runs or closed outlines.`);
+  }
+  const segmentLimited = linework.segmentLimitedPages ?? [];
+  if (segmentLimited.length) {
+    notices.push(`Deterministic vector linework reached its per-page segment limit on ${segmentLimited.length} sheet(s) (physical page ${segmentLimited.join(', ')}), so those sheets carry only the lines measured before the limit; every other sheet was measured in full.`);
+  }
+  return notices.length ? notices.join(' ') : null;
 }
 
 /**
