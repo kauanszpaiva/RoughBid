@@ -302,6 +302,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         reader,
         freeReader,
         paidReaderAvailable: readers.length > 0,
+        // Only the image-native providers consume `pageImages`. Gemini reads the
+        // PDF directly, so loading images for it would be wasted bandwidth.
+        pageImagesEnabled: configuredReaders.has('kimi') || configuredReaders.has('deepseek'),
         ...(durableQueue ? { durableQueue } : {}),
       };
       return await handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
