@@ -429,18 +429,32 @@ function detectOpenings(
   for (const bucket of buckets.values()) {
     if (bucket.length < 2 || openings.length >= MAX_OPENINGS_PER_PAGE) continue;
     bucket.sort((a, b) => a.start - b.start);
+    // Sweep to the furthest end reached so far rather than to the previous run.
+    // A wall drawn as a filled band has two collinear faces that overlap, and a
+    // wall can also arrive as several overlapping strokes; comparing immediate
+    // neighbours then measures a negative gap and the doorway on the far side of
+    // that wall is never seen. Measured on the rehabilitation set, whose walls
+    // are filled bands, that was the difference between 14 doorways and hundreds.
+    let reach = bucket[0] as WallRun;
+    let reachEnd = reach.end;
     for (let index = 1; index < bucket.length; index += 1) {
       if (openings.length >= MAX_OPENINGS_PER_PAGE) break;
-      const before = bucket[index - 1] as WallRun;
-      const after = bucket[index] as WallRun;
-      const gap = after.start - before.end;
+      const run = bucket[index] as WallRun;
+      if (run.start <= reachEnd) {
+        if (run.end > reachEnd) { reach = run; reachEnd = run.end; }
+        continue;
+      }
+      const before = reach;
+      const gap = run.start - reachEnd;
+      reach = run;
+      reachEnd = run.end;
       if (gap < OPENING_MIN_POINTS || gap > OPENING_MAX_POINTS) continue;
-      const shorter = Math.min(before.end - before.start, after.end - after.start);
+      const shorter = Math.min(before.end - before.start, run.end - run.start);
       if (shorter > 0 && gap > shorter * OPENING_MAX_GAP_RATIO) continue;
       const horizontal = before.orientation === 'horizontal';
-      const offset = (before.offset + after.offset) / 2;
+      const offset = (before.offset + run.offset) / 2;
       const first: [number, number] = horizontal ? [before.end, offset] : [offset, before.end];
-      const second: [number, number] = horizontal ? [after.start, offset] : [offset, after.start];
+      const second: [number, number] = horizontal ? [run.start, offset] : [offset, run.start];
       const ratioOf = (value: number, total: number): number => Math.round((value / total) * 10_000) / 10_000;
       openings.push({
         bbox: horizontal
