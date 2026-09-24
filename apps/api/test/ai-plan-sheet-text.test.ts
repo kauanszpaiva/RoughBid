@@ -156,6 +156,74 @@ test('matching ignores case, whitespace and punctuation differences', () => {
   assert.equal(check.findings[0]!.page_number, 3);
 });
 
+/** A plan sheet prints a room label and its area as two separate text items. */
+const splitLabelTranscript = {
+  ...transcript,
+  pages: [
+    transcript.pages[0]!,
+    {
+      ...transcript.pages[1]!,
+      text: 'FIRST FLOOR PLAN\nLIVING\n320 SF\nKITCHEN\n180 SF\nBEDROOM\n144 SF\nBATH\n45 SF\n'
+        + 'KEYNOTES\n1. HARDWOOD FLOOR AT LIVING AND BEDROOM.\n2. CERAMIC TILE AT BATH FLOOR AND WALLS.',
+    },
+    transcript.pages[2]!,
+  ],
+};
+
+test('a short label-and-area quote printed as separate items is located, not flagged', () => {
+  // Observed on a real call: the model read "BEDROOM" + "144 SF" correctly from
+  // the drawing, and the joined quote matched no contiguous transcript text, so
+  // three correct room findings were reported as unverifiable.
+  const check = verifyFindingPages([findingOn(2, 'BEDROOM 144 SF'), findingOn(2, 'LIVING 320 SF')], splitLabelTranscript);
+  assert.equal(check.checked, 2);
+  assert.equal(check.unlocated, 0);
+  assert.equal(check.corrected, 0);
+  assert.deepEqual(check.findings.map(finding => finding.page_number), [2, 2]);
+});
+
+test('the word-by-word fallback still catches an invented value', () => {
+  const invented = verifyFindingPages([findingOn(2, 'BEDROOM 900 SF')], splitLabelTranscript);
+  assert.equal(invented.unlocated, 1);
+  assert.equal(invented.findings[0]!.page_number, 2);
+});
+
+test('a label only present inside a longer word does not prove a location', () => {
+  // "BATHROOM" and "BATHROOMS" are different printed labels.
+  const glued = verifyFindingPages([findingOn(2, 'BATHROOM 145 SF')], {
+    ...splitLabelTranscript,
+    pages: [
+      splitLabelTranscript.pages[0]!,
+      { ...splitLabelTranscript.pages[1]!, text: 'FIRST FLOOR PLAN\nBATHROOMS\n145 SF' },
+      splitLabelTranscript.pages[2]!,
+    ],
+  });
+  assert.equal(glued.unlocated, 1);
+});
+
+test('the word-by-word fallback never overrides a quote that lives on another page', () => {
+  const check = verifyFindingPages([findingOn(3, 'KEYNOTES\n1. HARDWOOD FLOOR AT LIVING AND BEDROOM.')], splitLabelTranscript);
+  assert.equal(check.corrected, 1);
+  assert.equal(check.unlocated, 0);
+  assert.equal(check.findings[0]!.page_number, 2);
+});
+
+test('a long quote is never accepted word by word', () => {
+  const excerpt = 'FOUNDATION INSULATION SHEATHING WATERPROOFING FLASHING DRIPEDGE SILL SEALANT';
+  const scattered = {
+    ...transcript,
+    pages: [
+      transcript.pages[0]!,
+      { ...transcript.pages[1]!, text: 'FOUNDATION INSULATION SHEATHING WATERPROOFING FLASHING DRIPEDGE EXTRA SILL SEALANT' },
+      transcript.pages[2]!,
+    ],
+  };
+  // Every word of the quote is on the cited page, but the quote is too long for
+  // the word-by-word path and is not contiguous, so it stays a review signal.
+  const check = verifyFindingPages([findingOn(2, excerpt)], scattered);
+  assert.equal(check.unlocated, 1);
+  assert.equal(check.corrected, 0);
+});
+
 test('a finding whose text appears on two pages is left alone rather than guessed', () => {
   const ambiguous = {
     ...transcript,

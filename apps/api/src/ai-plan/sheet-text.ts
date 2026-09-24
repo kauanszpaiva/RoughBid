@@ -323,6 +323,9 @@ export function describePlanEvidenceDigest(input: { linework?: DrawingLinework |
  * that disagreement without another provider call:
  *
  *  - excerpt found on the cited page          -> untouched;
+ *  - every word of a short excerpt on it       -> untouched (a sheet prints a
+ *    room label and its area as separate text items, so the joined quote is not
+ *    a contiguous substring even when both halves are printed there);
  *  - found on exactly one other page          -> page corrected to it;
  *  - found on no transcribed page             -> kept, counted as unlocated
  *    (the page may carry no text layer, or the text may come from the drawing).
@@ -341,6 +344,10 @@ export interface CitationCheck {
 const MIN_VERIFIABLE_EXCERPT_CHARACTERS = 12;
 /** A quoted line this long is specific enough to locate on its own. */
 const MIN_LOCATED_LINE_CHARACTERS = 20;
+/** A quoted word this short cannot prove a location on its own. */
+const MIN_TOKEN_CHARACTERS = 3;
+/** The word-by-word fallback is only for short quotes; a long one is probed. */
+const MAX_TOKEN_MATCH_EXCERPT_CHARACTERS = 60;
 /** Excerpts this module's own digests produce are not printed sheet text. */
 const SYNTHETIC_EXCERPT = /^\s*deterministic pdf vector linework/i;
 
@@ -373,6 +380,23 @@ export function verifyFindingPages(
   const locate = (probes: readonly string[]): number[] => haystacks
     .filter(page => probes.some(probe => page.text.includes(probe)))
     .map(page => page.pageNumber);
+  /**
+   * Word-by-word location for a short quote.
+   *
+   * A real sheet prints a room label and its area as separate text items, so the
+   * quote that joins them ("LIVING 320 SF") is not a contiguous substring of the
+   * transcript even though both halves are printed there. This accepts a short
+   * quote only when *every* meaningful word of it appears as its own word on the
+   * page the finding already cites: an invented value ("LIVING 900 SF") still
+   * fails, and this path can never move or invent a page number.
+   */
+  const pageOwnsEveryWord = (pageNumber: number, excerpt: string): boolean => {
+    const page = haystacks.find(entry => entry.pageNumber === pageNumber);
+    if (!page) return false;
+    const tokens = excerpt.split(' ').filter(token => token.length >= MIN_TOKEN_CHARACTERS);
+    return tokens.length > 0
+      && tokens.every(token => new RegExp(`(?:^| )${token}(?: |$)`).test(page.text));
+  };
   let corrected = 0;
   let unlocated = 0;
   let checked = 0;
@@ -384,6 +408,13 @@ export function verifyFindingPages(
     checked += 1;
     const located = locate(probesOf(excerpt));
     if (finding.page_number !== null && finding.page_number !== undefined && located.includes(finding.page_number)) {
+      return finding;
+    }
+    // Only reachable when no probe located the quote anywhere, so the fallback
+    // cannot override an unambiguous location on another page.
+    if (!located.length && normalized.length <= MAX_TOKEN_MATCH_EXCERPT_CHARACTERS
+      && finding.page_number !== null && finding.page_number !== undefined
+      && pageOwnsEveryWord(finding.page_number, normalized)) {
       return finding;
     }
     if (located.length === 1) {
