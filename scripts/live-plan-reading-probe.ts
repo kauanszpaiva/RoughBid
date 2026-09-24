@@ -15,7 +15,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { OpenAiCompatibleVisionPlanReader, requireOpenAiVisionConfig } from '../apps/api/src/ai-plan/openai-vision.ts';
-import { extractDrawingLinework, vectorLineworkEnabled } from '../apps/api/src/ai-plan/drawing-linework.ts';
+import { extractDrawingLinework, lineworkOptionsFromEnv, vectorLineworkEnabled } from '../apps/api/src/ai-plan/drawing-linework.ts';
 import { extractSheetText, sheetTextOptionsFromEnv, sheetTextEnabled, verifyFindingPages } from '../apps/api/src/ai-plan/sheet-text.ts';
 import { countPdfPages, planPageWindows } from '../apps/api/src/ai-plan/plan-batches.ts';
 import { withUsageMeter } from '../apps/api/src/owner-usage/meter.ts';
@@ -57,7 +57,7 @@ if (!localOnly) console.log(`trades: ${trades.join(', ')} | scope: ${scope}`);
 
 // ---- local, zero-cost evidence, exactly as the service builds it ----
 const started = Date.now();
-const linework = vectorLineworkEnabled(env) ? await extractDrawingLinework(bytes) : undefined;
+const linework = vectorLineworkEnabled(env) ? await extractDrawingLinework(bytes, lineworkOptionsFromEnv(env)) : undefined;
 const sheetText = sheetTextEnabled(env) ? await extractSheetText(bytes, sheetTextOptionsFromEnv(env)) : undefined;
 console.log(`local evidence: ${Date.now() - started} ms | linework pages ${linework?.pages.length ?? 0} | text pages ${sheetText?.pages.length ?? 0} | transcript ${sheetText?.characters ?? 0} chars`);
 

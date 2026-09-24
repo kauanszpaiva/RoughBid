@@ -164,6 +164,23 @@ test('local vector linework can be switched off without changing provider readin
     else process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED=previous;
   }
 });
+test('a set larger than the configured linework limit discloses the sheets with no measured geometry',async()=>{
+  const previous=process.env.AI_PLAN_LINEWORK_MAX_PAGES;
+  process.env.AI_PLAN_LINEWORK_MAX_PAGES='1';
+  try{
+    const h=await harness({withLinework:true});
+    // A whole-file reading, not a single-page review: the limit is what binds here.
+    const {page_number,source_sha256,...whole}=h.input;
+    const result=await h.service.create('p',whole);
+    assert.equal(h.reads[0].linework.pageLimit,1);
+    assert.equal(h.reads[0].linework.truncated,true);
+    assert.equal(h.reads[0].linework.pages.length,1);
+    assert.ok(result.output_summary.limitations.some((l:string)=>/vector linework was measured for at most 1 of 3 physical pages/i.test(l)));
+  } finally {
+    if(previous===undefined)delete process.env.AI_PLAN_LINEWORK_MAX_PAGES;
+    else process.env.AI_PLAN_LINEWORK_MAX_PAGES=previous;
+  }
+});
 test('a quoted excerpt that is nowhere on the transcribed page is disclosed, not trusted',async()=>{
   const h=await harness({withText:true,excerpt:'BEDROOM 100 SF'});
   const result=await h.service.create('p',h.input);

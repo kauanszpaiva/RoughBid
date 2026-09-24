@@ -5,8 +5,8 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
-import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
-import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
+import { extractDrawingLinework, describeLineworkCoverageNotice, lineworkOptionsFromEnv, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
+import { extractSheetText, describeSheetTextCoverageNotice, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
@@ -327,10 +327,14 @@ export class AiPlanReadingService {
       const localEvidenceNotices: string[] = [];
       if (vectorLineworkEnabled(process.env)) {
         try {
-          linework = await extractDrawingLinework(readingBytes);
+          linework = await extractDrawingLinework(readingBytes, lineworkOptionsFromEnv(process.env));
         } catch {
           localEvidenceNotices.push('The PDF vector linework could not be read locally, so drawing lines and closed shapes were not measured for this reading.');
         }
+        // The page limit is disclosed to the model inside the digest; the saved
+        // reading has to disclose it to the estimator too.
+        const coverage = describeLineworkCoverageNotice(linework, readingPageCount);
+        if (coverage) localEvidenceNotices.push(coverage);
       }
       // The other half of the same pass: the sheet's printed text layer, read
       // page by page so every reader can cite notes, keynotes, tags, schedules
@@ -341,6 +345,8 @@ export class AiPlanReadingService {
         } catch {
           localEvidenceNotices.push('The PDF text layer could not be read locally, so printed notes and title blocks were not transcribed for this reading.');
         }
+        const coverage = describeSheetTextCoverageNotice(sheetText, readingPageCount);
+        if (coverage) localEvidenceNotices.push(coverage);
       }
 
       // `documents/worker.ts` already renders every page to JPEG for the

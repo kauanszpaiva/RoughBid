@@ -4,8 +4,8 @@ import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { requireFreeProviderConfig } from './free-provider.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
-import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
-import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
+import { extractDrawingLinework, describeLineworkCoverageNotice, lineworkOptionsFromEnv, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
+import { extractSheetText, describeSheetTextCoverageNotice, sheetTextEnabled, sheetTextOptionsFromEnv, verifyFindingPages, type SheetText } from './sheet-text.ts';
 import type { PlanReadingResult } from './types.ts';
 
 export type DurableEntitlement = 'paid' | 'owner_free';
@@ -304,13 +304,19 @@ export class DurableAiPlanJobProcessor {
         // Local, zero-cost geometry from the plan's own vector operators.
         let linework: DrawingLinework | undefined;
         if (vectorLineworkEnabled(process.env)) {
-          try { linework = await extractDrawingLinework(bytes); } catch { /* A plan that cannot be parsed still reads through the provider. */ }
+          try { linework = await extractDrawingLinework(bytes, lineworkOptionsFromEnv(process.env)); } catch { /* A plan that cannot be parsed still reads through the provider. */ }
         }
         // The sheet's printed text layer, read locally for the same reason.
         let sheetText: SheetText | undefined;
         if (sheetTextEnabled(process.env)) {
           try { sheetText = await extractSheetText(bytes, sheetTextOptionsFromEnv(process.env)); } catch { /* The provider still reads the PDF. */ }
         }
+        // Local coverage limits must be visible in the saved reading, not only in
+        // the digest the model receives.
+        const coverageNotices = [
+          describeLineworkCoverageNotice(linework, context.page_count),
+          describeSheetTextCoverageNotice(sheetText, context.page_count),
+        ].filter((value): value is string => Boolean(value));
         const attempt = await this.writer.rpc('begin_ai_plan_provider_attempt', {
           p_job_id: queueJob.data.jobId, p_lease_id: leaseId,
         });
@@ -329,6 +335,7 @@ export class DurableAiPlanJobProcessor {
           pageCount: context.page_count,
         }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
+        if (coverageNotices.length) result.summary.limitations = [...result.summary.limitations, ...coverageNotices];
         if (linework) {
           const merged = mergeLineworkFindings(result.findings, linework, { pageCount: context.page_count });
           if (merged.added) result.findings = merged.findings;

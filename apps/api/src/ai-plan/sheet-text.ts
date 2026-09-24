@@ -294,6 +294,19 @@ export function describeSheetTextDigest(sheetText: SheetText | undefined, maxCha
   return lines.join('\n').slice(0, maxCharacters);
 }
 
+/**
+ * Honest coverage disclosure for `summary.limitations`, mirroring
+ * `describeLineworkCoverageNotice`: a transcript that stopped at the page limit
+ * must not read as if the whole set was transcribed.
+ */
+export function describeSheetTextCoverageNotice(sheetText: SheetText | undefined, pageCount?: number): string | null {
+  if (!sheetText?.truncated) return null;
+  const scope = Number.isSafeInteger(pageCount) && (pageCount as number) > sheetText.pageLimit
+    ? `at most ${sheetText.pageLimit} of ${pageCount} physical pages`
+    : `at most ${sheetText.pageLimit} physical pages`;
+  return `The printed text layer was transcribed for ${scope}; later sheets have no local transcript, so printed notes and citations there were not checked against the PDF text.`;
+}
+
 /** Both local evidence blocks, so every reader adds them with one call. */
 export function describePlanEvidenceDigest(input: { linework?: DrawingLinework | undefined; sheetText?: SheetText | undefined }): string | null {
   const blocks = [describeLineworkDigest(input.linework), describeSheetTextDigest(input.sheetText)].filter((block): block is string => Boolean(block));

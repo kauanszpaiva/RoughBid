@@ -31,7 +31,15 @@ const MIN_REGION_POINTS = 6;
 const WALL_MIN_THICKNESS_POINTS = 1.5;
 const WALL_MIN_LENGTH_POINTS = 18;
 
-export const DEFAULT_LINEWORK_MAX_PAGES = 24;
+/**
+ * Pages measured in one pass. The product accepts at most 100 physical pages
+ * (`MAX_AI_PAGES`), so the default covers a whole supported set: stopping lower
+ * would silently leave the later sheets of the drawing with no locally measured
+ * geometry at all. Bounded above so one oversized file cannot monopolize a
+ * request, and overridable through `AI_PLAN_LINEWORK_MAX_PAGES`.
+ */
+export const DEFAULT_LINEWORK_MAX_PAGES = 100;
+export const MAX_LINEWORK_MAX_PAGES = 200;
 export const DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE = 20_000;
 export const DEFAULT_LINEWORK_MAX_REGIONS_PER_PAGE = 200;
 export const MAX_LINEWORK_FINDINGS = 40;
@@ -83,6 +91,15 @@ export interface DrawingLineworkOptions {
   maxPages?: number;
   maxSegmentsPerPage?: number;
   maxRegionsPerPage?: number;
+}
+
+function optionFromEnv(value: string | undefined, fallback: number, ceiling: number): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, ceiling) : fallback;
+}
+
+export function lineworkOptionsFromEnv(env: Record<string, string | undefined> = process.env): DrawingLineworkOptions {
+  return { maxPages: optionFromEnv(env.AI_PLAN_LINEWORK_MAX_PAGES, DEFAULT_LINEWORK_MAX_PAGES, MAX_LINEWORK_MAX_PAGES) };
 }
 
 const emptyRun = (): LineworkRunSummary => ({ count: 0, totalLengthPoints: 0, longestPoints: 0 });
@@ -244,7 +261,7 @@ export async function extractDrawingLinework(
   if (!(fileBytes instanceof Uint8Array) || fileBytes.byteLength === 0) {
     throw new TypeError('A non-empty PDF is required to read drawing linework.');
   }
-  const maxPages = Math.max(1, Math.min(options.maxPages ?? DEFAULT_LINEWORK_MAX_PAGES, 200));
+  const maxPages = Math.max(1, Math.min(options.maxPages ?? DEFAULT_LINEWORK_MAX_PAGES, MAX_LINEWORK_MAX_PAGES));
   const maxSegmentsPerPage = Math.max(1, options.maxSegmentsPerPage ?? DEFAULT_LINEWORK_MAX_SEGMENTS_PER_PAGE);
   const maxRegionsPerPage = Math.max(1, options.maxRegionsPerPage ?? DEFAULT_LINEWORK_MAX_REGIONS_PER_PAGE);
 
@@ -426,6 +443,19 @@ export function describeLineworkDigest(linework: DrawingLinework | undefined): s
 }
 
 /**
+ * Honest coverage disclosure for `summary.limitations`. The digest already tells
+ * the model which pages it does not describe; a human reviewing the saved
+ * reading has to be told the same thing, or a partial drawing looks complete.
+ */
+export function describeLineworkCoverageNotice(linework: DrawingLinework | undefined, pageCount?: number): string | null {
+  if (!linework?.truncated) return null;
+  const scope = Number.isSafeInteger(pageCount) && (pageCount as number) > linework.pageLimit
+    ? `at most ${linework.pageLimit} of ${pageCount} physical pages`
+    : `at most ${linework.pageLimit} physical pages`;
+  return `Deterministic vector linework was measured for ${scope}; later sheets have no locally measured lines, wall runs or closed outlines.`;
+}
+
+/**
  * Turns measured closed outlines into reviewable geometry evidence. Quantities
  * stay null on purpose: without a verified scale this is a location, not a
  * takeoff, and it is never priced.
@@ -471,9 +501,14 @@ export function mergeLineworkFindings(
     .filter(finding => !findings.some(existing => existing.page_number === finding.page_number
       && JSON.stringify(existing.geometry?.bbox) === JSON.stringify(finding.geometry.bbox)));
   if (!extra.length) return { findings: [...findings], added: 0, note: null };
+  // A capped or duplicate-suppressed list must not look like the whole drawing.
+  const detected = linework?.pages.reduce((sum, page) => sum + page.regions.length, 0) ?? 0;
   return {
     findings: [...findings, ...extra],
     added: extra.length,
-    note: `PDF vector linework was read locally and ${extra.length} closed outline(s) were added as unlabeled geometry evidence needing review; they carry no quantity because no scale was applied.`,
+    note: `PDF vector linework was read locally and ${extra.length} closed outline(s) were added as unlabeled geometry evidence needing review; they carry no quantity because no scale was applied.`
+      + (detected > extra.length
+        ? ` ${detected} closed outline(s) were detected in total; locations already reported by the model and the per-reading outline cap are not listed again.`
+        : ''),
   };
 }
