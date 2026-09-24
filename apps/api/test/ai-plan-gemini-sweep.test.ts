@@ -11,7 +11,7 @@ async function planPages(count: number): Promise<Uint8Array> {
 }
 
 const sweep = (overrides: Partial<GeminiSweepOptions> = {}): GeminiSweepOptions => ({
-  batchPages: 2, maxBatches: 25, maxTotalFindings: 400, timeoutMs: 60_000, ...overrides,
+  batchPages: 2, maxBatches: 25, maxTotalFindings: 400, timeoutMs: 60_000, budgetMs: 0, ...overrides,
 });
 
 const base = { mimeType: 'application/pdf', sheetName: 'Permit set.pdf', requestedTrades: ['Framing'], scope: 'Full takeoff' };
@@ -160,10 +160,42 @@ test('merged findings are capped and the cap is disclosed', async () => {
   assert.ok(result.summary.limitations.some(note => /Findings capped at 1 for this set \(2 were reported across all batches\)/.test(note)));
 });
 
+test('the sweep runs every window when its deadline is generous', async () => {
+  const attached: number[] = [];
+  const reader = new GeminiPlanReader(
+    windowClient(pages => attached.push(pages), () => [roomOn(1)]),
+    ['test-model'],
+    sweep({ budgetMs: 60_000 }),
+  );
+  await reader.read({ ...base, fileBytes: await planPages(5), pageCount: 5 });
+  assert.deepEqual(attached, [2, 2, 1]);
+});
+
+test('the sweep stops at its deadline and names the pages it never read', async () => {
+  let calls = 0;
+  const reader = new GeminiPlanReader({
+    generateContent: async () => {
+      calls += 1;
+      // A real window takes time; the delay makes the elapsed budget unambiguous.
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return { text: JSON.stringify({ summary: { sheet_count: 2 }, findings: [roomOn(1)] }) };
+    },
+  }, ['test-model'], sweep({ budgetMs: 1 }));
+
+  const result = await reader.read({ ...base, fileBytes: await planPages(8), pageCount: 8 });
+
+  // Never killed mid-request: one window is saved, the rest is named as unread.
+  assert.equal(calls, 1);
+  assert.deepEqual(result.findings.map(finding => finding.page_number), [1]);
+  assert.ok(result.summary.limitations.some(note => /read as 1 separate provider request\(s\)/.test(note)));
+  assert.ok(result.summary.limitations.some(note => /1-second sweep deadline was reached after 1 request\(s\)/.test(note)));
+  assert.ok(result.summary.limitations.some(note => /Physical pages 3-8 were never read/.test(note)));
+});
+
 test('the sweep is configurable and can be switched off', () => {
-  assert.deepEqual(geminiSweepOptionsFromEnv({}), { batchPages: 8, maxBatches: 25, maxTotalFindings: 400, timeoutMs: 120_000 });
+  assert.deepEqual(geminiSweepOptionsFromEnv({}), { batchPages: 8, maxBatches: 25, maxTotalFindings: 400, timeoutMs: 120_000, budgetMs: 240_000 });
   assert.deepEqual(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: '4', AI_PLAN_GEMINI_MAX_BATCHES: '3', AI_PLAN_GEMINI_TIMEOUT_MS: '60000' }), {
-    batchPages: 4, maxBatches: 3, maxTotalFindings: 400, timeoutMs: 60_000,
+    batchPages: 4, maxBatches: 3, maxTotalFindings: 400, timeoutMs: 60_000, budgetMs: 240_000,
   });
   assert.deepEqual(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_SWEEP: 'false' }).batchPages, 0);
   // Bounded, never unbounded, and nonsense falls back instead of widening.
@@ -171,4 +203,10 @@ test('the sweep is configurable and can be switched off', () => {
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_MAX_BATCHES: '9999' }).maxBatches, 60);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_TIMEOUT_MS: '9999999' }).timeoutMs, 300_000);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: 'abc' }).batchPages, 8);
+  // The shared sweep deadline is bounded too, and 0 explicitly means "no deadline"
+  // (only safe on the durable worker, which has no HTTP timeout).
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '90000' }).budgetMs, 90_000);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '0' }).budgetMs, 0);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '9999999' }).budgetMs, 600_000);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: 'nonsense' }).budgetMs, 240_000);
 });

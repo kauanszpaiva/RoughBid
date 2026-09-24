@@ -46,6 +46,25 @@ export function integerFromEnv(value: string | undefined, fallback: number, ceil
 }
 
 /**
+ * Wall-clock budget for one sweep, shared by every sweeping reader.
+ *
+ * A sweep runs inline in the HTTP request, so the platform's function timeout is
+ * a hard ceiling on the whole reading: killed mid-sweep, the request returns
+ * nothing and the job stays claimed. Stopping the sweep at a deadline instead
+ * returns the windows that were read, with the pages that were not read named in
+ * `summary.limitations`. Configure this below the deployed function `maxDuration`.
+ * `AI_PLAN_SWEEP_BUDGET_MS=0` means "no deadline" (only for a durable worker,
+ * which has no HTTP timeout: `AI_PLAN_DURABLE_ENABLED=true`).
+ */
+export const DEFAULT_SWEEP_BUDGET_MS = 240_000;
+export const MAX_SWEEP_BUDGET_MS = 600_000;
+
+export function sweepBudgetFromEnv(env: Record<string, string | undefined> = process.env): number {
+  if (env.AI_PLAN_SWEEP_BUDGET_MS?.trim() === '0') return 0;
+  return integerFromEnv(env.AI_PLAN_SWEEP_BUDGET_MS, DEFAULT_SWEEP_BUDGET_MS, MAX_SWEEP_BUDGET_MS);
+}
+
+/**
  * Ordered windows over a set. Returns one window when the set already fits a
  * single request, so the caller can treat "one batch" as the plain path.
  */

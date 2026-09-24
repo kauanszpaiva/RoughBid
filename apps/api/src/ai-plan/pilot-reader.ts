@@ -1,7 +1,7 @@
 import { ProjectApiError } from '../projects/service.ts';
 import { describePlanEvidenceDigest } from './sheet-text.ts';
 import { type GeminiGenerateContentClient, type GeminiPlanReadInput } from './gemini.ts';
-import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import { sanitizePlanReadingResult, sanitizeSheetLabel, type PlanReadingResult } from './types.ts';
 import { isConfiguredValue } from './readiness.ts';
 import { AiProviderError, runProviderOperation } from './provider-errors.ts';
 
@@ -79,7 +79,7 @@ CRITICAL HARD INVARIANTS:
 6. Include geometry only for a reliably identified location: bbox [x,y,width,height] normalized 0..1 from the top-left of the physical PDF page, at most three decimal places, with a short printed area name. Otherwise omit geometry. Never fabricate boundaries.
 7. Include project_address only when visible on the supplied pages, with physical page and short verbatim excerpt. Never infer address components. This is evidence only, not pricing authorization.
 8. Return compact valid JSON matching the response schema. Complete the JSON within the existing ${PILOT_MAX_OUTPUT_TOKENS}-token output limit, aiming below 2500 tokens. Human review remains required.
-Sheet: ${JSON.stringify(input.sheetName.slice(0, 255))}. Requested trades: ${input.requestedTrades.join(', ') || 'visible trades'}. Project scope: ${(input.scope || '').slice(0, 500)}${digest ? `\n${digest.slice(0, 1200)}` : ''}`;
+Sheet: ${JSON.stringify(sanitizeSheetLabel(input.sheetName, 255))}. Requested trades: ${input.requestedTrades.join(', ') || 'visible trades'}. Project scope: ${(input.scope || '').slice(0, 500)}${digest ? `\n${digest.slice(0, 1200)}` : ''}`;
 }
 
 export function requirePilotReaderConfig(env: Record<string, string | undefined>, now = Date.now()) {

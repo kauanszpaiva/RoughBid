@@ -1,4 +1,4 @@
-import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import { sanitizePlanReadingResult, sanitizeSheetLabel, type PlanReadingResult } from './types.ts';
 import { describePlanEvidenceDigest } from './sheet-text.ts';
 import { isConfiguredValue } from './readiness.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
@@ -92,7 +92,7 @@ CRITICAL HARD INVARIANTS:
 6. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
 7. Reply with ONLY a single JSON object, no prose before or after it, no markdown code fences, matching exactly:
 {"summary":{"sheet_count":<integer>,"detected_trade_scope":["Framing",...],"scale_status":"detected"|"missing"|"conflicting"},"findings":[{"page_number":<integer>,"finding_type":"material","label":"...","value_text":"...","quantity":<number|null>,"unit":"SF"|"LF"|"EA"|"CY"|"SY"|"HR"|"LS"|null,"confidence":<0..1>,"source_excerpt":"verbatim quote from the sheet"}]}
-Sheet: "${sheetName}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
+Sheet: "${sanitizeSheetLabel(sheetName)}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
 
 const userPrompt = (scope: string | null) =>
   `Read this plan for takeoff preparation.${scope ? ` Project scope: ${scope}.` : ''} Extract only evidence visible on the provided pages. Locate rooms, walls, outlines and symbols from what is actually drawn on the sheet. Reply with the JSON object only.`;

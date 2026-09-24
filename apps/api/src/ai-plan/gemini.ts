@@ -1,10 +1,10 @@
 import { meterGeminiCall, UsageAccountingError } from '../owner-usage/meter.ts';
-import { sanitizePlanReadingResult, type PlanProjectAddressEvidence, type PlanReadingFinding, type PlanReadingResult } from './types.ts';
+import { sanitizePlanReadingResult, sanitizeSheetLabel, type PlanProjectAddressEvidence, type PlanReadingFinding, type PlanReadingResult } from './types.ts';
 import { describePlanEvidenceDigest, describePlanEvidenceWindow, type SheetText } from './sheet-text.ts';
 import {
   DEFAULT_BATCH_PAGES, DEFAULT_MAX_BATCHES, MAX_BATCH_PAGES, MAX_MAX_BATCHES,
   boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows,
-  slicePlanDocument, unreadPages, type PageWindow,
+  slicePlanDocument, sweepBudgetFromEnv, unreadPages, type PageWindow,
 } from './plan-batches.ts';
 import type { DrawingLinework } from './drawing-linework.ts';
 import { ProjectApiError } from '../projects/service.ts';
@@ -25,6 +25,8 @@ export interface GeminiSweepOptions {
   maxBatches: number;
   maxTotalFindings: number;
   timeoutMs: number;
+  /** Wall-clock deadline for the whole sweep. 0 means no deadline (durable worker only). */
+  budgetMs: number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
@@ -48,6 +50,7 @@ export function geminiSweepOptionsFromEnv(env: Record<string, string | undefined
     maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_GEMINI_MAX_BATCHES, DEFAULT_MAX_BATCHES, MAX_MAX_BATCHES)),
     maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
     timeoutMs: integerFromEnv(env.AI_PLAN_GEMINI_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS),
+    budgetMs: sweepBudgetFromEnv(env),
   };
 }
 
@@ -160,7 +163,7 @@ CRITICAL HARD INVARIANTS:
     { "page_number": <integer>, "finding_type": "room", "label": "...", "value_text": "...", "quantity": <number|null>, "unit": "SF"|"LF"|"EA"|"CY"|"SY"|"HR"|"LS"|null, "dimension": <string|null>, "confidence": <0..1>, "source_excerpt": "verbatim quote from the sheet", "geometry": { "bbox": [0.1, 0.2, 0.3, 0.2], "area": "printed area name" } }
   ]
 }
-Sheet: "${sheetName}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
+Sheet: "${sanitizeSheetLabel(sheetName)}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
 
 const userPrompt = (input: GeminiPlanReadInput, window?: PageWindow) => window
   ? `Read physical PDF pages ${window.from}-${window.to} of a larger construction drawing set, in order: the first page of this request is page 1. Report page_number 1-${window.to - window.from + 1} for every finding in this request and cite only the pages attached here; the server restores the original physical numbering. Nothing outside this window is attached, so never cite or describe a page you were not given. Enumerate the evidence on every page of this request.${input.scope ? ` Project scope: ${input.scope}.` : ''}`
@@ -305,9 +308,8 @@ export class GeminiPlanReader {
    */
   private async readWholeSet(input: GeminiPlanReadInput, pageCount: number): Promise<PlanReadingResult> {
     const windows = planPageWindows(pageCount, this.sweep.batchPages, this.sweep.maxBatches);
-    const limitations: string[] = [
-      `This plan was read as ${windows.length} separate provider request(s) of at most ${this.sweep.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`,
-    ];
+    const attempted: PageWindow[] = [];
+    const limitations: string[] = [];
     const findings: PlanReadingFinding[] = [];
     const trades = new Set<string>();
     const batchNotes: string[] = [];
@@ -316,6 +318,8 @@ export class GeminiPlanReader {
     let scaleConflict = false;
     let scaleDetected = false;
     let lastError: unknown = null;
+    const sweepStartedAt = Date.now();
+    let deadlineStopped = false;
 
     // Parsed once for the whole sweep: one window costs one page copy, not one
     // re-parse of the complete set. A file this splitter cannot open is still
@@ -325,6 +329,15 @@ export class GeminiPlanReader {
     catch { return this.readOnce(input, { fileBytes: input.fileBytes }); }
 
     for (const window of windows) {
+      // The sweep runs inline in the HTTP request, so the platform's function
+      // timeout is a hard ceiling on the whole reading. Stop at the deadline and
+      // name the pages that were not read instead of being killed mid-sweep with
+      // nothing to save. The first window always runs.
+      if (attempted.length && this.sweep.budgetMs > 0 && Date.now() - sweepStartedAt > this.sweep.budgetMs) {
+        deadlineStopped = true;
+        break;
+      }
+      attempted.push(window);
       try {
         const bytes = await slicePlanDocument(source, window);
         const result = await this.readOnce(input, { fileBytes: bytes, window });
@@ -353,9 +366,13 @@ export class GeminiPlanReader {
       throw lastError instanceof Error ? lastError : new ProjectApiError(502, 'No usable findings were returned for this set.');
     }
 
-    const unread = unreadPages(pageCount, windows);
+    limitations.push(`This plan was read as ${attempted.length} separate provider request(s) of at most ${this.sweep.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`);
+    const unread = unreadPages(pageCount, attempted);
     if (unread.length) {
-      limitations.push(`Physical pages ${unread[0]}-${unread[unread.length - 1]} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
+      const range = `${unread[0]}-${unread[unread.length - 1]}`;
+      limitations.push(deadlineStopped
+        ? `Physical pages ${range} were never read: the ${Math.max(1, Math.round(this.sweep.budgetMs / 1000))}-second sweep deadline was reached after ${attempted.length} request(s).`
+        : `Physical pages ${range} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
     }
     if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
 

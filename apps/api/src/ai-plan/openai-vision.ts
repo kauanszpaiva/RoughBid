@@ -3,7 +3,7 @@ import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingE
 import { sanitizePlanReadingResult, type PlanReadingFinding, type PlanProjectAddressEvidence, type PlanReadingResult } from './types.ts';
 import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, type PlanPageImage, systemPrompt } from './gemini.ts';
 import { describePlanEvidenceDigest, describePlanEvidenceWindow } from './sheet-text.ts';
-import { boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows, slicePlanDocument, unreadPages, type PageWindow } from './plan-batches.ts';
+import { boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows, slicePlanDocument, sweepBudgetFromEnv, unreadPages, type PageWindow } from './plan-batches.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -21,6 +21,8 @@ export interface OpenAiVisionProviderConfig {
   maxTotalFindings: number;
   /** Per-request ceiling. A multi-page PDF needs longer than a single image. */
   timeoutMs: number;
+  /** Wall-clock deadline for the whole sweep. 0 means no deadline (durable worker only). */
+  budgetMs: number;
 }
 
 const DEFAULT_MAX_IMAGES = 8;
@@ -59,6 +61,7 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     maxBatches: 0,
     maxTotalFindings: 200,
     timeoutMs: 60_000,
+    budgetMs: 0,
   };
 }
 
@@ -81,6 +84,7 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
     maxBatches: 0,
     maxTotalFindings: 200,
     timeoutMs: 60_000,
+    budgetMs: 0,
   };
 }
 
@@ -103,6 +107,7 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
     // old hard 60 s abort turned a slow reading into a failed one.
     timeoutMs: integerFromEnv(env.AI_PLAN_OPENAI_TIMEOUT_MS, 120_000, 300_000),
+    budgetMs: sweepBudgetFromEnv(env),
   };
 }
 
@@ -317,9 +322,8 @@ export class OpenAiCompatibleVisionPlanReader {
    */
   private async readWholeSet(input: GeminiPlanReadInput, pageCount: number): Promise<PlanReadingResult> {
     const windows = planPageWindows(pageCount, this.config.batchPages, this.config.maxBatches);
-    const limitations: string[] = [
-      `This plan was read as ${windows.length} separate provider request(s) of at most ${this.config.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`,
-    ];
+    const attempted: PageWindow[] = [];
+    const limitations: string[] = [];
     const findings: PlanReadingFinding[] = [];
     const trades = new Set<string>();
     const batchNotes: string[] = [];
@@ -328,6 +332,8 @@ export class OpenAiCompatibleVisionPlanReader {
     let scaleConflict = false;
     let scaleDetected = false;
     let lastError: unknown = null;
+    const sweepStartedAt = Date.now();
+    let deadlineStopped = false;
 
     // Parsed once for the whole sweep: one window costs one page copy, not one
     // re-parse of the complete set. A file PDF.js can read but this splitter
@@ -337,6 +343,15 @@ export class OpenAiCompatibleVisionPlanReader {
     catch { return this.readOnce(input, { fileBytes: input.fileBytes }); }
 
     for (const window of windows) {
+      // The sweep runs inline in the HTTP request, so the platform's function
+      // timeout is a hard ceiling on the whole reading. Stop at the deadline and
+      // name the pages that were not read instead of being killed mid-sweep. The
+      // first window always runs.
+      if (attempted.length && this.config.budgetMs > 0 && Date.now() - sweepStartedAt > this.config.budgetMs) {
+        deadlineStopped = true;
+        break;
+      }
+      attempted.push(window);
       try {
         const bytes = await slicePlanDocument(source, window);
         const result = await this.readOnce(input, { fileBytes: bytes, window });
@@ -365,9 +380,13 @@ export class OpenAiCompatibleVisionPlanReader {
       throw lastError instanceof Error ? lastError : new ProjectApiError(502, 'No usable findings were returned for this set.');
     }
 
-    const unread = unreadPages(pageCount, windows);
+    limitations.push(`This plan was read as ${attempted.length} separate provider request(s) of at most ${this.config.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`);
+    const unread = unreadPages(pageCount, attempted);
     if (unread.length) {
-      limitations.push(`Physical pages ${unread[0]}-${unread[unread.length - 1]} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
+      const range = `${unread[0]}-${unread[unread.length - 1]}`;
+      limitations.push(deadlineStopped
+        ? `Physical pages ${range} were never read: the ${Math.max(1, Math.round(this.config.budgetMs / 1000))}-second sweep deadline was reached after ${attempted.length} request(s).`
+        : `Physical pages ${range} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
     }
     if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
 

@@ -15,6 +15,26 @@ export const ALLOWED_FINDING_TYPES: ReadonlySet<PlanReadingFindingType> = new Se
 /** The AI plan reader is asked to report quantities using only these short imperial unit codes. */
 export const ALLOWED_UNITS: ReadonlySet<string> = new Set(['SF', 'LF', 'EA', 'CY', 'SY', 'HR', 'LS']);
 
+/**
+ * A file name is user-controlled text and it is interpolated into a system
+ * instruction, so it is cleaned before it ever reaches a provider: control
+ * characters, line separators and quotes are removed, whitespace is collapsed
+ * and the length is bounded. A crafted upload name cannot then rewrite the
+ * reader's rules or close the surrounding instruction.
+ */
+export function sanitizeSheetLabel(value: unknown, max = 120): string {
+  const raw = typeof value === 'string' ? value : '';
+  const cleaned = raw
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F\u2028\u2029]/g, ' ')
+    .replace(/[`"'\u2018\u2019\u201C\u201D]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
+  return cleaned || 'uploaded plan';
+}
+
 export interface PlanReadingFinding {
   page_number: number | null;
   finding_type: PlanReadingFindingType;
