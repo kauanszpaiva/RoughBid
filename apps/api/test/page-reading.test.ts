@@ -4,9 +4,17 @@ import { PDFDocument } from 'pdf-lib';
 import { AiPlanReadingService } from '../src/ai-plan/service.ts';
 import { PDF_DIGEST } from '../src/billing/project-preflight.ts';
 
-async function harness(options: { owner?: boolean; fail?: boolean; sourcePage?: number; consent?: boolean } = {}) {
+async function harness(options: { owner?: boolean; fail?: boolean; sourcePage?: number; consent?: boolean; withLinework?: boolean } = {}) {
   const doc = await PDFDocument.create();
-  for (let i=1;i<=3;i++) doc.addPage([200+i*10,400]);
+  for (let i=1;i<=3;i++) {
+    const page = doc.addPage([200+i*10,400]);
+    if (options.withLinework) {
+      // Known drawing linework: a 4' tall vertical run, a horizontal run and a closed room outline.
+      page.drawLine({ start: { x: 40, y: 360 }, end: { x: 40, y: 240 }, thickness: 2 });
+      page.drawLine({ start: { x: 40, y: 360 }, end: { x: 160, y: 360 }, thickness: 2 });
+      page.drawRectangle({ x: 60, y: 180, width: 80, height: 60, borderWidth: 1.5 });
+    }
+  }
   const bytes = await doc.save();
   const jobs: any[] = []; const reads: any[]=[]; const calls: string[]=[];
   let next=0; let pricing: any=null;
@@ -110,4 +118,47 @@ test('a browser mode string cannot impersonate a physical-page fingerprint',asyn
   await h.service.create('p',{...whole,mode:'sheet-v1:2'});
   const specific=await h.service.create('p',h.input);
   assert.equal(h.reads.length,2);assert.equal(specific.output_summary.physical_page_number,2);
+});
+
+test('a page review reads the drawing vector linework and saves it as reviewable geometry',async()=>{
+  const h=await harness({withLinework:true});
+  const result=await h.service.create('p',h.input);
+  // The provider received measured linework for exactly the supplied page.
+  assert.equal(h.reads[0].linework.pages.length,1);
+  const page=h.reads[0].linework.pages[0];
+  assert.equal(page.pageNumber,1);
+  assert.ok(page.vertical.count>=1);
+  assert.ok(page.horizontal.count>=1);
+  assert.equal(page.regions.length,1);
+  assert.equal(page.regions[0].widthPoints,80);
+  assert.equal(page.regions[0].heightPoints,60);
+  // Deterministic shape evidence is saved as reviewable geometry with no quantity.
+  const geometry=result.plan_reading_findings.filter((f:any)=>String(f.source_excerpt).startsWith('Deterministic PDF vector linework'));
+  assert.equal(geometry.length,1);
+  assert.equal(geometry[0].page_number,2);
+  assert.equal(geometry[0].quantity,null);
+  assert.equal(geometry[0].unit,null);
+  assert.equal(geometry[0].finding_type,'measurement');
+  assert.equal(geometry[0].geometry.bbox.length,4);
+  // The model's own finding is untouched and still first.
+  assert.equal(result.plan_reading_findings[0].label,'Bedroom');
+  assert.equal(result.plan_reading_findings[0].quantity,100);
+  // The addition is disclosed, not presented as a complete takeoff.
+  assert.ok(result.output_summary.limitations.some((l:string)=>/vector linework was read locally/i.test(l)));
+});
+
+test('local vector linework can be switched off without changing provider reading',async()=>{
+  const previous=process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED;
+  process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED='false';
+  try{
+    const h=await harness({withLinework:true});
+    const result=await h.service.create('p',h.input);
+    assert.equal(h.reads[0].linework,undefined);
+    assert.equal(result.plan_reading_findings.length,1);
+    assert.equal(result.plan_reading_findings[0].label,'Bedroom');
+    assert.ok(!result.output_summary.limitations.some((l:string)=>/vector linework/i.test(l)));
+  } finally {
+    if(previous===undefined)delete process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED;
+    else process.env.AI_PLAN_VECTOR_LINEWORK_ENABLED=previous;
+  }
 });

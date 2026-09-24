@@ -1,5 +1,10 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import { describeLineworkDigest } from './drawing-linework.ts';
+import { isConfiguredValue } from './readiness.ts';
+import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
+import { meterAnthropicCall } from '../owner-usage/meter.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
+import { ProjectApiError } from '../projects/service.ts';
 
 /** The subset of the Anthropic Messages API this reader needs — narrow enough to fake in tests. */
 export interface ClaudeMessagesClient {
@@ -90,7 +95,27 @@ CRITICAL HARD INVARIANTS:
 Sheet: "${sheetName}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
 
 const userPrompt = (scope: string | null) =>
-  `Read this plan for takeoff preparation.${scope ? ` Project scope: ${scope}.` : ''} Extract only evidence visible on the provided pages. Reply with the JSON object only.`;
+  `Read this plan for takeoff preparation.${scope ? ` Project scope: ${scope}.` : ''} Extract only evidence visible on the provided pages. Locate rooms, walls, outlines and symbols from what is actually drawn on the sheet. Reply with the JSON object only.`;
+
+/**
+ * Claude is a first-class paid plan reader, so its gate is explicit: the
+ * operator must name the exact Anthropic model and enable the route. A key
+ * alone never opens a billable provider.
+ */
+export function requireClaudePlanReadingConfig(env: Record<string, string | undefined>): { apiKey: string; model: string } {
+  const apiKey = env.ANTHROPIC_API_KEY?.trim();
+  const model = env.CLAUDE_PLAN_MODEL?.trim() || 'claude-sonnet-4-5';
+  if (env.CLAUDE_PLAN_READING_ENABLED !== 'true' || !isConfiguredValue(apiKey)
+    || !/^claude-(?:opus|sonnet|haiku|fable)-[a-z0-9][a-z0-9.-]{1,80}$/i.test(model)) {
+    throw new ProjectApiError(503, 'Claude plan reading is not configured.');
+  }
+  return { apiKey, model };
+}
+
+/** Deterministically measured linework is attached as context for every reader. */
+export function claudeLineworkContext(input: GeminiPlanReadInput): string | null {
+  return describeLineworkDigest(input.linework);
+}
 
 function extractJson(text: string): unknown {
   // Claude reliably follows "JSON only", but strip an accidental ```json fence defensively.
@@ -110,19 +135,29 @@ export class ClaudePlanReader {
     this.maxTokens = maxTokens;
   }
 
+  assertReady(): void {
+    if (!this.client) throw new ProjectApiError(503, 'Claude plan reading is not configured. No quantities were generated.');
+  }
+
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     if (this.client) {
+      const started = Date.now();
+      const digest = claudeLineworkContext(input);
       try {
         const base64 = Buffer.from(input.fileBytes).toString('base64');
-        const response = await this.client.createMessage({
+        const response = await meterAnthropicCall('claude', this.model, () => this.client!.createMessage({
           model: this.model,
           system: systemPrompt(input.sheetName, input.requestedTrades),
           maxTokens: this.maxTokens,
           content: [
             { type: 'document', source: { type: 'base64', media_type: input.mimeType, data: base64 } },
+            ...(digest ? [{ type: 'text', text: digest }] : []),
             { type: 'text', text: userPrompt(input.scope) },
           ],
-        });
+        }));
+        if (response.stopReason === 'max_tokens') {
+          throw new AiProviderError('provider_output_truncated', { provider: 'claude', model: this.model, stage: 'parse', durationMs: Date.now() - started });
+        }
         if (response.text) {
           const parsed = extractJson(response.text) as { findings?: unknown };
           if (parsed && Array.isArray(parsed.findings) && parsed.findings.length > 0) {
@@ -130,11 +165,15 @@ export class ClaudePlanReader {
             if (result.findings.length) return result;
           }
         }
-      } catch {
-        // Fail explicitly below.
+        throw new AiProviderError('provider_empty_output', { provider: 'claude', model: this.model, stage: 'validate', durationMs: Date.now() - started });
+      } catch (error) {
+        if (error instanceof AiProviderError) { logProviderFailure(error); throw error; }
+        const failure = classifyProviderFailure(error, { provider: 'claude', model: this.model, stage: 'generate', durationMs: Date.now() - started });
+        logProviderFailure(failure);
+        throw failure;
       }
     }
 
-    throw new Error('Claude could not read this plan. No quantities were generated. Please retry or contact support.');
+    throw new AiProviderError('provider_credentials', { provider: 'claude', model: this.model, stage: 'validate', durationMs: 0 });
   }
 }

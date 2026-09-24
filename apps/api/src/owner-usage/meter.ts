@@ -79,19 +79,19 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
 }
 
 
-export type MeteredVisionProvider = 'deepseek' | 'kimi';
+export type MeteredVisionProvider = 'deepseek' | 'kimi' | 'openai';
+export type MeteredMessagesProvider = 'claude';
+
+interface ProviderCallTelemetry { inputTokens: number; outputTokens: number; requestId: string | null }
 
 /**
- * Cost-safe metering for OpenAI-compatible vision providers.
- * Provider token usage is recorded, but cost remains telemetry-unknown until a
- * provider-specific, versioned price calculator is installed. In that state the
- * database breaker conservatively retains the configured per-call reservation.
+ * Shared metering core for OpenAI-compatible vision providers and Anthropic
+ * Messages. Provider token usage is recorded, but cost remains
+ * telemetry-unknown until a provider-specific, versioned price calculator is
+ * installed. In that state the database breaker conservatively retains the
+ * configured per-call reservation.
  */
-export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tokens?: number; completion_tokens?: number }; id?: string }>(
-  provider: MeteredVisionProvider,
-  model: string,
-  call: () => Promise<T>,
-): Promise<T> {
+async function meterProviderCall<T>(provider: string, model: string, call: () => Promise<T>, readTelemetry: (response: T) => ProviderCallTelemetry): Promise<T> {
   const context = storage.getStore();
   if (!context) return call();
   if (!context.userId || !context.workspaceId || !context.projectId || !context.jobId) throw new UsageAccountingError();
@@ -155,19 +155,43 @@ export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tok
     throw error;
   }
 
-  const inputTokens = Number.isSafeInteger(response.usage?.prompt_tokens) ? response.usage!.prompt_tokens! : 0;
-  const outputTokens = Number.isSafeInteger(response.usage?.completion_tokens) ? response.usage!.completion_tokens! : 0;
+  const { inputTokens, outputTokens, requestId } = readTelemetry(response);
   await settle({
     operation: `${prefix}tokens_only`,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     estimated_cost_usd: 0,
     actual_cost_usd: null,
-    provider_request_id: typeof response.id === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(response.id) ? response.id : null,
+    provider_request_id: requestId && /^[A-Za-z0-9_.:-]{1,200}$/.test(requestId) ? requestId : null,
   });
   try {
     const captured = await context.writer.rpc('capture_provider_spend', { p_event_id: id, p_estimated_cost_usd: null });
     if (captured.error) throw new UsageAccountingError();
   } catch { throw new UsageAccountingError(); }
   return response;
+}
+
+export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tokens?: number; completion_tokens?: number }; id?: string }>(
+  provider: MeteredVisionProvider,
+  model: string,
+  call: () => Promise<T>,
+): Promise<T> {
+  return meterProviderCall(provider, model, call, response => ({
+    inputTokens: Number.isSafeInteger(response.usage?.prompt_tokens) ? response.usage!.prompt_tokens! : 0,
+    outputTokens: Number.isSafeInteger(response.usage?.completion_tokens) ? response.usage!.completion_tokens! : 0,
+    requestId: typeof response.id === 'string' ? response.id : null,
+  }));
+}
+
+/** Anthropic Messages usage is reported per side of the call, not as prompt/completion tokens. */
+export async function meterAnthropicCall<T extends { usage?: { inputTokens?: number; outputTokens?: number }; id?: string }>(
+  provider: MeteredMessagesProvider,
+  model: string,
+  call: () => Promise<T>,
+): Promise<T> {
+  return meterProviderCall(provider, model, call, response => ({
+    inputTokens: Number.isSafeInteger(response.usage?.inputTokens) ? response.usage!.inputTokens! : 0,
+    outputTokens: Number.isSafeInteger(response.usage?.outputTokens) ? response.usage!.outputTokens! : 0,
+    requestId: typeof response.id === 'string' ? response.id : null,
+  }));
 }

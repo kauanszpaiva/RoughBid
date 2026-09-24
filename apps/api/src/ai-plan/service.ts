@@ -5,6 +5,7 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
+import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
@@ -313,6 +314,22 @@ export class AiPlanReadingService {
       }
 
       const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
+      const readingBytes = selectedPageBytes ?? fileBytes;
+      // The number of pages the reader actually receives: a page review sends
+      // exactly one physical page, so its linework is page-scoped too.
+      const readingPageCount = pageRequest ? 1 : unquotedPlan ? unquotedPlan.pages : quote.page_count;
+      // Local, zero-cost geometry: read the drawing's own PDF vector linework so
+      // every provider — text-only, PDF-native or image-native — can reason
+      // about real lines, wall runs and closed outlines instead of guessing.
+      let linework: DrawingLinework | undefined;
+      const lineworkNotices: string[] = [];
+      if (vectorLineworkEnabled(process.env)) {
+        try {
+          linework = await extractDrawingLinework(readingBytes);
+        } catch {
+          lineworkNotices.push('The PDF vector linework could not be read locally, so drawing lines and closed shapes were not measured for this reading.');
+        }
+      }
 
       // `documents/worker.ts` already renders every page to JPEG for the
       // blueprint viewer, but nothing ever read it, so every image-native
@@ -333,7 +350,7 @@ export class AiPlanReadingService {
         workspaceId: this.workspaceId, projectId, jobId: job.id,
         billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
       }, () => activeReader.read({
-        fileBytes: selectedPageBytes ?? fileBytes,
+        fileBytes: readingBytes,
         mimeType: 'application/pdf',
         ...(pageImages.length ? { pageImages } : {}),
         sheetName: pageRequest
@@ -341,8 +358,19 @@ export class AiPlanReadingService {
           : file.original_name,
         requestedTrades,
         scope,
+        ...(linework ? { linework } : {}),
         ...(pageRequest ? { reasoningEffort: 'high' as const } : {}),
       }));
+      // A provider failure still fails closed: deterministic linework is only
+      // ever appended to a real reading, never substituted for one.
+      if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
+      if (linework && accessMode !== 'pilot') {
+        const merged = mergeLineworkFindings(result.findings, linework, { pageCount: readingPageCount });
+        if (merged.added) {
+          result.findings = merged.findings;
+          if (merged.note) lineworkNotices.push(merged.note);
+        }
+      }
       if (pageRequest) {
         if (result.findings.some(f => f.page_number !== 1)) throw new ProjectApiError(502, 'Single-page output contains missing or conflicting page identities. It was not accepted.');
         result.findings = result.findings.map(f => ({ ...f, page_number: Number(requestedPage) }));
@@ -351,7 +379,6 @@ export class AiPlanReadingService {
           result.summary.project_address = { ...result.summary.project_address, page_number: Number(requestedPage) };
         }
       }
-      if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
       const pageCount = unquotedPlan ? unquotedPlan.pages : quote.page_count;
       if (result.findings.some(f => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > pageCount))) throw new Error('The reading contains quantities or locations without valid source pages.');
 
@@ -363,7 +390,7 @@ export class AiPlanReadingService {
         finding_count: result.findings.length,
         ...(pageRequest ? { page_strategy: 'sheet-v1', physical_page_number: requestedPage } : {}),
         reading_coverage: summarizeReadingCoverage({ physical_page_count: pageCount }, result.findings),
-        limitations: [...new Set([INCOMPLETE_TAKEOFF_NOTICE, ...(Array.isArray(result.summary.limitations) ? result.summary.limitations.filter(value => typeof value === 'string') : [])])],
+        limitations: [...new Set([INCOMPLETE_TAKEOFF_NOTICE, ...lineworkNotices, ...(Array.isArray(result.summary.limitations) ? result.summary.limitations.filter(value => typeof value === 'string') : [])])],
       };
 
       if (!pageRequest || result.summary.project_address) await persistPlanPricingContext({

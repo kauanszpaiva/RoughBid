@@ -1,5 +1,6 @@
 import { meterGeminiCall, UsageAccountingError } from '../owner-usage/meter.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import { describeLineworkDigest, type DrawingLinework } from './drawing-linework.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
@@ -20,6 +21,8 @@ export interface GeminiPlanReadInput {
   scope: string | null;
   /** Optional server-rendered page images for providers that do not accept construction PDFs natively. */
   pageImages?: readonly PlanPageImage[];
+  /** Deterministically measured PDF linework/shapes, shared by every provider. */
+  linework?: DrawingLinework;
   /** Deep orchestrators opt into HIGH per-sheet reasoning; Quick/Pilot remains LOW. */
   reasoningEffort?: 'low' | 'high';
 }
@@ -76,7 +79,8 @@ CRITICAL HARD INVARIANTS:
 7. Never output money, prices, rates, construction costs, service fees, margins or invented labor hours. The application calculates its service fee separately. Labor quantities require explicit evidence, never inferred allowances.
 8. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
 9. For visually located rooms and items, include geometry.bbox [x,y,width,height], normalized to 0..1 from the top-left of the displayed physical PDF page, and geometry.area for the printed room/area name. Boxes must stay inside the page. Use an empty geometry if a location cannot be reliably identified. Never fabricate boundaries. Cite a visible label for each location. Disclose unreadable pages, missing/conflicting scale and uncertain boundaries in summary.limitations.
-10. Output MUST be valid JSON only, matching exactly:
+10. When a DETERMINISTIC VECTOR LINEWORK block is provided, it was measured locally from the PDF's own drawing operators (line runs, wall-like strokes and closed outlines). Treat it as measured evidence about the drawing's geometry: use it to locate the rooms, walls and closed areas you can also see labeled, and cite it in source_excerpt when a location comes from it. A linework shape alone is NOT a measured quantity — never turn a vector outline into SF/LF without an explicit visible dimension.
+11. Output MUST be valid JSON only, matching exactly:
 {
   "summary": {
     "sheet_count": <integer>,
@@ -124,10 +128,12 @@ export class GeminiPlanReader {
       logProviderFailure(failure);throw failure;
     });
     try {
-    const contents = [
-      { text: userPrompt(input.scope) },
-      prepared.part,
-    ];
+    const lineworkDigest = describeLineworkDigest(input.linework);
+        const contents = [
+          { text: userPrompt(input.scope) },
+          ...(lineworkDigest ? [{ text: lineworkDigest }] : []),
+          prepared.part,
+        ];
 
     let rawResult: unknown = null;
     let lastFailure:AiProviderError|null=null;

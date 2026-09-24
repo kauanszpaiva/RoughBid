@@ -130,9 +130,16 @@ test('DeepSeek defaults to Flash and provider order stays cost-first', () => {
   assert.equal(config.model, 'deepseek-flash');
   assert.equal(config.baseUrl, 'https://api.deepseek.com');
 
-  assert.deepEqual(configuredProviderOrder({}), ['gemini', 'kimi', 'deepseek']);
+  // Cost-first default: Gemini (PDF-native) first, then the remaining paid
+  // readers in a fixed, explicit order. Unknown names are ignored and every
+  // supported provider is appended exactly once.
+  assert.deepEqual(configuredProviderOrder({}), ['gemini', 'claude', 'openai', 'kimi', 'deepseek']);
   assert.deepEqual(
     configuredProviderOrder({ AI_PLAN_PROVIDER_ORDER: 'kimi,gemini' }),
-    ['kimi', 'gemini', 'deepseek'],
+    ['kimi', 'gemini', 'claude', 'openai', 'deepseek'],
+  );
+  assert.deepEqual(
+    configuredProviderOrder({ AI_PLAN_PROVIDER_ORDER: 'openai,claude,not-a-provider' }),
+    ['openai', 'claude', 'gemini', 'kimi', 'deepseek'],
   );
 });

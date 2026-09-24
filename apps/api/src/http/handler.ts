@@ -25,7 +25,9 @@ import {
   configuredProviderOrder,
   requireDeepSeekVisionConfig,
   requireKimiVisionConfig,
+  requireOpenAiVisionConfig,
 } from '../ai-plan/openai-vision.ts';
+import { ClaudePlanReader, HttpClaudeMessagesClient, requireClaudePlanReadingConfig } from '../ai-plan/claude.ts';
 import { runtimeCapabilities } from './capabilities.ts';
 import { requireFreeProviderConfig } from '../ai-plan/free-provider.ts';
 import { assertNoPaidFallback } from '../ai-plan/owner-free.ts';
@@ -243,6 +245,20 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         const kimi = new OpenAiCompatibleVisionPlanReader(kimiConfig);
         configuredReaders.set('kimi', { name: 'kimi', read: (input: any) => kimi.read(input) });
       } catch { /* Kimi remains a final fallback and is disabled by default. */ }
+      try {
+        // Claude reads the plan PDF natively and is metered through the same
+        // company spend breaker as the other paid readers.
+        const claudeConfig = requireClaudePlanReadingConfig(process.env);
+        const claude = new ClaudePlanReader(new HttpClaudeMessagesClient(claudeConfig.apiKey), claudeConfig.model);
+        configuredReaders.set('claude', { name: 'claude', read: (input: any) => claude.read(input) });
+      } catch { /* Claude stays closed until its exact model and key are verified. */ }
+      try {
+        // OpenAI reads the plan PDF (or rendered page images) natively; no
+        // server-side renderer is required for this route.
+        const openAiConfig = requireOpenAiVisionConfig(process.env);
+        const openai = new OpenAiCompatibleVisionPlanReader(openAiConfig);
+        configuredReaders.set('openai', { name: 'openai', read: (input: any) => openai.read(input) });
+      } catch { /* OpenAI stays closed until explicitly configured and enabled. */ }
       const readers = configuredProviderOrder(process.env)
         .map(name => configuredReaders.get(name))
         .filter((reader): reader is { name: string; read(input: any): Promise<any> } => Boolean(reader));
