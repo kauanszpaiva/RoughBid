@@ -3,7 +3,7 @@ import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingE
 import { sanitizePlanReadingResult, type PlanReadingFinding, type PlanProjectAddressEvidence, type PlanReadingResult } from './types.ts';
 import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, type PlanPageImage, systemPrompt } from './gemini.ts';
 import { describePlanEvidenceDigest, describePlanEvidenceWindow } from './sheet-text.ts';
-import { boundedBatchPages, boundedMaxBatches, integerFromEnv, planPageWindows, slicePdfPages, unreadPages, type PageWindow } from './plan-batches.ts';
+import { boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows, slicePlanDocument, unreadPages, type PageWindow } from './plan-batches.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -322,9 +322,16 @@ export class OpenAiCompatibleVisionPlanReader {
     let scaleDetected = false;
     let lastError: unknown = null;
 
+    // Parsed once for the whole sweep: one window costs one page copy, not one
+    // re-parse of the complete set. A file PDF.js can read but this splitter
+    // cannot still gets read, as a single request, exactly as before.
+    let source;
+    try { source = await loadPlanDocument(input.fileBytes); }
+    catch { return this.readOnce(input, { fileBytes: input.fileBytes }); }
+
     for (const window of windows) {
       try {
-        const bytes = await slicePdfPages(input.fileBytes, window);
+        const bytes = await slicePlanDocument(source, window);
         const result = await this.readOnce(input, { fileBytes: bytes, window });
         const localPages = window.to - window.from + 1;
         const accepted = result.findings.filter(finding =>

@@ -67,9 +67,17 @@ export function unreadPages(pageCount: number, windows: readonly PageWindow[]): 
   return last >= pageCount ? [] : Array.from({ length: pageCount - last }, (_, index) => last + index + 1);
 }
 
-/** Copies one window's physical pages into a standalone PDF. */
-export async function slicePdfPages(fileBytes: Uint8Array, window: PageWindow): Promise<Uint8Array> {
-  const source = await PDFDocument.load(fileBytes.slice(), { ignoreEncryption: true, updateMetadata: false });
+/**
+ * Loads the set once so a sweep can slice many windows from it. Re-parsing the
+ * whole file for every window would multiply the cost of a large set by its
+ * window count.
+ */
+export async function loadPlanDocument(fileBytes: Uint8Array): Promise<PDFDocument> {
+  return PDFDocument.load(fileBytes.slice(), { ignoreEncryption: true, updateMetadata: false });
+}
+
+/** Copies one window's physical pages out of an already-loaded set. */
+export async function slicePlanDocument(source: PDFDocument, window: PageWindow): Promise<Uint8Array> {
   const total = source.getPageCount();
   const first = Math.max(1, window.from);
   const last = Math.min(window.to, total);
@@ -79,6 +87,11 @@ export async function slicePdfPages(fileBytes: Uint8Array, window: PageWindow): 
   const pages = await target.copyPages(source, indices);
   for (const page of pages) target.addPage(page);
   return target.save();
+}
+
+/** Convenience wrapper for a one-off window (used by tests and small callers). */
+export async function slicePdfPages(fileBytes: Uint8Array, window: PageWindow): Promise<Uint8Array> {
+  return slicePlanDocument(await loadPlanDocument(fileBytes), window);
 }
 
 export async function countPdfPages(fileBytes: Uint8Array): Promise<number> {
