@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GeminiPlanReader, MAX_INLINE_PLAN_BYTES, systemPrompt } from '../src/ai-plan/gemini.ts';
+import { GeminiPlanReader, MAX_INLINE_PLAN_BYTES, MAX_OUTPUT_TOKENS, systemPrompt } from '../src/ai-plan/gemini.ts';
 import { sanitizePlanReadingResult } from '../src/ai-plan/types.ts';
 
 const baseInput = {
@@ -97,7 +97,11 @@ test('Gemini 3 requests use supported thinking settings without legacy sampling 
   const reader = new GeminiPlanReader({ generateContent: async ({config}) => {
     assert.deepEqual(config.thinkingConfig, { thinkingLevel: 'LOW' });
     assert.equal('temperature' in config, false);
-    assert.equal(config.maxOutputTokens, 8000);
+    // One request carries up to a window of dense sheets, so the ceiling has to
+    // fit the whole window instead of truncating it (measured live: 8000 lost a
+    // window of 8 sheets).
+    assert.equal(config.maxOutputTokens, MAX_OUTPUT_TOKENS);
+    assert.equal(MAX_OUTPUT_TOKENS, 16_000);
     return { text: JSON.stringify({ summary: { sheet_count: 1 }, findings: [{ page_number: 1, finding_type: 'room', label: 'Kitchen', source_excerpt: 'KITCHEN' }] }) };
   } }, ['gemini-3.8-flash']);
   assert.equal((await reader.read(baseInput)).findings.length, 1);

@@ -1,10 +1,62 @@
 import { meterGeminiCall, UsageAccountingError } from '../owner-usage/meter.ts';
-import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { describePlanEvidenceDigest, type SheetText } from './sheet-text.ts';
+import { sanitizePlanReadingResult, type PlanProjectAddressEvidence, type PlanReadingFinding, type PlanReadingResult } from './types.ts';
+import { describePlanEvidenceDigest, describePlanEvidenceWindow, type SheetText } from './sheet-text.ts';
+import {
+  DEFAULT_BATCH_PAGES, DEFAULT_MAX_BATCHES, MAX_BATCH_PAGES, MAX_MAX_BATCHES,
+  boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows,
+  slicePlanDocument, unreadPages, type PageWindow,
+} from './plan-batches.ts';
 import type { DrawingLinework } from './drawing-linework.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { PLAN_READING_UNAVAILABLE } from './readiness.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
+
+/**
+ * Whole-set sweeps for the production reader.
+ *
+ * A 60-sheet set read in one request is skimmed: measured against the sample set,
+ * the same reader returned 23 findings for 4 sheets and 16 findings for 60 sheets
+ * of distinct content, covering only the first four pages. Reading it window by
+ * window costs one metered request per window and covers the whole set.
+ */
+export interface GeminiSweepOptions {
+  /** Physical pages per provider request. 0 disables sweeping (single request). */
+  batchPages: number;
+  maxBatches: number;
+  maxTotalFindings: number;
+  timeoutMs: number;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_REQUEST_TIMEOUT_MS = 300_000;
+
+/**
+ * Output ceiling for one provider request.
+ *
+ * Measured live on a real 60-page sweep: a window of 8 dense sheets exceeded
+ * 8000 tokens, so that window returned provider_output_truncated and its sheets
+ * produced no evidence at all. A truncated response is discarded rather than
+ * credited back, so the ceiling has to fit the densest supported window.
+ */
+export const MAX_OUTPUT_TOKENS = 16_000;
+
+export function geminiSweepOptionsFromEnv(env: Record<string, string | undefined> = process.env): GeminiSweepOptions {
+  return {
+    batchPages: env.AI_PLAN_GEMINI_SWEEP === 'false'
+      ? 0
+      : boundedBatchPages(integerFromEnv(env.AI_PLAN_GEMINI_BATCH_PAGES, DEFAULT_BATCH_PAGES, MAX_BATCH_PAGES)),
+    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_GEMINI_MAX_BATCHES, DEFAULT_MAX_BATCHES, MAX_MAX_BATCHES)),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
+    timeoutMs: integerFromEnv(env.AI_PLAN_GEMINI_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS),
+  };
+}
+
+/** A sweep never invents coverage: a failed window is named by its classified reason only. */
+function sweepFailureReason(error: unknown): string {
+  if (error instanceof AiProviderError) return error.diagnostic.code;
+  if (error instanceof ProjectApiError) return `status ${error.status}`;
+  return 'the provider call failed';
+}
 
 export interface PlanPageImage {
   /** Physical PDF page number (1-based). Single-page owner review may normalize this to 1 before provider submission. */
@@ -66,9 +118,9 @@ export async function createGeminiClient(
   return { generateContent: args => meterGeminiCall(args.model, 'generate', () => client.models.generateContent(args)), countTokens: args => meterGeminiCall(args.model, 'count_tokens', () => client.models.countTokens!(args)), files: client.files };
 }
 
-async function preparePlan(input: GeminiPlanReadInput) {
+async function preparePlan(fileBytes: Uint8Array, mimeType: string) {
   return {
-    part: { inlineData: { mimeType: input.mimeType, data: Buffer.from(input.fileBytes).toString('base64') } },
+    part: { inlineData: { mimeType, data: Buffer.from(fileBytes).toString('base64') } },
     dispose: async () => {},
   };
 }
@@ -110,17 +162,29 @@ CRITICAL HARD INVARIANTS:
 }
 Sheet: "${sheetName}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
 
-const userPrompt = (scope: string | null) =>
-  `Read this construction drawing set for takeoff preparation.${scope ? ` Project scope: ${scope}.` : ''} Detect the drawing disciplines present and extract only evidence visible on the provided pages.`;
+const userPrompt = (input: GeminiPlanReadInput, window?: PageWindow) => window
+  ? `Read physical PDF pages ${window.from}-${window.to} of a larger construction drawing set, in order: the first page of this request is page 1. Report page_number 1-${window.to - window.from + 1} for every finding in this request and cite only the pages attached here; the server restores the original physical numbering. Nothing outside this window is attached, so never cite or describe a page you were not given. Enumerate the evidence on every page of this request.${input.scope ? ` Project scope: ${input.scope}.` : ''}`
+  : `Read this construction drawing set for takeoff preparation.${input.scope ? ` Project scope: ${input.scope}.` : ''} Detect the drawing disciplines present and extract only evidence visible on the provided pages.`;
 
-/** Reads only the supplied PDF. Provider failure never generates substitute quantities. */
+/** Reads only the supplied PDF, or one window of it. Provider failure never generates substitute quantities. */
 export class GeminiPlanReader {
   private readonly client: GeminiGenerateContentClient | null;
   private readonly models: readonly string[];
+  private readonly sweep: GeminiSweepOptions;
 
-  constructor(client: GeminiGenerateContentClient | null, models: readonly string[] = ['gemini-3.8-flash', 'gemini-3.6-flash']) {
+  constructor(
+    client: GeminiGenerateContentClient | null,
+    models: readonly string[] = ['gemini-3.8-flash', 'gemini-3.6-flash'],
+    sweep: GeminiSweepOptions = geminiSweepOptionsFromEnv(),
+  ) {
     this.client = client;
     this.models = models;
+    this.sweep = sweep;
+  }
+
+  /** True when this reading is split into windowed provider requests. */
+  sweeps(pageCount: number | undefined): boolean {
+    return this.sweep.batchPages > 0 && Number.isSafeInteger(pageCount) && (pageCount as number) > this.sweep.batchPages;
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
@@ -128,18 +192,41 @@ export class GeminiPlanReader {
     if (input.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
       throw new ProjectApiError(413, 'Plan PDFs must be 50 MB or smaller.');
     }
+    const pageCount = Number.isSafeInteger(input.pageCount) && (input.pageCount as number) > 0 ? input.pageCount as number : null;
+    // A set that does not fit one honest request is read window by window. Each
+    // window is a separate generateContent call, so it is metered and reserved
+    // against the company spend breaker on its own.
+    if (pageCount !== null && this.sweeps(pageCount)) return this.readWholeSet(input, pageCount);
+    return this.readOnce(input, { fileBytes: input.fileBytes });
+  }
+
+  /** One provider request over one document: the whole set, or one window of it. */
+  private async readOnce(
+    input: GeminiPlanReadInput,
+    options: { fileBytes: Uint8Array; window?: PageWindow },
+  ): Promise<PlanReadingResult> {
+    if (options.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
+      throw new ProjectApiError(413, 'Plan PDFs must be 50 MB or smaller.');
+    }
     const preparationStarted=Date.now();
-    const prepared = await preparePlan(input).catch(error=>{
+    const prepared = await preparePlan(options.fileBytes, input.mimeType).catch(error=>{
       const failure=classifyProviderFailure(error,{provider:'gemini',model:this.models[0]??'',stage:'prepare_file',durationMs:Date.now()-preparationStarted},'provider_file_preparation');
       logProviderFailure(failure);throw failure;
     });
     try {
-    const evidenceDigest = describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
+    // A windowed request gets only its own pages' evidence, so the digest never
+    // describes a sheet the provider was not given.
+    const evidenceDigest = options.window
+      ? describePlanEvidenceWindow({ linework: input.linework, sheetText: input.sheetText }, options.window)
+      : describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
     const contents = [
-      { text: userPrompt(input.scope) },
+      { text: userPrompt(input, options.window) },
       ...(evidenceDigest ? [{ text: evidenceDigest }] : []),
       prepared.part,
     ];
+    const sheetLabel = options.window
+      ? `${input.sheetName} - physical pages ${options.window.from}-${options.window.to}`
+      : input.sheetName;
 
     let rawResult: unknown = null;
     let lastFailure:AiProviderError|null=null;
@@ -152,12 +239,12 @@ export class GeminiPlanReader {
             model,
             contents,
             config: {
-              systemInstruction: systemPrompt(input.sheetName, input.requestedTrades),
+              systemInstruction: systemPrompt(sheetLabel, input.requestedTrades),
               responseMimeType: 'application/json',
               // Preserve the model-family settings verified by the existing tests.
               ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: input.reasoningEffort === 'high' ? 'HIGH' : 'LOW' } } : { temperature: 0.1 }),
-              maxOutputTokens: 8000,
-              httpOptions: { timeout: 60_000, retryOptions: { attempts: 1 } },
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
+              httpOptions: { timeout: this.sweep.timeoutMs, retryOptions: { attempts: 1 } },
             },
           });
           stage='parse';
@@ -184,7 +271,20 @@ export class GeminiPlanReader {
     }
 
     if (rawResult) {
-      const result = sanitizePlanReadingResult(rawResult);
+      // A windowed request is told how many pages it carries, so pin that count:
+      // the sanitizer then validates every citation against this window's pages
+      // and the sweep restores the original physical numbering.
+      const normalized = options.window && rawResult && typeof rawResult === 'object'
+        ? {
+            ...(rawResult as Record<string, unknown>),
+            summary: {
+              ...((rawResult as Record<string, unknown>).summary && typeof (rawResult as Record<string, unknown>).summary === 'object'
+                ? (rawResult as Record<string, unknown>).summary as Record<string, unknown> : {}),
+              sheet_count: options.window.to - options.window.from + 1,
+            },
+          }
+        : rawResult;
+      const result = sanitizePlanReadingResult(normalized);
       if (result.findings.length) return result;
       lastFailure=new AiProviderError('provider_empty_output',{provider:'gemini',model:this.models[0]??'',stage:'validate',durationMs:0});
       logProviderFailure(lastFailure);
@@ -192,6 +292,90 @@ export class GeminiPlanReader {
 
     throw lastFailure??new AiProviderError('provider_unknown',{provider:'gemini',model:this.models[0]??'',stage:'generate',durationMs:0});
     } finally { await prepared.dispose().catch(() => console.warn('Temporary Gemini file cleanup could not be confirmed.')); }
+  }
+
+  /**
+   * Reads every physical page of a set that is too large for one request.
+   *
+   * Each window's findings are renumbered to physical pages so a downstream
+   * review, takeoff or coverage report sees the real sheet. Nothing is invented
+   * to cover a gap: a window that fails, or one the batch cap never reached, is
+   * named in summary.limitations, and a sweep that produces no findings at all
+   * rethrows the provider failure so the orchestrator can try another reader.
+   */
+  private async readWholeSet(input: GeminiPlanReadInput, pageCount: number): Promise<PlanReadingResult> {
+    const windows = planPageWindows(pageCount, this.sweep.batchPages, this.sweep.maxBatches);
+    const limitations: string[] = [
+      `This plan was read as ${windows.length} separate provider request(s) of at most ${this.sweep.batchPages} physical pages each: a ${pageCount}-page set cannot be read honestly in one request, and each request is metered on its own.`,
+    ];
+    const findings: PlanReadingFinding[] = [];
+    const trades = new Set<string>();
+    const batchNotes: string[] = [];
+    const failed: PageWindow[] = [];
+    let address: PlanProjectAddressEvidence | undefined;
+    let scaleConflict = false;
+    let scaleDetected = false;
+    let lastError: unknown = null;
+
+    // Parsed once for the whole sweep: one window costs one page copy, not one
+    // re-parse of the complete set. A file this splitter cannot open is still
+    // read, as a single request, exactly as before.
+    let source;
+    try { source = await loadPlanDocument(input.fileBytes); }
+    catch { return this.readOnce(input, { fileBytes: input.fileBytes }); }
+
+    for (const window of windows) {
+      try {
+        const bytes = await slicePlanDocument(source, window);
+        const result = await this.readOnce(input, { fileBytes: bytes, window });
+        const localPages = window.to - window.from + 1;
+        const accepted = result.findings.filter(finding =>
+          typeof finding.page_number === 'number' && finding.page_number >= 1 && finding.page_number <= localPages);
+        for (const finding of accepted) findings.push({ ...finding, page_number: (finding.page_number as number) + window.from - 1 });
+        for (const trade of result.summary.detected_trade_scope) trades.add(trade);
+        if (!address && result.summary.project_address) {
+          address = { ...result.summary.project_address, page_number: result.summary.project_address.page_number + window.from - 1 };
+        }
+        if (result.summary.scale_status === 'conflicting') scaleConflict = true;
+        if (result.summary.scale_status === 'detected') scaleDetected = true;
+        if (result.findings.length > accepted.length) {
+          batchNotes.push(`${result.findings.length - accepted.length} finding(s) from the batch for physical pages ${window.from}-${window.to} cited a page outside that batch and were dropped.`);
+        }
+        for (const note of result.summary.limitations) batchNotes.push(`Physical pages ${window.from}-${window.to}: ${note}`);
+      } catch (error) {
+        failed.push(window);
+        lastError = error;
+        batchNotes.push(`Physical pages ${window.from}-${window.to} could not be read and produced no evidence in this reading: ${sweepFailureReason(error)}`);
+      }
+    }
+
+    if (!findings.length) {
+      throw lastError instanceof Error ? lastError : new ProjectApiError(502, 'No usable findings were returned for this set.');
+    }
+
+    const unread = unreadPages(pageCount, windows);
+    if (unread.length) {
+      limitations.push(`Physical pages ${unread[0]}-${unread[unread.length - 1]} were never read: the configured sweep limit of ${windows.length} request(s) was reached first.`);
+    }
+    if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
+
+    const ordered = [...findings].sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
+    const capped = ordered.slice(0, this.sweep.maxTotalFindings);
+    if (ordered.length > capped.length) {
+      limitations.push(`Findings capped at ${this.sweep.maxTotalFindings} for this set (${ordered.length} were reported across all batches).`);
+    }
+
+    return {
+      summary: {
+        sheet_count: pageCount,
+        detected_trade_scope: [...trades],
+        scale_status: scaleConflict ? 'conflicting' : scaleDetected ? 'detected' : 'missing',
+        human_review_required: true,
+        limitations: [...new Set([...limitations, ...batchNotes])],
+        ...(address ? { project_address: address } : {}),
+      },
+      findings: capped,
+    };
   }
 
   assertReady(): void {
