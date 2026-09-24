@@ -1,5 +1,5 @@
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { describeLineworkDigest } from './drawing-linework.ts';
+import { describePlanEvidenceDigest } from './sheet-text.ts';
 import { isConfiguredValue } from './readiness.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { meterAnthropicCall } from '../owner-usage/meter.ts';
@@ -112,9 +112,9 @@ export function requireClaudePlanReadingConfig(env: Record<string, string | unde
   return { apiKey, model };
 }
 
-/** Deterministically measured linework is attached as context for every reader. */
+/** Deterministically measured linework and the local text transcript are attached as context. */
 export function claudeLineworkContext(input: GeminiPlanReadInput): string | null {
-  return describeLineworkDigest(input.linework);
+  return describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
 }
 
 function extractJson(text: string): unknown {

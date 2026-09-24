@@ -2,7 +2,7 @@ import { ProjectApiError } from '../projects/service.ts';
 import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingError } from '../owner-usage/meter.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
 import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, systemPrompt } from './gemini.ts';
-import { describeLineworkDigest } from './drawing-linework.ts';
+import { describePlanEvidenceDigest } from './sheet-text.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -140,9 +140,9 @@ export class OpenAiCompatibleVisionPlanReader {
       throw new ProjectApiError(413, 'A rendered plan page is outside the low-cost vision size limit. No provider request was sent.');
     }
 
-    const lineworkDigest = describeLineworkDigest(input.linework);
+    const evidenceDigest = describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
     const content: Array<Record<string, unknown>> = [{ type: 'text', text: userPrompt(input) }];
-    if (lineworkDigest) content.push({ type: 'text', text: lineworkDigest });
+    if (evidenceDigest) content.push({ type: 'text', text: evidenceDigest });
     if (!images.length) {
       content.push({
         type: 'file',

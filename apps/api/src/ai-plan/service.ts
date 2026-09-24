@@ -6,6 +6,7 @@ import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
 import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
+import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, type SheetText } from './sheet-text.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
@@ -322,12 +323,23 @@ export class AiPlanReadingService {
       // every provider — text-only, PDF-native or image-native — can reason
       // about real lines, wall runs and closed outlines instead of guessing.
       let linework: DrawingLinework | undefined;
-      const lineworkNotices: string[] = [];
+      let sheetText: SheetText | undefined;
+      const localEvidenceNotices: string[] = [];
       if (vectorLineworkEnabled(process.env)) {
         try {
           linework = await extractDrawingLinework(readingBytes);
         } catch {
-          lineworkNotices.push('The PDF vector linework could not be read locally, so drawing lines and closed shapes were not measured for this reading.');
+          localEvidenceNotices.push('The PDF vector linework could not be read locally, so drawing lines and closed shapes were not measured for this reading.');
+        }
+      }
+      // The other half of the same pass: the sheet's printed text layer, read
+      // page by page so every reader can cite notes, keynotes, tags, schedules
+      // and the title block instead of skimming past small printed detail.
+      if (sheetTextEnabled(process.env)) {
+        try {
+          sheetText = await extractSheetText(readingBytes, sheetTextOptionsFromEnv(process.env));
+        } catch {
+          localEvidenceNotices.push('The PDF text layer could not be read locally, so printed notes and title blocks were not transcribed for this reading.');
         }
       }
 
@@ -359,6 +371,7 @@ export class AiPlanReadingService {
         requestedTrades,
         scope,
         ...(linework ? { linework } : {}),
+        ...(sheetText ? { sheetText } : {}),
         ...(pageRequest ? { reasoningEffort: 'high' as const } : {}),
       }));
       // A provider failure still fails closed: deterministic linework is only
@@ -368,7 +381,7 @@ export class AiPlanReadingService {
         const merged = mergeLineworkFindings(result.findings, linework, { pageCount: readingPageCount });
         if (merged.added) {
           result.findings = merged.findings;
-          if (merged.note) lineworkNotices.push(merged.note);
+          if (merged.note) localEvidenceNotices.push(merged.note);
         }
       }
       if (pageRequest) {
@@ -390,7 +403,7 @@ export class AiPlanReadingService {
         finding_count: result.findings.length,
         ...(pageRequest ? { page_strategy: 'sheet-v1', physical_page_number: requestedPage } : {}),
         reading_coverage: summarizeReadingCoverage({ physical_page_count: pageCount }, result.findings),
-        limitations: [...new Set([INCOMPLETE_TAKEOFF_NOTICE, ...lineworkNotices, ...(Array.isArray(result.summary.limitations) ? result.summary.limitations.filter(value => typeof value === 'string') : [])])],
+        limitations: [...new Set([INCOMPLETE_TAKEOFF_NOTICE, ...localEvidenceNotices, ...(Array.isArray(result.summary.limitations) ? result.summary.limitations.filter(value => typeof value === 'string') : [])])],
       };
 
       if (!pageRequest || result.summary.project_address) await persistPlanPricingContext({

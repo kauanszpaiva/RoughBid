@@ -5,6 +5,7 @@ import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { requireFreeProviderConfig } from './free-provider.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
 import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
+import { extractSheetText, sheetTextEnabled, sheetTextOptionsFromEnv, type SheetText } from './sheet-text.ts';
 import type { PlanReadingResult } from './types.ts';
 
 export type DurableEntitlement = 'paid' | 'owner_free';
@@ -305,6 +306,11 @@ export class DurableAiPlanJobProcessor {
         if (vectorLineworkEnabled(process.env)) {
           try { linework = await extractDrawingLinework(bytes); } catch { /* A plan that cannot be parsed still reads through the provider. */ }
         }
+        // The sheet's printed text layer, read locally for the same reason.
+        let sheetText: SheetText | undefined;
+        if (sheetTextEnabled(process.env)) {
+          try { sheetText = await extractSheetText(bytes, sheetTextOptionsFromEnv(process.env)); } catch { /* The provider still reads the PDF. */ }
+        }
         const attempt = await this.writer.rpc('begin_ai_plan_provider_attempt', {
           p_job_id: queueJob.data.jobId, p_lease_id: leaseId,
         });
@@ -319,6 +325,7 @@ export class DurableAiPlanJobProcessor {
           requestedTrades: context.requested_trades,
           scope: context.requested_scope,
           ...(linework ? { linework } : {}),
+          ...(sheetText ? { sheetText } : {}),
         }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
         if (linework) {
