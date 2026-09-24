@@ -16,12 +16,14 @@ import { createGeminiClient, GeminiPlanReader } from '../apps/api/src/ai-plan/ge
 import { extractDrawingLinework, lineworkOptionsFromEnv, vectorLineworkEnabled } from '../apps/api/src/ai-plan/drawing-linework.ts';
 import { extractSheetText, sheetTextOptionsFromEnv, sheetTextEnabled, verifyFindingPages } from '../apps/api/src/ai-plan/sheet-text.ts';
 import { countPdfPages } from '../apps/api/src/ai-plan/plan-batches.ts';
+import { priceFindings } from '../apps/api/src/ai-plan/pricing.ts';
 
 const [planPath, ...rest] = process.argv.slice(2);
-if (!planPath) throw new Error('Usage: live-gemini-plan-reading-probe.ts <plan.pdf> [--out file.json] [--trades a,b] [--scope text]');
+if (!planPath) throw new Error('Usage: live-gemini-plan-reading-probe.ts <plan.pdf> [--out file.json] [--trades a,b] [--scope text] [--price]');
 const outFlag = rest.indexOf('--out');
 const tradesFlag = rest.indexOf('--trades');
 const scopeFlag = rest.indexOf('--scope');
+const priceFlag = rest.includes('--price');
 const outPath = outFlag >= 0 ? rest[outFlag + 1] : null;
 const trades = tradesFlag >= 0
   ? rest[tradesFlag + 1]!.split(',').map(value => value.trim()).filter(Boolean)
@@ -81,7 +83,40 @@ for (const finding of reading.findings) {
 console.log(`limitations (${reading.summary.limitations.length}):`);
 for (const note of reading.summary.limitations) console.log(`  - ${note.slice(0, 200)}`);
 
+// The same benchmark pricer the estimate side uses. It is a regional seed, not a
+// quote: a workspace price book is meant to override it (see pricing.ts).
+const priced = priceFlag
+  ? priceFindings(reading.findings.map(finding => ({
+      finding_type: finding.finding_type, label: finding.label, quantity: finding.quantity, unit: finding.unit,
+    })))
+  : null;
+if (priced) {
+  console.log('\nBENCHMARK ESTIMATE (New England seed rates; a workspace price book must override this):');
+  reading.findings.forEach((finding, index) => {
+    const components = priced.byFindingIndex.get(index);
+    if (!components) return;
+    console.log(`  p${finding.page_number ?? '-'} ${finding.label.slice(0, 46)}`);
+    for (const component of components) {
+      console.log(`      ${component.category.padEnd(8)} ${String(component.quantity).padStart(10)} ${component.unit.padEnd(4)} @ $${component.unitRate.toFixed(2).padStart(8)} = $${component.cost.toFixed(2).padStart(10)}`);
+    }
+  });
+  console.log(`  priced findings: ${priced.pricedFindings} | needs manual pricing: ${priced.unpricedFindings}`);
+  console.log(`  material $${priced.totals.categoryTotals.material.toFixed(2)} + labor $${priced.totals.categoryTotals.labor.toFixed(2)} = direct cost $${priced.totals.directCost.toFixed(2)}`);
+}
+
 if (outPath) {
-  writeFileSync(outPath, JSON.stringify({ model, pageCount, reading }, null, 2));
+  writeFileSync(outPath, JSON.stringify({
+    model, pageCount, reading,
+    ...(priced ? {
+      estimate: {
+        pricedFindings: priced.pricedFindings, unpricedFindings: priced.unpricedFindings,
+        materialCost: priced.totals.categoryTotals.material, laborCost: priced.totals.categoryTotals.labor,
+        directCost: priced.totals.directCost,
+        byFinding: [...priced.byFindingIndex.entries()].map(([index, components]) => ({
+          label: reading.findings[index]?.label ?? null, page: reading.findings[index]?.page_number ?? null, components,
+        })),
+      },
+    } : {}),
+  }, null, 2));
   console.log(`\nwrote ${outPath}`);
 }

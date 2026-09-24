@@ -16,23 +16,70 @@ test('prices a material finding as both a material line and its companion instal
   assert.equal(result.totals.categoryTotals.labor, 2025); // 450 SF * 4.50 install labor
 });
 
-test('prices an explicit labor/service finding using its own rate, with no material cost', () => {
+test('prices an hourly labor finding at its trade rate, with no material cost', () => {
   const result = priceFindings([
-    { finding_type: 'labor', label: 'Deck framing labor', quantity: 1, unit: 'LS' },
+    { finding_type: 'labor', label: 'Deck framing labor', quantity: 8, unit: 'HR' },
   ]);
 
   assert.equal(result.pricedFindings, 1);
   assert.equal(result.totals.categoryTotals.material, 0);
-  assert.equal(result.totals.categoryTotals.labor, 7.42); // 1 LS * $7.42 (45% labor share of the NE $16.50/SF framing installed rate, material rounds up so labor gets the remainder)
+  assert.equal(result.totals.categoryTotals.labor, 760); // 8 HR * NE framing carpenter $95.00/hr
   assert.equal(result.byFindingIndex.get(0)?.[0]?.category, 'labor');
 });
 
-test('falls back to unit-based default rates when no label keyword matches', () => {
+test('a lump sum or an unlabelled count is left unpriced instead of multiplied by a per-unit rate', () => {
+  // 1 LS * the $16.50/SF framing rate used to produce a $7.42 lump sum for deck
+  // framing, and 2 EA of generic fasteners produced $90 of invented money.
   const result = priceFindings([
+    { finding_type: 'labor', label: 'Deck framing labor', quantity: 1, unit: 'LS' },
     { finding_type: 'material', label: 'Miscellaneous fastener package', quantity: 2, unit: 'EA' },
   ]);
-  assert.equal(result.totals.categoryTotals.material, 50); // 2 EA * 25.00 default
-  assert.equal(result.totals.categoryTotals.labor, 40); // 2 EA * 20.00 default
+
+  assert.equal(result.pricedFindings, 0);
+  assert.equal(result.unpricedFindings, 2);
+  assert.equal(result.totals.directCost, 0);
+});
+
+test('falls back to a dimensional unit rate when no label keyword matches', () => {
+  const result = priceFindings([
+    { finding_type: 'material', label: 'Miscellaneous site material', quantity: 100, unit: 'LF' },
+  ]);
+  assert.equal(result.totals.categoryTotals.material, 600); // 100 LF * 6.00 default
+  assert.equal(result.totals.categoryTotals.labor, 500); // 100 LF * 5.00 default
+});
+
+test('a finish word never borrows an equipment rate from another trade', () => {
+  // Observed on a real reading of a real sheet: a wood "panel" door matched the
+  // 200 A service-panel keyword and was priced at $4,030 per interior door.
+  const result = priceFindings([
+    { finding_type: 'material', label: 'Door D2 Wood Panel Interior Door', quantity: 6, unit: 'EA' },
+  ]);
+
+  const components = result.byFindingIndex.get(0)!;
+  assert.equal(components.find(component => component.category === 'material')?.unitRate, 320); // a door rate
+  assert.equal(result.totals.directCost, 3000); // 6 EA * (320 + 180)
+});
+
+test('hardware is a set, not an opening', () => {
+  const result = priceFindings([
+    { finding_type: 'material', label: 'Interior Door Hardware Sets', quantity: 12, unit: 'EA' },
+  ]);
+
+  assert.equal(result.byFindingIndex.get(0)?.find(component => component.category === 'material')?.unitRate, 25);
+  assert.equal(result.totals.directCost, 540); // 12 * (25 + 20)
+});
+
+test('a per-EA equipment rate never lands on a linear quantity', () => {
+  const result = priceFindings([
+    { finding_type: 'material', label: 'Plumbing supply pipe', quantity: 40, unit: 'LF' },
+    { finding_type: 'material', label: '200A service panel', quantity: 1, unit: 'EA' },
+  ]);
+
+  // The pipe is dimensional, so it uses the LF rate rather than the $1,850 per
+  // fitment rate its "plumbing" keyword would have matched before.
+  assert.equal(result.byFindingIndex.get(0)?.find(component => component.category === 'material')?.unitRate, 6.00);
+  // The service panel keeps its own per-EA rate.
+  assert.equal(result.byFindingIndex.get(1)?.find(component => component.category === 'material')?.unitRate, 4030);
 });
 
 test('leaves findings without a usable quantity, unit, or rate unpriced and out of totals', () => {
