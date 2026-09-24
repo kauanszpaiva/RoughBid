@@ -1,6 +1,9 @@
 import type { GeminiPlanReadInput } from './gemini.ts';
 import type { PlanReader } from './service.ts';
-import { ALLOWED_FINDING_TYPES, ALLOWED_UNITS, sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
+import {
+  ALLOWED_FINDING_TYPES, ALLOWED_UNITS, TEXT_ONLY_READING_NOTICE,
+  sanitizePlanReadingResult, type PlanReaderVisualCapability, type PlanReadingResult,
+} from './types.ts';
 import { isConfiguredValue } from './readiness.ts';
 import { ProjectApiError } from '../projects/service.ts';
 
@@ -162,13 +165,14 @@ function validateTextReading(raw: any, extracted: ExtractedPdfText): PlanReading
     } else if (finding.unit !== null) throw invalidOutput();
   }
   const limitations = [
+    TEXT_ONLY_READING_NOTICE,
     'Partial text-only reading: drawings, symbols, scale and unlabeled dimensions were not visually inspected. Human review of the original PDF is required.',
     ...(extracted.emptyPages.length ? [`No selectable text on PDF page(s): ${extracted.emptyPages.join(', ')}. These pages were not read; no OCR was used.`] : []),
   ];
   const result = sanitizePlanReadingResult({
     ...raw,
     findings: raw.findings.map((finding: object) => ({ ...finding, geometry: {} })),
-  }, limitations);
+  }, limitations, false, 'text_only');
   if (!result.findings.length || result.findings.length !== raw.findings.length
     || result.findings.some((finding, index) => finding.quantity !== raw.findings[index].quantity)) throw invalidOutput();
   return result;
@@ -194,6 +198,11 @@ async function responseJson(response: Response): Promise<any> {
 
 /** A provider adapter only: selecting it must never bypass the caller's payment/role/consent gates. */
 export class OpenRouterFreePlanReader implements PlanReader {
+  /**
+   * Text extraction only. Declared explicitly so the pipeline can refuse it as
+   * a plan reader: this adapter never inspects the drawing itself.
+   */
+  readonly visualCapability: PlanReaderVisualCapability = 'text_only';
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
 

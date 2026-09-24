@@ -12,13 +12,13 @@ const MAX_BLOCKERS = 20;
 const TERMINAL_PROVIDER_CODES = new Set(['provider_credentials', 'provider_permissions', 'provider_quota', 'provider_model_unavailable']);
 
 const PASS_INSTRUCTIONS: Readonly<Record<DeepPassType, string>> = {
-  classification: 'Classify this physical sheet from its title block and visible content. Record sheet number, title, discipline, issue/revision evidence, and whether it contains takeoff scope.',
-  legends_schedules: 'Inspect only legends, schedules, specifications, keynotes, and cross-references visible on this physical sheet. Record evidence and unresolved references.',
-  geometry: 'Identify visible scale, graphic-scale, explicit-dimension, NTS, rotation, distortion, and measurable-region evidence. Do not invent coordinates, dimensions, or quantities.',
-  discipline: 'Inspect the visible discipline scope on this physical sheet. Record supported scope and referenced-but-missing scope without manufacturing typical work.',
+  classification: 'Classify this physical sheet from its title block and visible content. Record sheet number, title, discipline, issue/revision evidence, and whether it contains takeoff scope. Read the drawing itself, not only its printed words: a sheet with few words is never empty. Record graphic content you can see (line work, symbols, icons, hatching, graphic scale, north arrow) as observations, using kind "graphic_symbol" and a short description with source_excerpt null when no printed text supports it.',
+  legends_schedules: 'Inspect only legends, schedules, specifications, keynotes, and cross-references visible on this physical sheet. Read each legend symbol, hatch pattern and line type as graphical evidence, not only its printed text, and record unresolved references.',
+  geometry: 'Identify visible scale, graphic-scale, explicit-dimension, NTS, rotation, distortion, and measurable-region evidence. Read graphic scale bars and printed scale notations from the drawing itself. Do not invent coordinates, dimensions, or quantities.',
+  discipline: 'Inspect the visible discipline scope on this physical sheet, including what is shown graphically by symbols, icons, line types and hatching. Record supported scope and referenced-but-missing scope without manufacturing typical work.',
   reconciliation: 'Reconcile tags, schedules, callouts, details, and references visible on this sheet. Record conflicts and missing referenced information.',
   conflict_detection: 'Look for revision, scale, dimension, tag, scope, and specification conflicts visible on this sheet.',
-  completeness: 'Assess whether this physical sheet has been completely inspected for its visible purpose and record any unreadable or unreviewed regions.',
+  completeness: 'Assess whether this physical sheet has been completely inspected for its visible purpose, including its graphical content, and record any unreadable or unreviewed regions.',
   arithmetic_qa: 'Inspect visible schedules and written arithmetic for internal discrepancies. Do not calculate unsupported construction quantities.',
   pricing_assemblies: 'Identify assembly-mapping evidence only. Do not create prices, rates, costs, labor hours, waste percentages, or unsupported assembly components.',
   risk_review: 'Record material estimating risks and human-review blockers supported by this sheet. Do not recommend economic percentages or prices.',

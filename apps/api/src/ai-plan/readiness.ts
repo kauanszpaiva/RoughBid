@@ -1,6 +1,23 @@
 import { ProjectApiError } from '../projects/service.ts';
+import { TEXT_ONLY_READING_REFUSED, type PlanReaderVisualCapability } from './types.ts';
 
 export const PLAN_READING_UNAVAILABLE = 'AI plan reading is currently unavailable. You can continue with manual quantities and export your proposal.';
+
+/**
+ * A plan reading must inspect the drawing itself (line work, symbols, icons,
+ * hatching, graphic scale), not only extracted PDF text. A reader that declares
+ * `text_only` is refused before any reservation, download or provider call.
+ * `AI_PLAN_ALLOW_TEXT_ONLY_READING=true` is the only way to override it, for an
+ * explicitly disclosed text-only benchmark.
+ */
+export function assertReaderInspectsDrawing(
+  reader: { visualCapability?: PlanReaderVisualCapability } | undefined,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (reader?.visualCapability !== 'text_only') return;
+  if (env.AI_PLAN_ALLOW_TEXT_ONLY_READING === 'true') return;
+  throw new ProjectApiError(503, TEXT_ONLY_READING_REFUSED);
+}
 
 /** Deployment previews can contain masked values; those are never credentials. */
 export function isConfiguredValue(value: string | undefined): value is string {

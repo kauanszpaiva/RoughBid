@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { ProjectApiError } from '../projects/service.ts';
-import { projectChargeCents, type ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
+import { projectChargeCents, projectCostPlusChargeCents, type ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import { isConfiguredValue } from '../ai-plan/readiness.ts';
 
 export const MAX_AI_PDF_BYTES = 50 * 1024 * 1024;
@@ -53,7 +53,15 @@ export function normalizeScope(input: Record<string, unknown>) {
   return { trades: [...new Set(trades)].sort() as string[], scope: scope.trim() };
 }
 
-/** No speculative production defaults. Operations must configure a measured cost policy. */
+/**
+ * No speculative production defaults. Operations must configure a measured cost policy.
+ *
+ * Pricing rule (owner decision): the measured cost of serving the project, plus
+ * 30%, then multiplied by the membership factor (2.00 without a membership,
+ * 1.85 Starter, 1.70 Pro, 1.60 Team). The floor guard below uses the same
+ * membership's minimum margin, so a misconfigured factor disables checkout
+ * instead of underpricing the read.
+ */
 export function quoteProject(pages: number, trades: number, membership: ProjectMembership, env: Record<string, string | undefined>) {
   const read = (name: string, min: number) => {
     const raw = env[name];
@@ -68,7 +76,11 @@ export function quoteProject(pages: number, trades: number, membership: ProjectM
   const feeBps = read('PROJECT_PAYMENT_FEE_BPS', 0);
   const version = env.PROJECT_PRICING_VERSION?.trim();
   if (!isConfiguredValue(version) || version.length > 80) throw new ProjectApiError(503, 'Project pricing is not configured. Please contact support.');
-  // Cost policy must cover both bounded attempts, output limits, storage and support.
-  const cost = base + pages * perPage + trades * perTrade;
-  return { amountCents: projectChargeCents(cost, fixed, feeBps, membership), costCents: cost, version };
+  // Measured cost must cover both bounded attempts, output limits, storage and
+  // support, plus the fixed card fee RoughBid pays Stripe on every charge.
+  const cost = base + pages * perPage + trades * perTrade + fixed;
+  const amount = projectCostPlusChargeCents(cost, membership);
+  const floor = projectChargeCents(cost - fixed, fixed, feeBps, membership);
+  if (amount < floor) throw new ProjectApiError(503, 'Project pricing is not configured. Please contact support.');
+  return { amountCents: amount, costCents: cost, version, membership };
 }

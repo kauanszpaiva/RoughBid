@@ -15,6 +15,56 @@ export const ALLOWED_FINDING_TYPES: ReadonlySet<PlanReadingFindingType> = new Se
 /** The AI plan reader is asked to report quantities using only these short imperial unit codes. */
 export const ALLOWED_UNITS: ReadonlySet<string> = new Set(['SF', 'LF', 'EA', 'CY', 'SY', 'HR', 'LS']);
 
+/**
+ * Drawing elements that carry construction meaning without their own printed
+ * sentence: an icon, a legend symbol, hatching, line work, a graphic scale bar.
+ * Recording them is what lets a reading cover the sheet, not just its text.
+ */
+export type PlanVisualElementKind =
+  | 'symbol'
+  | 'icon'
+  | 'hatch_pattern'
+  | 'line_work'
+  | 'dimension_string'
+  | 'graphic_scale_bar'
+  | 'north_arrow'
+  | 'grid_reference'
+  | 'legend_mark'
+  | 'callout'
+  | 'detail'
+  | 'title_block'
+  | 'schedule_table';
+
+export const ALLOWED_VISUAL_ELEMENT_KINDS: ReadonlySet<PlanVisualElementKind> = new Set<PlanVisualElementKind>([
+  'symbol', 'icon', 'hatch_pattern', 'line_work', 'dimension_string',
+  'graphic_scale_bar', 'north_arrow', 'grid_reference', 'legend_mark',
+  'callout', 'detail', 'title_block', 'schedule_table',
+]);
+
+/**
+ * Graphic evidence for one drawing element. It identifies what was seen and
+ * where, and is deliberately NOT a quantity: a picture never becomes a trusted
+ * number, it only becomes a located, reviewable observation.
+ */
+export interface PlanVisualEvidence {
+  kind: PlanVisualElementKind;
+  description: string;
+  legend_mark?: string;
+  confidence: number;
+}
+
+/** What a provider could actually see when it produced a reading. */
+export type PlanReadingMode = 'visual_pdf' | 'visual_page_images' | 'text_only' | 'unknown';
+
+/** Server-side declaration of a reader's ability to inspect the drawing itself. */
+export type PlanReaderVisualCapability = 'pdf_native' | 'page_images' | 'text_only' | 'unknown';
+
+export const TEXT_ONLY_READING_REFUSED =
+  'The configured plan reader extracts PDF text only and cannot inspect the drawing itself (line work, symbols, icons, hatches, graphic scale). No reading was started.';
+
+export const TEXT_ONLY_READING_NOTICE =
+  'This reading was produced from extracted PDF text only. Drawings, symbols, icons, line work and graphic scale were NOT visually inspected.';
+
 export interface PlanReadingFinding {
   page_number: number | null;
   finding_type: PlanReadingFindingType;
@@ -46,6 +96,14 @@ export interface PlanReadingSummary {
   human_review_required: true;
   /** Honesty-over-coverage disclosures: unreadable pages, ambiguous scale, dropped findings, fallback notices. */
   limitations: string[];
+  /**
+   * What the provider could actually see. Assigned by the trusted server-side
+   * reader, never by model output: `text_only` means the drawing itself was
+   * never inspected.
+   */
+  reading_mode?: PlanReadingMode;
+  /** How many findings rest on graphic drawing evidence instead of a printed text excerpt. */
+  visual_evidence_count?: number;
   /** EVIDENCE only. Pricing/address resolution code decides whether this address may drive market lookup. */
   project_address?: PlanProjectAddressEvidence;
   /** True when this result is the deterministic placeholder takeoff, not a real model reading — lets a multi-provider orchestrator know to try the next provider instead of trusting it. */
@@ -59,22 +117,72 @@ export interface PlanReadingResult {
 }
 
 const MAX_FINDINGS = 200;
-
-/** Only normalized PDF coordinates survive; provider pricing is never persisted. */
-export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {
-  if (!raw || typeof raw !== 'object') return {};
-  const input = raw as Record<string, unknown>;
-  const box = input.bbox;
-  if (!Array.isArray(box) || box.length !== 4 || !box.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return {};
-  const [x, y, width, height] = box as number[];
-  if (!width || !height || x! + width > 1 || y! + height > 1) return {};
-  return { bbox: box, coordinate_space: 'normalized', ...(typeof input.area === 'string' ? { area: input.area.trim().slice(0, 100) } : {}) };
-}
+const MAX_VISUAL_DESCRIPTION = 300;
 
 function safeNullableText(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   return normalized ? normalized.slice(0, max) : null;
+}
+
+function normalizedBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4) return null;
+  if (!value.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
+  const [x, y, width, height] = value as number[];
+  if (!width || !height || x! + width > 1 || y! + height > 1) return null;
+  return [x!, y!, width!, height!];
+}
+
+function normalizedPoint(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  if (!value.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1)) return null;
+  return [value[0] as number, value[1] as number];
+}
+
+/** Bounded, validated graphic evidence. Anything not on the allow-list is dropped. */
+export function sanitizePlanVisualEvidence(raw: unknown): PlanVisualEvidence | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const input = raw as Record<string, unknown>;
+  if (!ALLOWED_VISUAL_ELEMENT_KINDS.has(input.kind as PlanVisualElementKind)) return null;
+  const description = safeNullableText(input.description, MAX_VISUAL_DESCRIPTION);
+  if (!description) return null;
+  const legendMark = safeNullableText(input.legend_mark, 80);
+  const confidence = typeof input.confidence === 'number' && Number.isFinite(input.confidence)
+    ? Math.max(0.1, Math.min(1, input.confidence))
+    : 0.5;
+  return {
+    kind: input.kind as PlanVisualElementKind,
+    description,
+    confidence,
+    ...(legendMark ? { legend_mark: legendMark } : {}),
+  };
+}
+
+const GEOMETRY_TEXT_FIELDS: ReadonlyArray<readonly [string, number]> = [
+  ['area', 100], ['room', 100], ['element', 60], ['legend_mark', 80],
+  ['sheet_reference', 40], ['scale_note', 60], ['grid_reference', 40],
+];
+
+/**
+ * Only normalized page coordinates, bounded drawing descriptors and validated
+ * graphic evidence survive; provider pricing is never persisted.
+ */
+export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const input = raw as Record<string, unknown>;
+  const geometry: Record<string, unknown> = {};
+  const box = normalizedBox(input.bbox);
+  const point = normalizedPoint(input.point);
+  if (box) geometry.bbox = box;
+  if (point) geometry.point = point;
+  if (box || point) geometry.coordinate_space = 'normalized';
+  for (const [key, max] of GEOMETRY_TEXT_FIELDS) {
+    const text = safeNullableText(input[key], max);
+    if (text) geometry[key] = text;
+  }
+  const visual = sanitizePlanVisualEvidence(input.visual);
+  if (visual) geometry.visual = visual;
+  return geometry;
 }
 
 function sanitizeProjectAddressEvidence(raw: unknown, sheetCount: number): { address?: PlanProjectAddressEvidence; limitation?: string } {
@@ -122,8 +230,12 @@ function sanitizeProjectAddressEvidence(raw: unknown, sheetCount: number): { add
  * regardless of provider: a quantity is only ever trusted alongside a
  * verbatim source excerpt and an allowed imperial unit. Anything that fails
  * is dropped and disclosed in `summary.limitations`, never silently coerced.
+ *
+ * `readingMode` is supplied by the trusted server-side reader (never by model
+ * output) so a stored reading always records whether the drawing itself was
+ * inspected.
  */
-export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = [], synthetic = false): PlanReadingResult {
+export function sanitizePlanReadingResult(raw: unknown, notices: readonly string[] = [], synthetic = false, readingMode: PlanReadingMode = 'unknown'): PlanReadingResult {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const rawSummary = (input.summary && typeof input.summary === 'object' ? input.summary : {}) as Record<string, unknown>;
   const rawFindings = Array.isArray(input.findings) ? input.findings : [];
@@ -134,6 +246,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   const projectAddress = sanitizeProjectAddressEvidence(rawSummary.project_address, sheetCount);
   const dropped: string[] = [];
   const findings: PlanReadingFinding[] = [];
+  let visualEvidenceCount = 0;
 
   for (const entry of rawFindings) {
     if (!entry || typeof entry !== 'object') continue;
@@ -163,6 +276,13 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       ? Math.max(0.1, Math.min(1, item.confidence))
       : 0.75;
 
+    // A located drawing element may rest on printed text OR on validated
+    // graphic evidence. It never bypasses the quantity rule above: graphic
+    // evidence can place and name an element, never invent its amount.
+    const geometry = pageNumber ? sanitizePlanGeometry(item.geometry) : {};
+    const keepsGeometry = pageNumber !== null && (Boolean(sourceExcerpt) || Boolean(geometry.visual));
+    if (geometry.visual) visualEvidenceCount += 1;
+
     findings.push({
       page_number: pageNumber,
       finding_type: findingType,
@@ -171,7 +291,7 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       quantity: hasQuantity ? Math.round((item.quantity as number) * 100) / 100 : null,
       unit: hasQuantity ? unit : null,
       confidence,
-      geometry: pageNumber && sourceExcerpt ? sanitizePlanGeometry(item.geometry) : {},
+      geometry: keepsGeometry ? geometry : {},
       source_excerpt: sourceExcerpt,
     });
   }
@@ -181,6 +301,10 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
   if (projectAddress.limitation) limitations.push(projectAddress.limitation);
   if (dropped.length) limitations.push(`${dropped.length} item(s) dropped for missing a verbatim source citation or an invalid unit.`);
   if (findings.length > MAX_FINDINGS) limitations.push(`Findings capped at ${MAX_FINDINGS} (${findings.length} detected).`);
+  if (visualEvidenceCount) {
+    limitations.push(`${visualEvidenceCount} finding(s) rest on graphic drawing evidence (symbols, icons, hatch, line work or graphic scale) instead of a printed text excerpt. Verify each one on the drawing before it affects an estimate.`);
+  }
+  if (readingMode === 'text_only') limitations.push(TEXT_ONLY_READING_NOTICE);
 
   return {
     summary: {
@@ -189,6 +313,8 @@ export function sanitizePlanReadingResult(raw: unknown, notices: readonly string
       scale_status: rawSummary.scale_status === 'detected' || rawSummary.scale_status === 'conflicting' ? rawSummary.scale_status : 'missing',
       human_review_required: true,
       limitations,
+      reading_mode: readingMode,
+      ...(visualEvidenceCount ? { visual_evidence_count: visualEvidenceCount } : {}),
       ...(projectAddress.address ? { project_address: projectAddress.address } : {}),
       ...(synthetic ? { synthetic: true } : {}),
     },

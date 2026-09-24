@@ -10,7 +10,9 @@ import {
   FileSearch,
   Layers,
   Loader2,
+  Eye,
 } from "lucide-react";
+import { findingGraphicEvidence, readingModeStatus } from "../utils/aiFindingReview";
 import { Project, QuantityItem, UnitType } from "../types";
 import {
   ApiError,
@@ -275,6 +277,28 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           </section>
         )}
 
+        {!job.output_summary.takeoff_v2 && (() => {
+          const readingMode = readingModeStatus(job.output_summary.reading_mode);
+          const graphicCount = typeof job.output_summary.visual_evidence_count === 'number' ? job.output_summary.visual_evidence_count : 0;
+          return (
+            <section
+              aria-label="How this plan was read"
+              className={`p-3 rounded-lg border ${readingMode.visual ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}
+            >
+              <h4 className="text-xs font-semibold flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5" />
+                <span>{readingMode.label}</span>
+              </h4>
+              <p className="text-xs mt-1 leading-relaxed">{readingMode.detail}</p>
+              {graphicCount > 0 && (
+                <p className="text-xs mt-1 leading-relaxed">
+                  {graphicCount} item(s) rest on drawing elements (icons, symbols, hatch or graphic scale) instead of printed text. Each one is evidence to verify on the sheet, never a priced quantity by itself.
+                </p>
+              )}
+            </section>
+          );
+        })()}
+
         {limitations.length > 0 && (
           <section aria-label="Reading limitations" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900">
             <h4 className="text-xs font-semibold mb-1.5">Reading limits — review the full plan</h4>
@@ -320,6 +344,19 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                         {finding.source_excerpt ? ` • ${finding.source_excerpt}` : ""}
                         {finding.page_number ? ` (Sheet ${finding.page_number})` : ""}
                       </div>
+                      {(() => {
+                        const graphic = findingGraphicEvidence(finding);
+                        if (!graphic) return null;
+                        return (
+                          <div className="text-xs text-slate-600 mt-1 flex items-start gap-1.5">
+                            <Layers className="w-3 h-3 mt-0.5 text-slate-400 shrink-0" />
+                            <span>
+                              <span className="text-[9px] font-mono uppercase bg-slate-100 text-slate-500 px-1 py-0.5 rounded mr-1">{graphic.kind.replace(/_/g, " ")}</span>
+                              {graphic.description}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
@@ -367,6 +404,19 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                   <span className="font-semibold text-slate-900">{finding.label}</span>
                   {finding.value_text ? <span className="text-slate-600"> — {finding.value_text}</span> : null}
                   <span className="text-slate-400"> ({finding.finding_type})</span>
+                  {(() => {
+                    const graphic = findingGraphicEvidence(finding);
+                    if (!graphic) return null;
+                    return (
+                      <div className="text-slate-600 mt-1 flex items-start gap-1.5">
+                        <Layers className="w-3 h-3 mt-0.5 text-slate-400 shrink-0" />
+                        <span>
+                          <span className="text-[9px] font-mono uppercase bg-white text-slate-500 border border-slate-200 px-1 py-0.5 rounded mr-1">{graphic.kind.replace(/_/g, " ")}</span>
+                          {graphic.description}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

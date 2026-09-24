@@ -1,7 +1,7 @@
 import { ProjectApiError } from '../projects/service.ts';
 import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingError } from '../owner-usage/meter.ts';
-import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { type GeminiPlanReadInput, systemPrompt } from './gemini.ts';
+import { sanitizePlanReadingResult, type PlanReaderVisualCapability, type PlanReadingResult } from './types.ts';
+import { type GeminiPlanReadInput, type PlanPageImage, systemPrompt } from './gemini.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -77,7 +77,9 @@ export function configuredProviderOrder(env: Record<string, string | undefined>)
 
 function userPrompt(input: GeminiPlanReadInput): string {
   return `Read these rendered construction-plan pages for takeoff preparation.
-Return JSON only. Every quantity must cite a visible physical page and verbatim source excerpt.
+Read the DRAWING itself: line work, wall and partition lines, openings, fixtures, symbols and icons, hatching, graphic scale bars, north arrows, grid lines, callouts, details and title blocks. A page with few printed words is never empty and must still be inspected.
+Return JSON only. Every numeric quantity must cite a visible physical page and a verbatim source excerpt (a dimension, callout, schedule note or legend mark). Repeated icons with no printed dimension or legend mark are not a quantity: record them as a symbol finding with a null quantity and geometry.visual evidence instead.
+Locate what you identify with geometry.bbox [x,y,width,height] or geometry.point [x,y] normalized 0..1 from the top-left of each labeled image, and add geometry.visual when the evidence is graphic rather than printed text.
 Do not estimate prices or infer hidden dimensions. If the drawing is ambiguous, return a risk/question instead.
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
@@ -91,6 +93,8 @@ type ChatCompletionResponse = {
 };
 
 export class OpenAiCompatibleVisionPlanReader {
+  /** This reader inspects server-rendered raster page images of the drawing. */
+  readonly visualCapability: PlanReaderVisualCapability = 'page_images';
   private readonly config: OpenAiVisionProviderConfig;
   private readonly fetcher: typeof fetch;
 
@@ -103,9 +107,20 @@ export class OpenAiCompatibleVisionPlanReader {
     if (!this.config.apiKey || !this.config.model || !this.config.baseUrl) throw new ProjectApiError(503, 'AI vision provider is not configured.');
   }
 
+  /** Prefers already-supplied images and only renders/resolves pages when needed. */
+  private async resolvePageImages(input: GeminiPlanReadInput): Promise<readonly PlanPageImage[]> {
+    if (input.pageImages?.length) return input.pageImages;
+    if (!input.pageImageLoader) return [];
+    try {
+      return await input.pageImageLoader();
+    } catch {
+      return [];
+    }
+  }
+
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     this.assertReady();
-    const images = (input.pageImages || []).slice(0, this.config.maxImages);
+    const images = (await this.resolvePageImages(input)).slice(0, this.config.maxImages);
     if (!images.length) {
       throw new ProjectApiError(503, `${this.config.provider} requires server-rendered plan page images. No provider request was sent.`);
     }
@@ -187,7 +202,7 @@ export class OpenAiCompatibleVisionPlanReader {
 
     try {
       const parsed = JSON.parse(choice?.message?.content || '{}');
-      const result = sanitizePlanReadingResult(parsed);
+      const result = sanitizePlanReadingResult(parsed, [], false, 'visual_page_images');
       if (!result.findings.length) throw new Error('empty');
       return result;
     } catch (error) {

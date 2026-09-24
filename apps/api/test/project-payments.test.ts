@@ -19,7 +19,32 @@ test('no invented pricing defaults and no free generation in an unconfigured dep
   assert.throws(()=>quoteProject(2,3,'standard',{}),/not configured/);
   const env={PROJECT_COST_BASE_CENTS:'100',PROJECT_COST_PAGE_CENTS:'10',PROJECT_COST_TRADE_CENTS:'20',PROJECT_PAYMENT_FIXED_CENTS:'30',PROJECT_PAYMENT_FEE_BPS:'290',PROJECT_PRICING_VERSION:'test-only'};
   assert.ok(quoteProject(10,3,'standard',env).amountCents>quoteProject(1,3,'standard',env).amountCents);
-  assert.ok(quoteProject(1,3,'standard',env).amountCents>quoteProject(1,3,'team',env).amountCents);
+});
+test('a project is charged at its measured cost, plus 30 percent, times the membership factor',()=>{
+  const env={PROJECT_COST_BASE_CENTS:'100',PROJECT_COST_PAGE_CENTS:'10',PROJECT_COST_TRADE_CENTS:'20',PROJECT_PAYMENT_FIXED_CENTS:'30',PROJECT_PAYMENT_FEE_BPS:'290',PROJECT_PRICING_VERSION:'test-only'};
+  // cost = 100 base + 10/page + 3*20 trades + 30 fixed card fee = 200 cents
+  const quoted=quoteProject(1,3,'standard',env);
+  assert.equal(quoted.costCents,200);
+  assert.equal(quoted.amountCents,520); // ceil(200 * 1.30 * 2.00)
+  assert.equal(quoted.membership,'standard');
+  // Every plan tier pays less per project than a non-member, priciest plan first.
+  assert.equal(quoteProject(1,3,'starter',env).amountCents,481); // * 1.85
+  assert.equal(quoteProject(1,3,'pro',env).amountCents,442);     // * 1.70
+  assert.equal(quoteProject(1,3,'team',env).amountCents,416);    // * 1.60
+  assert.ok(quoteProject(1,3,'standard',env).amountCents>quoteProject(1,3,'starter',env).amountCents);
+  assert.ok(quoteProject(1,3,'starter',env).amountCents>quoteProject(1,3,'pro',env).amountCents);
+  assert.ok(quoteProject(1,3,'pro',env).amountCents>quoteProject(1,3,'team',env).amountCents);
+  // The charge never lands below that membership's minimum-margin floor.
+  for(const tier of ['standard','starter','pro','team'] as const){
+    const q=quoteProject(1,3,tier,env);
+    assert.ok(q.amountCents>projectChargeCents(q.costCents-30,30,290,tier),`${tier} must clear its floor`);
+  }
+  // Rounding is up, never in the customer's favor.
+  const roundUp={...env,PROJECT_COST_BASE_CENTS:'101',PROJECT_COST_PAGE_CENTS:'1',PROJECT_COST_TRADE_CENTS:'0',PROJECT_PAYMENT_FIXED_CENTS:'0',PROJECT_PAYMENT_FEE_BPS:'0'};
+  const cents=quoteProject(1,1,'standard',roundUp);
+  assert.equal(cents.costCents,102);
+  assert.equal(cents.amountCents,266); // 265.2 cents rounds up
+  assert.equal(quoteProject(1,1,'team',roundUp).amountCents,213); // 212.16 cents rounds up
 });
 test('PDF preflight reads pages without AI and rejects oversized/invalid data',async()=>{
   const doc=await PDFDocument.create();doc.addPage();doc.addPage();

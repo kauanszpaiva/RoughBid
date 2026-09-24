@@ -3,7 +3,7 @@
 Status: controlled-sales operating policy, approved for technical activation on 2026-09-10. Legal copy remains an operational draft pending counsel review.
 
 Active pricing versions:
-- Project plan reading: `2026-09-05-v1` (conservative configured cost model; 50% target margin for non-members).
+- Project plan reading: `2026-09-24-cost-plus-v2` (measured configured cost; charge = cost + 30%, then the membership factor: 2.00 without a membership, 1.85 Starter, 1.70 Pro, 1.60 Team). Bump `PROJECT_PRICING_VERSION` to this value when activating the rule, because an existing quote is reused only while its stored pricing version matches.
 - Marketplace Supplier Price Import: `2026-09-10-marketplace-v1`, $49/month.
 
 ## Product Positioning
@@ -22,33 +22,54 @@ The product should feel low-risk to try and inexpensive enough for a small contr
 
 ## Commercial Principles
 
-- Keep standalone project-reading gross margin at 50% after AI, storage, support overhead, and Stripe card fees.
-- Membership discounts intentionally reduce project-reading margin to 40%, 35%, 30%, and enterprise as low as 20%.
 - Charge per project, because contractors understand jobs better than tokens.
-- Calculate the project-reading charge from measured cost drivers: base cost, PDF page count, selected trades, payment fixed fee, payment percentage fee, and membership tier.
+- Price every project read as a cost-plus charge: the measured cost of serving that project, plus 30%, then the membership factor below.
+- Keep the ladder in `packages/domain/src/project-charge.ts` and keep the per-membership floor guard: a factor that would undercut that membership's minimum margin disables checkout instead of pricing it.
+- Calculate the measured cost from real drivers: base cost, PDF page count, selected trades, and the fixed card fee RoughBid pays Stripe per charge.
 - Charge before AI output. A user can preview the project-reading price, but Gemini must not receive the plan until Stripe confirms payment by webhook.
-- Use subscriptions to discount future project-reading charges and increase retention.
+- Use subscriptions to retain customers and to lower what they pay per project, never to make a project read free.
 - Sell local pricing/code datasets as paid marketplace add-ons, not as unlimited free usage.
 - Never allow postpaid negative balance without owner approval.
-- Do not price live project reads outside the margin guardrail in `packages/domain/src/project-charge.ts`.
+- Do not price live project reads outside the guardrail in `packages/domain/src/project-charge.ts`.
 
 ## Project Reading Price Formula
 
-The live implementation calculates the project-reading charge at request time:
+The live implementation calculates the project-reading charge at request time, per project:
 
-`charge = ceil((measured_cost + fixed_payment_fee) / (1 - target_margin - payment_fee_percent))`
+```
+measured_cost = base + (pages * per_page) + (trades * per_trade) + fixed_card_fee
+charge        = ceil(measured_cost * 1.30 * membership_factor)
+```
 
-Target margins:
+Membership factors and the margin each one implies:
 
-| Membership | Target margin on project read |
-| --- | ---: |
-| No membership | 50% |
-| Starter | 40% |
-| Pro | 35% |
-| Team | 30% |
-| Enterprise | 20% |
+| Membership | Plan price | Factor | Implied margin | Minimum-margin floor |
+| --- | ---: | ---: | ---: | ---: |
+| No membership | — | 2.00 | 50.0% | 50% |
+| Starter | $9/month | 1.85 | 45.9% | 40% |
+| Pro | $29/month | 1.70 | 41.2% | 35% |
+| Team | $79/month | 1.60 | 37.5% | 30% |
+| Enterprise (no SKU yet) | — | 1.60 | 37.5% | 20% |
 
-Measured cost inputs come from environment configuration and should include both paid attempts, Gemini usage, storage/read overhead, support reserve, and any fixed operational cost assigned to the read. Missing inputs disable checkout.
+The pricier the plan, the lower the per-project factor: the subscription pays part of each project's
+work, and every tier still clears its own minimum-margin floor. Enterprise has no sellable SKU yet and
+is mapped to the Team factor until its commercial terms are approved.
+
+Worked example with configured costs of 100 base, 10 per page, 20 per trade and a 30 cent card fee:
+
+| Pages | Trades | Measured cost | No membership | Starter | Pro | Team |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 3 | 200 cents | 520¢ ($5.20) | 481¢ ($4.81) | 442¢ ($4.42) | 416¢ ($4.16) |
+| 20 | 3 | 390 cents | 1014¢ ($10.14) | 938¢ ($9.38) | 862¢ ($8.62) | 811¢ ($8.11) |
+| 50 | 7 | 770 cents | 2002¢ ($20.02) | 1852¢ ($18.52) | 1702¢ ($17.02) | 1602¢ ($16.02) |
+
+The charge is rounded up to the next cent, so a factor never rounds in the customer's favor. The
+pricing engine also computes that membership's minimum-margin charge for the same cost and refuses
+checkout if the factor would ever land below it.
+
+Measured cost inputs come from environment configuration and should include both paid attempts, model
+usage at the configured output ceiling, storage/read overhead, support reserve, and any fixed
+operational cost assigned to the read. Missing inputs disable checkout.
 
 Subscriptions reduce the margin RoughBid keeps on each future project read. The monthly subscription prices are not hard-coded yet; they must be approved and configured as Stripe price ids before `BILLING_MEMBERSHIPS_ENABLED=true`.
 
@@ -61,6 +82,7 @@ Marketplace add-ons:
 Target cost policy:
 - Start with conservative measured costs from test reads.
 - Include two paid attempts per quote, since the database allows one retry after provider failure.
+- Include the full plan-reading output ceiling, because a truncated drawing reading is discarded rather than credited back.
 - Recalculate before enabling live mode whenever Gemini pricing, file size limits, Stripe fees, or support reserve assumptions change.
 - Stop checkout when the configured margin plus payment fee would make the denominator invalid.
 

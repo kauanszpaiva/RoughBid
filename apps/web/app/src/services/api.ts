@@ -347,6 +347,10 @@ export type PlanReadingJob = {
     sheet_count?: number;
     detected_trade_scope?: string[];
     scale_status?: "detected" | "missing" | "conflicting";
+    /** What the provider actually inspected; `text_only` means the drawing was never read. */
+    reading_mode?: 'visual_pdf' | 'visual_page_images' | 'text_only' | 'unknown';
+    /** Findings that rest on graphic drawing evidence instead of a printed text excerpt. */
+    visual_evidence_count?: number;
     pricing?: { materialCost: number; laborCost: number; directCost: number; pricedFindings: number; unpricedFindings: number };
     takeoff_v2?: TakeoffV2Coverage;
   };

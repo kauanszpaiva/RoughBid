@@ -5,8 +5,10 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { FREE_PROVIDER_UNCONFIGURED, requireFreeProviderConfig } from './free-provider.ts';
+import { assertReaderInspectsDrawing } from './readiness.ts';
+import { createPlanPageImageLoader } from './plan-page-images.ts';
 import type { GeminiPlanReadInput } from './gemini.ts';
-import type { PlanReadingResult } from './types.ts';
+import type { PlanReaderVisualCapability, PlanReadingResult } from './types.ts';
 import { PILOT_MODEL, PILOT_MAX_PAGES, PILOT_MAX_PDF_BYTES } from './pilot-reader.ts';
 import { persistPlanPricingContext } from '../pricing/context.ts';
 import { ProviderSpendLimitError, UsageAccountingError } from '../owner-usage/meter.ts';
@@ -38,6 +40,12 @@ export interface AiPlanObjectStorage {
 
 /** GeminiPlanReader satisfies this structurally; kept narrow so tests can fake it without the real SDK. */
 export interface PlanReader {
+  /**
+   * Declared ability to inspect the drawing itself. A `text_only` reader is
+   * refused by `assertReaderInspectsDrawing` unless the operator explicitly
+   * opts in, so a text-extraction route can never masquerade as a plan reading.
+   */
+  visualCapability?: PlanReaderVisualCapability;
   assertReady?(): void;
   read(input: GeminiPlanReadInput): Promise<PlanReadingResult>;
 }
@@ -180,6 +188,7 @@ export class AiPlanReadingService {
       // Platform owner/tester uses the real paid provider but never manufactures
       // a Stripe payment or zero-dollar quote. The dedicated database RPC is the
       // server-side authorization boundary for this complimentary path.
+      assertReaderInspectsDrawing(this.reader);
       this.reader.assertReady?.();
       const normalized = normalizeScope(input);
       requestedTrades = normalized.trades;
@@ -222,6 +231,7 @@ export class AiPlanReadingService {
       job = reserved.data.job;
       accessMode = 'platform_admin';
     } else if (this.pilotReader) {
+      assertReaderInspectsDrawing(this.pilotReader);
       this.pilotReader.assertReady?.();
       const normalized = normalizeScope(input);
       requestedTrades = normalized.trades;
@@ -245,6 +255,7 @@ export class AiPlanReadingService {
       // not configured and attested. Never falls back to the billed credential.
       const freeConfig = requireFreeProviderConfig(process.env);
       if (!this.freeReader) throw new ProjectApiError(503, FREE_PROVIDER_UNCONFIGURED);
+      assertReaderInspectsDrawing(this.freeReader);
       this.freeReader.assertReady?.();
       const normalized = normalizeScope(input);
       requestedTrades = normalized.trades;
@@ -268,6 +279,7 @@ export class AiPlanReadingService {
       accessMode = 'owner_free';
     } else {
       if (!quoteId) throw new ProjectApiError(402, 'Review and pay the project processing price before starting AI.');
+      assertReaderInspectsDrawing(this.reader);
       this.reader.assertReady?.();
       const reserved = await this.findingsWriter.rpc('reserve_project_reading', {
         p_quote_id: quoteId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
@@ -308,6 +320,18 @@ export class AiPlanReadingService {
       }
 
       const activeReader = accessMode === 'pilot' ? this.pilotReader! : accessMode === 'owner_free' ? this.freeReader! : this.reader;
+      // Rendered page images of the drawing itself, resolved lazily and only if
+      // the provider that runs actually needs raster pages. Page-by-page review
+      // restricts the lookup to the single physical page being reviewed.
+      const pageImageLoader = createPlanPageImageLoader({
+        db: this.db,
+        storage: this.storage,
+        workspaceId: this.workspaceId,
+        projectId,
+        fileId,
+        ...(pageRequest ? { pageNumbers: [Number(requestedPage)] } : {}),
+        fetcher: this.fetcher,
+      });
       const result = await withUsageMeter({ writer: this.findingsWriter, userId: this.userId,
         workspaceId: this.workspaceId, projectId, jobId: job.id,
         billing: accessMode === 'owner_free' ? 'verified_free' : 'paid',
@@ -319,8 +343,14 @@ export class AiPlanReadingService {
           : file.original_name,
         requestedTrades,
         scope,
+        pageImageLoader,
         ...(pageRequest ? { reasoningEffort: 'high' as const } : {}),
       }));
+      // Defense in depth: a text-only result can never be stored as a plan
+      // reading, even if a reader were misconfigured to claim otherwise.
+      if (result.summary.reading_mode === 'text_only' && process.env.AI_PLAN_ALLOW_TEXT_ONLY_READING !== 'true') {
+        throw new ProjectApiError(502, 'This reading came from extracted PDF text only and was rejected: the drawing itself was not inspected. Nothing was saved.');
+      }
       if (pageRequest) {
         if (result.findings.some(f => f.page_number !== 1)) throw new ProjectApiError(502, 'Single-page output contains missing or conflicting page identities. It was not accepted.');
         result.findings = result.findings.map(f => ({ ...f, page_number: Number(requestedPage) }));

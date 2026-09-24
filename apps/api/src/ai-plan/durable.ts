@@ -3,6 +3,8 @@ import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../pr
 import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing/project-preflight.ts';
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { requireFreeProviderConfig } from './free-provider.ts';
+import { assertReaderInspectsDrawing } from './readiness.ts';
+import { createPlanPageImageLoader, type PlanPageImageDb } from './plan-page-images.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
 import type { PlanReadingResult } from './types.ts';
 
@@ -294,6 +296,7 @@ export class DurableAiPlanJobProcessor {
       } else {
         const reader = context.entitlement === 'owner_free' ? this.freeReader : this.paidReader;
         if (!reader) throw new Error('The authorized provider is not configured on the durable worker.');
+        assertReaderInspectsDrawing(reader);
         reader.assertReady?.();
         assertPlanStoragePath(context.storage_path, context.workspace_id, context.project_id, context.file_id);
         const presigned = await this.storage.presign('GET', context.storage_path, { expiresIn: 300 });
@@ -312,7 +315,20 @@ export class DurableAiPlanJobProcessor {
           sheetName: context.original_name,
           requestedTrades: context.requested_trades,
           scope: context.requested_scope,
+          // Rendered page images of the drawing itself, resolved only when the
+          // provider that runs actually needs raster pages.
+          pageImageLoader: createPlanPageImageLoader({
+            db: this.writer as unknown as PlanPageImageDb,
+            storage: this.storage,
+            workspaceId: String(context.workspace_id),
+            projectId: String(context.project_id),
+            fileId: String(context.file_id),
+            fetcher: this.fetcher,
+          }),
         }));
+        if (result.summary.reading_mode === 'text_only' && process.env.AI_PLAN_ALLOW_TEXT_ONLY_READING !== 'true') {
+          throw new Error('This reading came from extracted PDF text only and was rejected: the drawing itself was not inspected.');
+        }
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
         if (result.findings.some((f) => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > context.page_count))) {
           throw new Error('The reading contains quantities or locations without valid source pages.');

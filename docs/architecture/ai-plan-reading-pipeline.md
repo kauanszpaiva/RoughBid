@@ -25,8 +25,10 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - The model (Gemini, via `apps/api/src/ai-plan/gemini.ts`) receives the uploaded PDF inline (base64), so this only needs the upload itself to have finished.
 
 5. **Extraction targets**
+   - The drawing itself: line work, wall and partition lines, openings, fixtures, symbols and icons, hatch patterns/poché, graphic scale bars, north arrows, grid references, keynotes/tags, callouts, details, sections, elevations, schedules and title blocks. A sheet with few printed words is still evidence and is never treated as blank or unreadable.
    - Measurements and dimensions.
-   - Rooms/areas and sheet/page references.
+   - Rooms/areas and sheet/page references, each located with normalized page geometry.
+   - Graphic elements with no printed sentence of their own (an icon, a hatch, a line type, a legend symbol): recorded as a `symbol`/`room`/`scope_note` finding with a null quantity plus `geometry.visual`, so an estimator can verify and count them. Graphic evidence never becomes a trusted quantity by itself.
    - Materials and fixture/symbol counts, each with a quantity and unit (`material` findings).
    - Labor/service scope implied by the drawings — demolition, framing, install labor, trade rough-ins — each with its own quantity and unit (`labor` findings), priced independently of the material it goes with.
    - Scope notes and exclusions.
@@ -36,7 +38,11 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 6. **Evidence and review**
    - Save every extracted item as a `plan_reading_findings` row.
    - Include confidence, page number, geometry/source excerpt, and review status.
+   - `geometry` carries normalized page coordinates (`bbox` and/or `point`), the printed `area`/`room`, and optional `element`, `legend_mark`, `sheet_reference`, `grid_reference`, `scale_note`. A located element may rest on printed text OR on validated graphic evidence — never on neither.
+   - `geometry.visual` is the graphic-evidence channel: `{ kind, description, legend_mark?, confidence }` with `kind` restricted to `symbol`, `icon`, `hatch_pattern`, `line_work`, `dimension_string`, `graphic_scale_bar`, `north_arrow`, `grid_reference`, `legend_mark`, `callout`, `detail`, `title_block`, `schedule_table`. It is bounded, allow-listed and stripped of anything else.
+   - A quantity still requires a physical page, a verbatim source excerpt and an allowed imperial unit (`SF`, `LF`, `EA`, `CY`, `SY`, `HR`, `LS`). Graphic evidence can name and place an element; it can never invent its amount, and an icon count with no printed dimension or legend mark is dropped and disclosed instead of trusted.
    - Default every finding to `needs_review`.
+   - The job's `output_summary.reading_mode` records what the provider actually inspected: `visual_pdf`, `visual_page_images`, `text_only` or `unknown`. It is assigned by the server from the reader's declared capability, never by model output, and `output_summary.visual_evidence_count` counts the findings that rest on graphic evidence.
    - Allow accepted findings to generate draft takeoff quantities; rejected findings never affect estimate math.
    - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
@@ -61,11 +67,13 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 - `GEMINI_MODEL`: default `gemini-3.8-flash`.
 - `SUPABASE_SERVICE_ROLE_KEY`: used inline for paid quote creation, webhook reconciliation, job reservation, and inserting `plan_reading_findings`.
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`: required before project-reading checkout can charge or grant a paid quote.
-- `PROJECT_PRICING_VERSION`, `PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`, `PROJECT_PAYMENT_FIXED_CENTS`, `PROJECT_PAYMENT_FEE_BPS`: required measured cost policy for dynamic per-project charges.
+- `PROJECT_PRICING_VERSION`, `PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`, `PROJECT_PAYMENT_FIXED_CENTS`, `PROJECT_PAYMENT_FEE_BPS`: required measured cost policy for dynamic per-project charges. The charge itself is cost-plus: measured cost (base + pages + trades + fixed card fee), plus 30%, then the membership factor (2.00 without a membership, 1.85 Starter, 1.70 Pro, 1.60 Team), never below that membership's minimum-margin floor.
 - `STRIPE_PRICE_PLAN_STARTER`, `STRIPE_PRICE_PLAN_PRO`, `STRIPE_PRICE_PLAN_TEAM`, `STRIPE_PRICE_PLAN_ENTERPRISE`: optional membership price ids; subscription checkout remains off unless `BILLING_MEMBERSHIPS_ENABLED=true`.
 - Private object storage credentials (`OBJECT_STORAGE_*` or `BLOB_READ_WRITE_TOKEN`) for the uploaded plan PDF this reads and the rendered page images the blueprint viewer shows.
 - `REDIS_URL`: only needed for the Poppler page-rendering queue (viewer thumbnails) — AI plan reading does not use it.
 - `AI_PLAN_DAILY_JOB_LIMIT`: optional per-workspace daily cap on AI plan-reading jobs, default 25.
+- `AI_PLAN_ALLOW_TEXT_ONLY_READING`: must stay unset. It is the only override that lets a text-extraction reader (which never inspects the drawing) serve a plan reading, and it exists solely for an explicitly disclosed text-only benchmark.
+- `LOW_COST_VISION_MAX_PAGES`: optional page-image count per request for image-native providers, 1–16, default 8.
 
 ## Security Rules
 
@@ -93,22 +101,35 @@ Controls:
 - `AI_PLAN_PROVIDER_ORDER` controls routing order.
 - DeepSeek and Kimi are independently disabled by default and require server-only credentials.
 - DeepSeek additionally requires `DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED=true`; the key and enable flag alone cannot open private-plan processing.
-- DeepSeek/Kimi fail before a network request when `pageImages` are absent; this preserves the existing Gemini PDF path and prevents surprise spend.
+- DeepSeek/Kimi resolve their page images lazily from RoughBid's own private rendered pages and fail before a network request when none are available; this preserves the existing Gemini PDF path and prevents surprise spend.
 - Kimi requires an explicit region-matched base URL because international and China Open Platform credentials are separate.
 - All paid providers pass through the same database company-spend breaker before generation.
 - Unknown cost telemetry is conservative: the spend reservation remains counted rather than being treated as zero cost.
 - Do not activate a new provider until real construction-plan benchmarks verify extraction quality, cost, and evidence integrity.
 
-### Page-image prerequisite
+### Reading the drawing itself
 
-DeepSeek and Kimi consume images rather than RoughBid's raw construction PDF. One of these paths must
-be verified before either provider is enabled:
+Every plan reader declares a server-side `visualCapability`:
 
-- the existing Poppler document worker writes private `project_file_pages` assets; or
-- an approved on-demand renderer produces bounded page images without adding a new external API.
+- `pdf_native` — the construction PDF is sent whole and the provider reads the drawing (paid Gemini, pilot Gemini, owner-free Gemini, optional Claude).
+- `page_images` — server-rendered raster pages of the drawing (DeepSeek, Kimi).
+- `text_only` — PDF text extraction only, no drawing inspection (the OpenRouter free adapter).
 
-Do not make low-cost vision depend on a public image URL. Page assets remain private and are sent to a
-provider only after the workspace AI-processing consent and existing tenant/payment/entitlement gates pass.
+`assertReaderInspectsDrawing` refuses a `text_only` reader before any reservation, download or provider call, and `MultiProviderPlanReader` excludes `text_only` readers from the chain and refuses to be constructed from them alone. The stored `output_summary.reading_mode` then tells every reviewer and every downstream consumer whether the drawing itself was inspected.
+
+### Page-image prerequisite (implemented)
+
+Image-native providers cannot read a construction PDF, so they receive RoughBid's own private
+rendered page images instead of a public image URL:
+
+- the Poppler document worker writes `project_file_pages` JPEGs (2000px) for the in-app viewer; and
+- `apps/api/src/ai-plan/plan-page-images.ts` resolves those same private objects for a provider, bounded (8 pages / 12 MB per page / 24 MB total by default), tenant-scoped by the
+  `workspace/project/file/pages/` storage prefix, and loaded lazily so the PDF-native path never pays for a render it will not use.
+
+The loader is best-effort: if pages are missing or unreadable, the image-native provider fails closed
+on its own (`503`, no request sent) instead of the whole reading crashing. Page assets stay private and
+are sent to a provider only after the workspace AI-processing consent and the existing tenant/payment/
+entitlement gates pass.
 
 ## Tavily Status
 
