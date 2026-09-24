@@ -7,6 +7,7 @@ import {
   describeSheetTextDigest,
   extractSheetText,
   sheetTextEnabled,
+  pickSheetNumber,
   sheetTextOptionsFromEnv,
   verifyFindingPages,
 } from '../src/ai-plan/sheet-text.ts';
@@ -83,14 +84,14 @@ test('the extractor is switchable and its bounds come from the environment', asy
   assert.equal(sheetTextEnabled({ AI_PLAN_SHEET_TEXT_ENABLED: 'false' }), false);
 
   assert.deepEqual(sheetTextOptionsFromEnv({}), {
-    maxPages: 80, maxCharacters: 30_000, maxCharactersPerPage: DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE,
+    maxPages: 80, maxCharacters: 60_000, maxCharactersPerPage: DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE,
   });
   assert.deepEqual(sheetTextOptionsFromEnv({ AI_PLAN_SHEET_TEXT_MAX_PAGES: '12', AI_PLAN_SHEET_TEXT_MAX_CHARS: '5000' }), {
     maxPages: 12, maxCharacters: 5_000, maxCharactersPerPage: DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE,
   });
   // Out-of-range or malformed values fall back instead of fanning out.
   assert.equal(sheetTextOptionsFromEnv({ AI_PLAN_SHEET_TEXT_MAX_PAGES: '9999' }).maxPages, 400);
-  assert.equal(sheetTextOptionsFromEnv({ AI_PLAN_SHEET_TEXT_MAX_CHARS: 'nonsense' }).maxCharacters, 30_000);
+  assert.equal(sheetTextOptionsFromEnv({ AI_PLAN_SHEET_TEXT_MAX_CHARS: 'nonsense' }).maxCharacters, 60_000);
   assert.equal(sheetTextOptionsFromEnv({ AI_PLAN_SHEET_TEXT_MAX_CHARS_PER_PAGE: '-5' }).maxCharactersPerPage, DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE);
 });
 
@@ -192,4 +193,90 @@ test('without a transcript nothing is changed or claimed', () => {
   const check = verifyFindingPages(findings, undefined);
   assert.deepEqual(check.findings, findings);
   assert.deepEqual([check.checked, check.corrected, check.unlocated], [0, 0, 0]);
+});
+test('a real title block is found even when the number is glued to its scale', () => {
+  // Shape printed by Revit/AutoCAD under every view, with the note sheet's own
+  // number far from the end of the text stream.
+  const lines = [
+    'LIFE SAFETY LEGEND',
+    'CEILING SURFACE-MOUNTED COMBINED',
+    ...Array.from({ length: 30 }, (_, index) => `NOTE ${index + 1}: INSTALL PER MANUFACTURER`),
+    'Project Number:', 'MATNAH DESIGN STUDIO', '34 ELLIS ST MEDWAY, MA',
+    'FLOOR PLANS', 'AND ELEVATIONS', 'A1.0', 'Feb. 10th, 2026', 'PERMIT SET',
+    '1/4" = 1\'-0"A1.0', '5 REAR ELEVATION', '1/4" = 1\'-0"A1.0', '3 FRONT ELEVATION',
+    'Window Schedule', 'Grand total: 10',
+  ];
+  assert.equal(pickSheetNumber(lines), 'A1.0');
+});
+
+test('a notes sheet reports its own number, not the code sections it cites most', () => {
+  const lines = [
+    'CEILING. - IRC R309.2 AND R302.6',
+    'R303.4', 'R303.4', 'R905.2.2', 'R905.2.2', 'R905.2.2',
+    'UNDERLAYMENT IS INSTALLED IN ACCORDANCE WITH IRC SECTION R905.2.2',
+    'A0.2', 'A0.2', 'GENERAL NOTES',
+  ];
+  assert.equal(pickSheetNumber(lines), 'A0.2');
+});
+
+test('a labelled title-block line outranks a repeated opening tag', () => {
+  const lines = ['W2', 'W2', 'W2', 'SHEET A-101', 'FIRST FLOOR PLAN'];
+  assert.equal(pickSheetNumber(lines), 'A-101');
+});
+
+test('a long sheet keeps both ends of its transcript, so the title block survives', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont('Helvetica');
+  const page = doc.addPage([612, 792]);
+  page.drawText('GENERAL NOTES', { x: 40, y: 750, size: 12, font });
+  for (let index = 0; index < 200; index += 1) {
+    page.drawText(`${index + 1}. SEAL ALL PENETRATIONS THROUGH THE THERMAL ENVELOPE.`, { x: 40, y: 730 - index * 3, size: 8, font });
+  }
+  page.drawText('SHEET A-900 SCALE 1/4" = 1\'-0"', { x: 40, y: 20, size: 8, font });
+  const sheet = await extractSheetText(await doc.save(), { maxCharactersPerPage: 900 });
+  const only = sheet.pages[0]!;
+  assert.equal(only.truncated, true);
+  assert.ok(only.text.startsWith('GENERAL NOTES'), 'the first printed line is kept');
+  assert.match(only.text, /SHEET A-900/, 'the title block at the bottom is kept too');
+  assert.match(only.text, /transcript cut here/);
+  assert.equal(only.sheetNumber, 'A-900');
+});
+
+test('a huge notes sheet cannot starve the later sheets of the digest', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont('Helvetica');
+  const notes = doc.addPage([612, 792]);
+  for (let index = 0; index < 150; index += 1) {
+    notes.drawText(`${index + 1}. PROVIDE FIRE-BLOCKING AT ALL CONCEALED SPACES IN THE FRAMING.`, { x: 40, y: 770 - index * 5, size: 8, font });
+  }
+  const later = doc.addPage([612, 792]);
+  later.drawText('DOOR AND WINDOW SCHEDULE', { x: 40, y: 750, size: 12, font });
+  later.drawText('D1 HOLLOW METAL DOOR 4 EA', { x: 40, y: 730, size: 9, font });
+  const sheet = await extractSheetText(await doc.save());
+  const digest = describeSheetTextDigest(sheet, 6_000)!;
+  assert.ok(digest.includes('DOOR AND WINDOW SCHEDULE'), 'the second sheet still reaches the provider');
+  assert.ok(digest.includes('D1 HOLLOW METAL DOOR 4 EA'), 'its schedule line is not starved by the notes page');
+  assert.ok(digest.length <= 6_000);
+});
+test('a quote whose columns are interleaved on the sheet is still located', () => {
+  // Real note blocks print several columns at the same height, so the joined
+  // transcript merges them and the model's quote is not one substring of it.
+  const transcript = { pages: [
+    { pageNumber: 1, characters: 120, text: 'FIRST FLOOR FRAMING PLAN\nJOIST HANGERS TYP. DTT ZMAX TENSION TIE\n2 x 10 @ 16" O.C. FLOOR JOISTS', truncated: false, headings: [], sheetNumber: 'S100', scale: null, likelyScanned: false },
+  ] } as unknown as Parameters<typeof verifyFindingPages>[1];
+  const finding = { page_number: 1, finding_type: 'material' as const, label: 'Joists', quantity: null, unit: null, value_text: null, confidence: 0.7, geometry: {}, source_excerpt: '2 x 10 @ 16" O.C. FLOOR JOISTS\nJOIST HANGERS TYP.' };
+  const check = verifyFindingPages([finding as never], transcript);
+  assert.equal(check.unlocated, 0, 'each quoted line is probed, so the quote is located');
+  assert.equal(check.corrected, 0);
+});
+
+test('a short quoted fragment is not treated as evidence of location', () => {
+  const transcript = { pages: [
+    { pageNumber: 1, characters: 40, text: 'DEAD LOAD 20 PSF', truncated: false, headings: [], sheetNumber: null, scale: null, likelyScanned: false },
+    { pageNumber: 2, characters: 40, text: 'LIVE LOAD 40 PSF', truncated: false, headings: [], sheetNumber: null, scale: null, likelyScanned: false },
+  ] } as unknown as Parameters<typeof verifyFindingPages>[1];
+  // Only 14 characters after normalization: too generic to settle a page, and it
+  // is not found on page 2 either, so nothing is claimed about it.
+  const check = verifyFindingPages([{ page_number: 2, finding_type: 'scope_note' as const, label: 'Load', quantity: null, unit: null, value_text: null, confidence: 0.6, geometry: {}, source_excerpt: '20 PSF' } as never], transcript);
+  assert.equal(check.checked, 0);
 });

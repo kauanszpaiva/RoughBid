@@ -21,12 +21,20 @@ import { LINEWORK_DIGEST_HEADER, describeLineworkDigest, describePageLinework, l
 import type { PlanReadingFinding } from './types.ts';
 
 export const DEFAULT_SHEET_TEXT_MAX_PAGES = 80;
-export const DEFAULT_SHEET_TEXT_MAX_CHARS = 30_000;
-export const DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE = 1_500;
+export const DEFAULT_SHEET_TEXT_MAX_CHARS = 60_000;
+export const DEFAULT_SHEET_TEXT_MAX_CHARS_PER_PAGE = 4_000;
+/** Smallest share of the digest one page may receive, however large the set is. */
+export const MIN_SHEET_TEXT_DIGEST_PAGE_CHARACTERS = 400;
 export const DEFAULT_SHEET_TEXT_DIGEST_CHARACTERS = 24_000;
 
 /** A sheet number: A-101, S2.1, E1, A0.1, C-1.02. */
 const SHEET_NUMBER_PATTERN = /^[A-Z]{1,4}[-.]?\d{1,4}(?:\.\d{1,2})?[A-Z]?$/;
+/**
+ * Building-code and standard references that look like sheet numbers.
+ * A general-notes sheet prints R303.4 and R905.2.2 far more often than it
+ * prints its own number, so they must never win the frequency vote.
+ */
+const CODE_REFERENCE_PATTERN = /^(?:[REPN]\d{3}(?:\.\d+)*|IRC|IBC|IECC|ASTM|NFPA|ANSI|NEC|UL|OSHA|ADA|ASHRAE|AISC|ACI)$/i;
 /** Printed scale notations: 1/4" = 1'-0", 1/8"=1'-0", 1:100, 3/32" = 1'-0". */
 const SCALE_PATTERN = /(?:\d{1,2}\s*\/\s*\d{1,2}\s*["“”]\s*=\s*1\s*['’]\s*-?\s*0\s*["“”]|1\s*:\s*\d{1,4}\b|\b1\s*\/\s*\d{1,3}\s*["“”]\s*=\s*1\s*['’]\s*-?\s*0\s*["“”])/;
 /** Sheet-title vocabulary, used only to guess which printed lines are headings. */
@@ -113,21 +121,59 @@ function pickHeadings(lines: readonly string[]): string[] {
   return lines.filter(line => line.length >= 4 && line.length <= 90 && hasLetters(line)).slice(0, 2);
 }
 
-function pickSheetNumber(lines: readonly string[]): string | null {
-  // Title blocks sit at the bottom-right of a sheet, so search the printed lines
-  // from the end first and then the top. Prefer a line that is exactly the
-  // sheet identifier: a code buried mid-sentence is far more likely to be a
-  // keynote reference (R-13 insulation) than this sheet's own number.
-  const zone = [...lines.slice(-30).reverse(), ...lines.slice(0, 30)];
-  // Prefer an explicitly labelled line ("SHEET A-101"): a standalone code is
-  // just as likely to be an opening tag (W2) or a keynote reference (R-13).
+/**
+ * Sheet-number-like codes inside a printed line.
+ *
+ * Real sets often print the number glued to its scale in a view label
+ * (`1/4" = 1'-0"A1.0`), so splitting on whitespace alone misses it.
+ */
+function sheetNumberCandidates(line: string): string[] {
+  return line.split(/[^A-Za-z0-9.-]+/).filter(chunk => SHEET_NUMBER_PATTERN.test(chunk));
+}
+
+/**
+ * Exported for its own tests: real title blocks are hostile to heuristics.
+ *
+ * Ordered by precision, because a wrong sheet number is worse than none:
+ *  1. a labelled title-block line ("SHEET A-101", "DWG NO: A1.0");
+ *  2. a view label that appends the number to a scale notation — the shape
+ *     Revit and AutoCAD sets print under every view;
+ *  3. the code repeated most often on code-like (short) lines, which is what
+ *     a title block plus its callouts look like, while a keynote reference
+ *     sits inside long note sentences.
+ */
+export function pickSheetNumber(lines: readonly string[]): string | null {
+  const zone = [...lines.slice(-40).reverse(), ...lines.slice(0, 40)];
   for (const line of zone) {
     if (!/(?:sheet|dwg|drawing)\b/i.test(line)) continue;
-    const candidate = line.split(/\s+/).find(token => SHEET_NUMBER_PATTERN.test(token));
+    const candidate = sheetNumberCandidates(line)[0];
     if (candidate) return candidate;
   }
-  for (const line of zone) if (SHEET_NUMBER_PATTERN.test(line)) return line;
-  return null;
+  for (const line of [...lines].reverse()) {
+    if (!SCALE_PATTERN.test(line)) continue;
+    const candidates = sheetNumberCandidates(line);
+    if (candidates.length) return candidates[candidates.length - 1]!;
+  }
+  const counts = new Map<string, number>();
+  const lastSeen = new Map<string, number>();
+  lines.forEach((line, index) => {
+    if (line.length > 24) return;
+    for (const candidate of sheetNumberCandidates(line)) {
+      if (CODE_REFERENCE_PATTERN.test(candidate)) continue;
+      counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+      lastSeen.set(candidate, index);
+    }
+  });
+  let best: string | null = null;
+  let bestCount = 0;
+  let bestSeen = -1;
+  for (const [candidate, count] of counts) {
+    const seen = lastSeen.get(candidate) ?? -1;
+    // More repetitions wins; a tie goes to the code printed lowest on the
+    // sheet, where the title block sits.
+    if (count > bestCount || (count === bestCount && seen > bestSeen)) { best = candidate; bestCount = count; bestSeen = seen; }
+  }
+  return best;
 }
 
 function pickScale(lines: readonly string[]): string | null {
@@ -138,10 +184,22 @@ function pickScale(lines: readonly string[]): string | null {
   return null;
 }
 
+const TRUNCATION_MARKER = '[transcript cut here: characters omitted]';
+
+/**
+ * Bounded transcript that keeps both ends of the page.
+ *
+ * Cutting only the tail loses the title block (sheet number, scale, date), which
+ * on a real sheet is drawn last and is the first thing a reviewing human needs;
+ * cutting only the head loses the opening note lines. The middle goes.
+ */
 function truncateText(lines: readonly string[], maxCharacters: number): { text: string; truncated: boolean } {
   const joined = lines.join('\n');
   if (joined.length <= maxCharacters) return { text: joined, truncated: false };
-  return { text: joined.slice(0, maxCharacters), truncated: true };
+  const marker = `\n${TRUNCATION_MARKER}\n`;
+  const room = Math.max(0, maxCharacters - marker.length);
+  const head = Math.ceil(room * 0.6);
+  return { text: `${joined.slice(0, head)}${marker}${joined.slice(joined.length - (room - head))}`, truncated: true };
 }
 
 /**
@@ -214,13 +272,23 @@ export const SHEET_TEXT_DIGEST_HEADER = 'NATIVE SHEET TEXT (read locally from th
 export function describeSheetTextDigest(sheetText: SheetText | undefined, maxCharacters = DEFAULT_SHEET_TEXT_DIGEST_CHARACTERS): string | null {
   if (!sheetText?.pages.length) return null;
   const lines: string[] = [SHEET_TEXT_DIGEST_HEADER];
+  // Every sheet gets a share instead of the first sheets taking everything: on a
+  // real set one general-notes sheet prints 20k characters, which used to starve
+  // every later sheet of its notes in a single whole-set request.
+  const sharedBudget = Math.max(MIN_SHEET_TEXT_DIGEST_PAGE_CHARACTERS,
+    Math.floor((maxCharacters - SHEET_TEXT_DIGEST_HEADER.length) / sheetText.pages.length));
+  let used = SHEET_TEXT_DIGEST_HEADER.length;
   for (const page of sheetText.pages) {
     const block = describePageText(page);
-    if (lines.join('\n').length + block.length > maxCharacters) {
-      lines.push('Additional pages omitted from this digest by its size limit.');
+    const bounded = block.length <= sharedBudget
+      ? block
+      : `${block.slice(0, Math.max(0, sharedBudget - 60))} [page transcript trimmed by the digest size limit]`;
+    if (used + bounded.length > maxCharacters) {
+      lines.push('Remaining pages omitted by the digest size limit.');
       break;
     }
-    lines.push(block);
+    lines.push(bounded);
+    used += bounded.length + 1;
   }
   if (sheetText.truncated) lines.push(`Sheet text was read for at most ${sheetText.pageLimit} pages; later pages are not transcribed here.`);
   return lines.join('\n').slice(0, maxCharacters);
@@ -258,6 +326,8 @@ export interface CitationCheck {
 
 /** Below this length an excerpt is too generic to locate safely. */
 const MIN_VERIFIABLE_EXCERPT_CHARACTERS = 12;
+/** A quoted line this long is specific enough to locate on its own. */
+const MIN_LOCATED_LINE_CHARACTERS = 20;
 /** Excerpts this module's own digests produce are not printed sheet text. */
 const SYNTHETIC_EXCERPT = /^\s*deterministic pdf vector linework/i;
 
@@ -273,6 +343,23 @@ export function verifyFindingPages(
   if (!pages.length) return { findings: [...findings], corrected: 0, unlocated: 0, checked: 0 };
 
   const haystacks = pages.map(page => ({ pageNumber: page.pageNumber, text: normalizeEvidenceText(page.text) }));
+  /**
+   * Every meaningful piece of the quote, not only the whole of it.
+   *
+   * Real sheets interleave the columns of their note blocks, so a model quoting
+   * one column produces an excerpt that is not a contiguous substring of the
+   * joined transcript. Probing each quoted line separately is what makes a
+   * location test possible on a real drawing at all; a line has to be long
+   * enough to be specific before it counts as evidence of location.
+   */
+  const probesOf = (excerpt: string): string[] => {
+    const probes = [normalizeEvidenceText(excerpt)];
+    for (const line of excerpt.split(/\r?\n/)) probes.push(normalizeEvidenceText(line));
+    return [...new Set(probes.filter(probe => probe.length >= MIN_LOCATED_LINE_CHARACTERS))];
+  };
+  const locate = (probes: readonly string[]): number[] => haystacks
+    .filter(page => probes.some(probe => page.text.includes(probe)))
+    .map(page => page.pageNumber);
   let corrected = 0;
   let unlocated = 0;
   let checked = 0;
@@ -282,13 +369,13 @@ export function verifyFindingPages(
     const normalized = normalizeEvidenceText(excerpt);
     if (normalized.length < MIN_VERIFIABLE_EXCERPT_CHARACTERS || SYNTHETIC_EXCERPT.test(excerpt)) return finding;
     checked += 1;
-    if (finding.page_number !== null && finding.page_number !== undefined && haystacks.some(page => page.pageNumber === finding.page_number && page.text.includes(normalized))) {
+    const located = locate(probesOf(excerpt));
+    if (finding.page_number !== null && finding.page_number !== undefined && located.includes(finding.page_number)) {
       return finding;
     }
-    const matches = haystacks.filter(page => page.text.includes(normalized));
-    if (matches.length === 1) {
+    if (located.length === 1) {
       corrected += 1;
-      return { ...finding, page_number: matches[0]!.pageNumber };
+      return { ...finding, page_number: located[0]! };
     }
     unlocated += 1;
     return finding;
