@@ -1,7 +1,8 @@
 import { ProjectApiError } from '../projects/service.ts';
 import { meterOpenAiCompatibleCall, type MeteredVisionProvider, UsageAccountingError } from '../owner-usage/meter.ts';
 import { sanitizePlanReadingResult, type PlanReadingResult } from './types.ts';
-import { type GeminiPlanReadInput, systemPrompt } from './gemini.ts';
+import { MAX_INLINE_PLAN_BYTES, type GeminiPlanReadInput, systemPrompt } from './gemini.ts';
+import { describeLineworkDigest } from './drawing-linework.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
 
@@ -66,22 +67,42 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
   };
 }
 
-export function configuredProviderOrder(env: Record<string, string | undefined>): Array<'deepseek' | 'gemini' | 'kimi'> {
-  const allowed = new Set(['deepseek', 'gemini', 'kimi']);
-  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'gemini,kimi,deepseek')
+export function requireOpenAiVisionConfig(env: Record<string, string | undefined>): OpenAiVisionProviderConfig {
+  if (env.OPENAI_PLAN_READING_ENABLED !== 'true') throw new ProjectApiError(503, 'OpenAI plan reading is disabled.');
+  const apiKey = env.OPENAI_API_KEY?.trim();
+  const model = env.OPENAI_MODEL?.trim() || 'gpt-4.1';
+  if (!isConfiguredValue(apiKey) || !/^(?:gpt|o[0-9])[a-z0-9._-]*$/i.test(model)) {
+    throw new ProjectApiError(503, 'OpenAI plan reading is not configured.');
+  }
+  return {
+    provider: 'openai',
+    apiKey,
+    baseUrl: safeHttpsBaseUrl(env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1', ['api.openai.com']),
+    model,
+    maxImages: maxImagesFromEnv(env),
+  };
+}
+
+export function configuredProviderOrder(env: Record<string, string | undefined>): Array<'claude' | 'deepseek' | 'gemini' | 'kimi' | 'openai'> {
+  const allowed = new Set(['claude', 'deepseek', 'gemini', 'kimi', 'openai']);
+  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'gemini,claude,openai,kimi,deepseek')
     .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
-  const unique = [...new Set(raw.filter(value => allowed.has(value)))] as Array<'deepseek' | 'gemini' | 'kimi'>;
-  for (const provider of ['gemini', 'kimi', 'deepseek'] as const) if (!unique.includes(provider)) unique.push(provider);
+  const unique = [...new Set(raw.filter(value => allowed.has(value)))] as Array<'claude' | 'deepseek' | 'gemini' | 'kimi' | 'openai'>;
+  for (const provider of ['gemini', 'claude', 'openai', 'kimi', 'deepseek'] as const) if (!unique.includes(provider)) unique.push(provider);
   return unique;
 }
 
 function userPrompt(input: GeminiPlanReadInput): string {
-  return `Read these rendered construction-plan pages for takeoff preparation.
+  const source = input.pageImages?.length
+    ? 'The images are ordered and individually labeled with their physical PDF page numbers.'
+    : 'The attached document is the complete construction plan; report the physical page number of every finding.';
+  return `Read this construction drawing set for takeoff preparation.
 Return JSON only. Every quantity must cite a visible physical page and verbatim source excerpt.
 Do not estimate prices or infer hidden dimensions. If the drawing is ambiguous, return a risk/question instead.
+Locate rooms, walls, outlines and symbols from what is actually drawn on the sheet, not from typical layouts.
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
-The images are ordered and individually labeled with their physical PDF page numbers.`;
+${source}`;
 }
 
 type ChatCompletionResponse = {
@@ -104,23 +125,37 @@ export class OpenAiCompatibleVisionPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
-    this.assertReady();
+      this.assertReady();
     const images = (input.pageImages || []).slice(0, this.config.maxImages);
-    if (!images.length) {
+    // OpenAI reads construction PDFs natively, so it needs no renderer; the
+    // image-native low-cost providers still fail closed without page images.
+    const attachesPdf = this.config.provider === 'openai';
+    if (!images.length && !attachesPdf) {
       throw new ProjectApiError(503, `${this.config.provider} requires server-rendered plan page images. No provider request was sent.`);
+    }
+    if (!images.length && input.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
+      throw new ProjectApiError(413, 'This plan is too large to attach as a document. No provider request was sent.');
     }
     if (images.some(image => image.bytes.byteLength < 1 || image.bytes.byteLength > MAX_IMAGE_BYTES)) {
       throw new ProjectApiError(413, 'A rendered plan page is outside the low-cost vision size limit. No provider request was sent.');
     }
 
+    const lineworkDigest = describeLineworkDigest(input.linework);
     const content: Array<Record<string, unknown>> = [{ type: 'text', text: userPrompt(input) }];
+    if (lineworkDigest) content.push({ type: 'text', text: lineworkDigest });
+    if (!images.length) {
+      content.push({
+        type: 'file',
+        file: { filename: 'construction-plan.pdf', file_data: `data:${input.mimeType};base64,${Buffer.from(input.fileBytes).toString('base64')}` },
+      });
+    }
     for (const image of images) {
       content.push({ type: 'text', text: `Physical PDF page ${image.pageNumber}:` });
       content.push({
         type: 'image_url',
         image_url: {
           url: `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString('base64')}`,
-          ...(this.config.provider === 'deepseek' ? { detail: 'original' } : {}),
+          ...(this.config.provider === 'deepseek' ? { detail: 'original' } : this.config.provider === 'openai' ? { detail: 'high' } : {}),
         },
       });
     }

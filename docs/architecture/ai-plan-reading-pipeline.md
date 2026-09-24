@@ -33,14 +33,21 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Ambiguous items that require estimator review.
    - Risk flags such as missing scale, conflicting revisions, unreadable pages, or incomplete schedules.
 
-6. **Evidence and review**
+6. **Vector linework and drawing geometry (local, deterministic)**
+   - Before any provider call, `apps/api/src/ai-plan/drawing-linework.ts` walks the plan's own PDF content streams with PDF.js and measures what is actually drawn: straight line runs by direction (horizontal / vertical / diagonal), thick long "wall-like" strokes, closed axis-aligned outlines (rooms/areas), filled shapes, curved segments measured as chords, and page rotation.
+   - Nothing leaves the process and no provider is billed for this step. It is the only part of the pipeline that reads *lines and shapes* rather than text and pixels.
+   - Every reader receives a bounded `DETERMINISTIC VECTOR LINEWORK` digest in its prompt (Gemini/Claude as an extra content part, OpenAI-compatible providers as prompt text, OpenRouter as `linework_digest`), so the model can locate walls, outlines and rooms against measured geometry instead of guessing.
+   - The largest closed outlines are also appended to the reading as `measurement` findings carrying normalized `geometry.bbox` and a deterministic source excerpt. Their quantity and unit stay `null`: a vector outline is a location, not a takeoff, and it is never priced. Every addition is disclosed in `summary.limitations`.
+   - Control: `AI_PLAN_VECTOR_LINEWORK_ENABLED` (default on; set `false` to skip local geometry). A page review reads linework only for the single physical page it sends.
+
+7. **Evidence and review**
    - Save every extracted item as a `plan_reading_findings` row.
    - Include confidence, page number, geometry/source excerpt, and review status.
    - Default every finding to `needs_review`.
    - Allow accepted findings to generate draft takeoff quantities; rejected findings never affect estimate math.
    - Authenticated users have no direct table privilege on `plan_reading_findings` (only the worker's service-role connection does) — review goes through `public.set_plan_reading_finding_status(finding_id, new_status)` (`supabase/migrations/0015_...`), a narrow RPC that checks the caller's workspace role and only ever changes `status`. `PATCH /api/ai-plan-readings/findings/:id` and the AI Estimator modal's Add/Ignore buttons call it.
 
-7. **Pricing and model behavior**
+8. **Pricing and model behavior**
    - Gemini is the production reader. The request handler uses one configured `GEMINI_MODEL` and disables SDK retries so one paid attempt does not silently fan out into provider retries.
    - If Gemini is missing, unavailable, or returns no usable source-backed quantity, the job is marked failed and no substitute quantities are stored.
    - Every reader output goes through `apps/api/src/ai-plan/types.ts`'s `sanitizePlanReadingResult`: a quantity without a source page and source excerpt, or a unit outside SF/LF/EA/CY/SY/HR/LS, is dropped and disclosed in `summary.limitations` rather than trusted.
@@ -50,7 +57,7 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
    - Every Gemini generation separately reserves against the database-atomic company-wide `provider_spend_policy`. Failed or missing telemetry retains the full reservation instead of being treated as $0.
    - Findings are written through a service-role Supabase connection constructed inline in the request handler (`apps/api/src/http/handler.ts`), the same way the billing endpoint already builds a service-role repository per-request — never a separate always-on process, and never a key sent to the browser.
 
-8. **Estimate integration**
+9. **Estimate integration**
    - Accepted measurements map into RoughBid quantity groups.
    - Accepted material and labor findings carry a priced suggestion (see Pricing above) an estimator can accept, adjust, or reject before it becomes a real estimate line.
    - Proposal/export remains blocked until plan, quantity, estimate, and review gates are complete.
@@ -59,6 +66,10 @@ RoughBid's AI plan reader should behave like an estimating assistant, not a fina
 
 - `GEMINI_API_KEY`: server-only key for multimodal plan extraction. Missing or invalid configuration disables AI output instead of producing a simulated takeoff.
 - `GEMINI_MODEL`: default `gemini-3.8-flash`.
+- `CLAUDE_PLAN_READING_ENABLED` + `ANTHROPIC_API_KEY` + `CLAUDE_PLAN_MODEL`: Claude as a first-class paid plan reader (sends the PDF as an Anthropic document block, metered through the same company spend breaker). Default model `claude-sonnet-4-5`; the route stays closed unless the flag is `true` and the model matches an exact `claude-<family>-...` name.
+- `OPENAI_PLAN_READING_ENABLED` + `OPENAI_API_KEY` + `OPENAI_MODEL` (+ optional host-pinned `OPENAI_BASE_URL`): OpenAI as a paid plan reader. It attaches the plan PDF directly (`data:application/pdf;base64,...`), so it needs no server-side page renderer, and prefers rendered page images when they exist. Default model `gpt-4.1`.
+- `AI_PLAN_PROVIDER_ORDER`: default `gemini,claude,openai,kimi,deepseek`. Unknown or unconfigured names are skipped; a reader is only built when its own gate passes.
+- `AI_PLAN_VECTOR_LINEWORK_ENABLED`: default on. Set `false` to skip local PDF vector-linework reading and its geometry findings.
 - `SUPABASE_SERVICE_ROLE_KEY`: used inline for paid quote creation, webhook reconciliation, job reservation, and inserting `plan_reading_findings`.
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`: required before project-reading checkout can charge or grant a paid quote.
 - `PROJECT_PRICING_VERSION`, `PROJECT_COST_BASE_CENTS`, `PROJECT_COST_PAGE_CENTS`, `PROJECT_COST_TRADE_CENTS`, `PROJECT_PAYMENT_FIXED_CENTS`, `PROJECT_PAYMENT_FEE_BPS`: required measured cost policy for dynamic per-project charges.
@@ -83,8 +94,10 @@ RoughBid keeps one evidence contract regardless of provider: every quantity must
 Safe default paid-provider order:
 
 1. **Gemini** — current PDF-native production reader; paid-service data is not used for product/model improvement under Google's published terms.
-2. **Kimi K2.6** — optional image-native fallback; Kimi's API policy states API inputs/outputs are not used for model training.
-3. **DeepSeek Flash** — cost-optimized optional route, but private/customer plan processing stays behind a separate explicit privacy gate until the applicable data-use/opt-out posture is accepted.
+2. **Claude** — PDF-native reader with the same evidence contract, metered per call against the company spend policy.
+3. **OpenAI** — PDF-native or page-image reader, useful when Gemini/Claude are unavailable or rate limited.
+4. **Kimi K2.6** — optional image-native fallback; Kimi's API policy states API inputs/outputs are not used for model training.
+5. **DeepSeek Flash** — cost-optimized optional route, but private/customer plan processing stays behind a separate explicit privacy gate until the applicable data-use/opt-out posture is accepted.
 
 For synthetic, public, or otherwise authorized non-confidential benchmark sets, DeepSeek can be moved earlier in `AI_PLAN_PROVIDER_ORDER` after the privacy gate is intentionally enabled.
 

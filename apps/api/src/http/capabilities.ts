@@ -1,4 +1,6 @@
 import { isConfiguredValue, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { requireClaudePlanReadingConfig } from '../ai-plan/claude.ts';
+import { requireOpenAiVisionConfig } from '../ai-plan/openai-vision.ts';
 import { quoteProject } from '../billing/project-preflight.ts';
 import { loadObjectStorageConfig } from '../storage/object-storage.ts';
 
@@ -33,7 +35,13 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
       if (![storage.endpoint, storage.bucket, storage.accessKeyId, storage.secretAccessKey].every(isConfiguredValue)) return flags;
     }
     let hasPaidProvider = false;
-    try { requirePaidPlanReadingConfig(env); hasPaidProvider = true; } catch { /* Billing-gated provider is optional. */ }
+  // Any one configured paid reader opens plan reading: the request handler
+  // builds a reader per provider and only skips the ones whose own gate fails,
+  // so reporting Gemini alone would under-report a Claude/OpenAI deployment.
+  const paidGates = [requirePaidPlanReadingConfig, requireClaudePlanReadingConfig, requireOpenAiVisionConfig];
+  for (const gate of paidGates) {
+    try { gate(env); hasPaidProvider = true; break; } catch { /* Each provider is optional. */ }
+  }
     flags.aiReadingAvailable = hasPaidProvider;
     if (!flags.aiReadingAvailable || !stripeReady) return flags;
     quoteProject(1, 1, 'standard', env);

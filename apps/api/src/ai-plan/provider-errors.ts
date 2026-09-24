@@ -30,7 +30,7 @@ export class AiProviderError extends ProjectApiError {
     const status=code==='provider_timeout'?504:['provider_credentials','provider_permissions','provider_quota','provider_model_unavailable','provider_unavailable'].includes(code)?503:502;
     super(status,`${messages[code]} No quantities were generated. Reference: ${reference}`);
     this.name='AiProviderError';
-    this.diagnostic={reference,provider:['gemini','deepseek','kimi','claude','openrouter'].includes(context.provider)?context.provider:'other',
+    this.diagnostic={reference,provider:['gemini','deepseek','kimi','claude','openai','openrouter'].includes(context.provider)?context.provider:'other',
       model:/^gemini-[a-z0-9][a-z0-9.-]{0,80}$/i.test(context.model)?context.model:'configured-model',stage:context.stage,code,
       provider_status:providerStatus,reason,duration_ms:Math.max(0,Math.round(context.durationMs))};
   }

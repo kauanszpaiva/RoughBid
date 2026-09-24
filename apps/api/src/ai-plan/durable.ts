@@ -4,6 +4,7 @@ import { downloadPlan, inspectPdf, normalizeScope, PDF_DIGEST } from '../billing
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { requireFreeProviderConfig } from './free-provider.ts';
 import { requestFingerprint, type AiPlanObjectStorage, type PlanReader, type PlanReadingFindingsWriter } from './service.ts';
+import { extractDrawingLinework, mergeLineworkFindings, vectorLineworkEnabled, type DrawingLinework } from './drawing-linework.ts';
 import type { PlanReadingResult } from './types.ts';
 
 export type DurableEntitlement = 'paid' | 'owner_free';
@@ -299,6 +300,11 @@ export class DurableAiPlanJobProcessor {
         const presigned = await this.storage.presign('GET', context.storage_path, { expiresIn: 300 });
         const bytes = await downloadPlan(presigned.url, this.fetcher);
         if (PDF_DIGEST(bytes) !== context.file_sha256) throw new Error('The plan changed after authorization.');
+        // Local, zero-cost geometry from the plan's own vector operators.
+        let linework: DrawingLinework | undefined;
+        if (vectorLineworkEnabled(process.env)) {
+          try { linework = await extractDrawingLinework(bytes); } catch { /* A plan that cannot be parsed still reads through the provider. */ }
+        }
         const attempt = await this.writer.rpc('begin_ai_plan_provider_attempt', {
           p_job_id: queueJob.data.jobId, p_lease_id: leaseId,
         });
@@ -312,8 +318,13 @@ export class DurableAiPlanJobProcessor {
           sheetName: context.original_name,
           requestedTrades: context.requested_trades,
           scope: context.requested_scope,
+          ...(linework ? { linework } : {}),
         }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
+        if (linework) {
+          const merged = mergeLineworkFindings(result.findings, linework, { pageCount: context.page_count });
+          if (merged.added) result.findings = merged.findings;
+        }
         if (result.findings.some((f) => (f.quantity !== null || Object.keys(f.geometry).length > 0) && (!f.page_number || f.page_number > context.page_count))) {
           throw new Error('The reading contains quantities or locations without valid source pages.');
         }
