@@ -399,6 +399,9 @@ export class OpenAiCompatibleVisionPlanReader {
     let lastError: unknown = null;
     const sweepStartedAt = Date.now();
     let deadlineStopped = false;
+    let densePagesSelected: number[] = [];
+    const regionalPagesCompleted: number[] = [];
+    const regionalPagesFailed: number[] = [];
 
     // Parsed once for the whole sweep: one window costs one page copy, not one
     // re-parse of the complete set. A file PDF.js can read but this splitter
@@ -444,8 +447,10 @@ export class OpenAiCompatibleVisionPlanReader {
 
     if (this.config.provider === 'openai' && this.config.regionSweep && input.linework) {
       const densePages = denseDrawingPages(input.linework, pageCount, this.config.maxRegionPages ?? 100);
+      densePagesSelected = densePages;
       if (densePages.length) {
         if (this.config.budgetMs !== 0) {
+          regionalPagesFailed.push(...densePages);
           batchNotes.push(`Regional detail sweep deferred for ${densePages.length} dense physical page(s): exhaustive crop passes run only on the durable worker so an HTTP deadline cannot cut them off.`);
         } else {
           const supplemental: PlanReadingFinding[] = [];
@@ -459,11 +464,13 @@ export class OpenAiCompatibleVisionPlanReader {
                 if (typeof localPage !== 'number' || localPage < 1 || localPage > regions.length) continue;
                 supplemental.push(remapRegionFinding(finding, regions[localPage - 1]!));
               }
+              regionalPagesCompleted.push(physicalPage);
               for (const note of regional.summary.limitations) {
                 batchNotes.push(`Physical page ${physicalPage} regional pass: ${note}`);
               }
             } catch (error) {
               regionalFailures += 1;
+              regionalPagesFailed.push(physicalPage);
               batchNotes.push(`Physical page ${physicalPage} regional detail pass could not be completed: ${sweepFailureReason(error)}. Review this sheet manually.`);
             }
           }
@@ -494,6 +501,15 @@ export class OpenAiCompatibleVisionPlanReader {
       limitations.push(`Findings capped at ${this.config.maxTotalFindings} for this set (${ordered.length} were reported across all batches).`);
     }
 
+    const basePagesAttempted = attempted.flatMap(window =>
+      Array.from({ length: window.to - window.from + 1 }, (_, index) => window.from + index));
+    const basePagesFailed = failed.flatMap(window =>
+      Array.from({ length: window.to - window.from + 1 }, (_, index) => window.from + index));
+    const exhaustiveScanCompleted = unread.length === 0
+      && basePagesFailed.length === 0
+      && regionalPagesFailed.length === 0
+      && regionalPagesCompleted.length === densePagesSelected.length;
+
     return {
       summary: {
         sheet_count: pageCount,
@@ -501,6 +517,16 @@ export class OpenAiCompatibleVisionPlanReader {
         scale_status: scaleConflict ? 'conflicting' : scaleDetected ? 'detected' : 'missing',
         human_review_required: true,
         limitations: [...new Set([...limitations, ...batchNotes])],
+        scan_coverage: {
+          physical_page_count: pageCount,
+          base_pages_attempted: basePagesAttempted,
+          base_pages_failed: basePagesFailed,
+          base_pages_unread: unread,
+          dense_pages_selected: densePagesSelected,
+          regional_pages_completed: regionalPagesCompleted,
+          regional_pages_failed: regionalPagesFailed,
+          exhaustive_scan_completed: exhaustiveScanCompleted,
+        },
         ...(address ? { project_address: address } : {}),
       },
       findings: capped,
