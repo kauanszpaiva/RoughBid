@@ -201,12 +201,12 @@ test('the sweep is configurable and can be switched off', () => {
   // Bounded, never unbounded, and nonsense falls back instead of widening.
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: '9999' }).batchPages, 50);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_MAX_BATCHES: '9999' }).maxBatches, 60);
-  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_TIMEOUT_MS: '9999999' }).timeoutMs, 300_000);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_TIMEOUT_MS: '9999999' }).timeoutMs, 900_000);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: 'abc' }).batchPages, 8);
   // The shared sweep deadline is bounded too, and 0 explicitly means "no deadline"
   // (only safe on the durable worker, which has no HTTP timeout).
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '90000' }).budgetMs, 90_000);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '0' }).budgetMs, 0);
-  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '9999999' }).budgetMs, 600_000);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: '9999999' }).budgetMs, 3_600_000);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_SWEEP_BUDGET_MS: 'nonsense' }).budgetMs, 240_000);
 });

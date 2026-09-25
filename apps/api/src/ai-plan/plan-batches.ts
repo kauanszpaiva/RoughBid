@@ -55,9 +55,14 @@ export function integerFromEnv(value: string | undefined, fallback: number, ceil
  * `summary.limitations`. Configure this below the deployed function `maxDuration`.
  * `AI_PLAN_SWEEP_BUDGET_MS=0` means "no deadline" (only for a durable worker,
  * which has no HTTP timeout: `AI_PLAN_DURABLE_ENABLED=true`).
+ *
+ * The ceiling is one hour because a careful per-sheet reading of a large set is
+ * allowed to be slow on the durable worker, where nothing else is waiting. The
+ * *default* stays at four minutes so the inline path can never be configured into
+ * a request the platform will kill.
  */
 export const DEFAULT_SWEEP_BUDGET_MS = 240_000;
-export const MAX_SWEEP_BUDGET_MS = 600_000;
+export const MAX_SWEEP_BUDGET_MS = 3_600_000;
 
 export function sweepBudgetFromEnv(env: Record<string, string | undefined> = process.env): number {
   if (env.AI_PLAN_SWEEP_BUDGET_MS?.trim() === '0') return 0;

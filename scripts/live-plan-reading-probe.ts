@@ -136,6 +136,17 @@ console.log(`\ncitation check: ${citation.checked} checked | ${citation.correcte
 
 console.log(`\nsheet_count: ${result.summary.sheet_count} | trades: ${result.summary.detected_trade_scope.join(', ') || '-'} | scale: ${result.summary.scale_status}`);
 console.log(`findings: ${result.findings.length}`);
+// The owner's question is specifically "does it see the drawn spaces and doors,
+// or only the printed text?", so the tally is by type and by located-ness.
+const byType = new Map<string, number>();
+let located = 0;
+for (const finding of result.findings) {
+  byType.set(finding.finding_type, (byType.get(finding.finding_type) ?? 0) + 1);
+  const bbox = (finding.geometry as { bbox?: unknown } | undefined)?.bbox;
+  if (Array.isArray(bbox) && bbox.length === 4) located += 1;
+}
+console.log(`by type: ${[...byType.entries()].map(([type, count]) => `${type} ${count}`).join(' | ') || '-'}`);
+console.log(`findings carrying a bbox (a drawn location): ${located} of ${result.findings.length}`);
 for (const finding of result.findings) {
   const quantity = finding.quantity == null ? '' : ` = ${finding.quantity} ${finding.unit}`;
   console.log(`  p${finding.page_number ?? '-'} [${finding.finding_type}] ${finding.label.slice(0, 62)}${quantity}`);

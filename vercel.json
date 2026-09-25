@@ -49,7 +49,7 @@
   "functions": {
     "api/**/*.ts": {
       "includeFiles": "{api/_bridge.ts,apps/api/src/**,packages/domain/src/**}",
-      "maxDuration": 180
+      "maxDuration": 300
     }
   }
 }

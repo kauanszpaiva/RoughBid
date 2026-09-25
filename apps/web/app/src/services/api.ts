@@ -55,10 +55,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const headers: Record<string, string> = { "Content-Type": contentType };
   if (workspaceId) headers["x-workspace-id"] = workspaceId;
+  // A plan reading is the one request that is allowed to be slow: a real set is
+  // read one window at a time and each window is a metered provider call. The
+  // old 170 s abort killed a reading the server was still honestly working on,
+  // and the user saw a failure instead of the evidence that arrived seconds later.
+  // The server stops its own sweep below the function's maxDuration (300 s in
+  // vercel.json), so this sits just above that and never becomes the first limit.
+  // A reading that must run longer than the function limit cannot be held by an
+  // HTTP request at all: it belongs on the durable worker (AI_PLAN_DURABLE_ENABLED),
+  // which the modal follows by polling the job instead of waiting on this call.
+  const timeoutMs = path.includes("ai-plan-readings") ? 295_000 : path.endsWith("/complete") ? 120_000 : 30_000;
   const response = await authenticatedFetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
-    signal: AbortSignal.timeout(path.includes("ai-plan-readings") ? 170_000 : path.endsWith("/complete") ? 120_000 : 30_000),
+    signal: AbortSignal.timeout(timeoutMs),
     ...(rawBody !== undefined ? { body: rawBody } : body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 

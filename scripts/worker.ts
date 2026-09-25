@@ -12,8 +12,9 @@ import {
   type DurableAiPlanWorkerJob,
   type DurableEntitlement,
 } from '../apps/api/src/ai-plan/durable.ts';
-import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
-import { requirePaidPlanReadingConfig, PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
+import { createGeminiClient, GeminiPlanReader } from '../apps/api/src/ai-plan/gemini.ts';
+import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
+import { buildConfiguredPlanReaders } from '../apps/api/src/ai-plan/readers.ts';
 import { requireFreeProviderConfig } from '../apps/api/src/ai-plan/free-provider.ts';
 import { MultiProviderPlanReader } from '../apps/api/src/ai-plan/multi-provider.ts';
 import { assertNoPaidFallback } from '../apps/api/src/ai-plan/owner-free.ts';
@@ -35,14 +36,11 @@ async function buildReaders(): Promise<{
 }> {
   const paid = [];
   // A durable worker holds no HTTP request open, so its sweeps must not be cut
-  // short by the request deadline: it reads every window it was authorized for.
-  const workerSweep = { ...geminiSweepOptionsFromEnv(process.env), budgetMs: 0 };
-  try {
-    const config = requirePaidPlanReadingConfig(process.env);
-    const client = await createGeminiClient(config.apiKey);
-    const gemini = new GeminiPlanReader(client, [config.model], workerSweep);
-    paid.push({ name: 'gemini', read: (input: any) => gemini.read(input) });
-  } catch { /* Paid provider is allowed to remain disabled. */ }
+  // short by a request deadline: it reads every window it was authorized for.
+  // The provider set is the same one the request handler builds, so a provider
+  // named in AI_PLAN_PROVIDER_ORDER cannot work on one path and be missing here.
+  const { ordered } = await buildConfiguredPlanReaders(process.env, { budgetMs: 0 });
+  for (const reader of ordered) paid.push({ name: reader.name, read: (input: any) => reader.read(input) });
 
   let freeReader: PlanReader | undefined;
   try {

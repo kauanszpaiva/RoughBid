@@ -18,16 +18,9 @@ import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/
 import { createDurableAiPlanQueue, type DurableAiPlanQueue } from '../ai-plan/durable.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
-import { PLAN_READING_UNAVAILABLE, requirePaidPlanReadingConfig } from '../ai-plan/readiness.ts';
+import { PLAN_READING_UNAVAILABLE } from '../ai-plan/readiness.ts';
 import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
-import {
-  OpenAiCompatibleVisionPlanReader,
-  configuredProviderOrder,
-  requireDeepSeekVisionConfig,
-  requireKimiVisionConfig,
-  requireOpenAiVisionConfig,
-} from '../ai-plan/openai-vision.ts';
-import { ClaudePlanReader, HttpClaudeMessagesClient, requireClaudePlanReadingConfig } from '../ai-plan/claude.ts';
+import { buildConfiguredPlanReaders } from '../ai-plan/readers.ts';
 import { runtimeCapabilities } from './capabilities.ts';
 import { requireFreeProviderConfig } from '../ai-plan/free-provider.ts';
 import { assertNoPaidFallback } from '../ai-plan/owner-free.ts';
@@ -223,45 +216,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
         : new S3ObjectStorage(loadObjectStorageConfig(process.env));
-      const configuredReaders = new Map<string, { name: string; read(input: any): Promise<any> }>();
+      // One paid provider set, built by the same module the durable worker uses,
+      // so a provider cannot exist on one path and silently be missing on the other.
+      const { ordered: readers, configured: configuredReaders } = await buildConfiguredPlanReaders(process.env);
       let pilotReader: PilotPlanReader | undefined;
       try {
         const config = requirePilotReaderConfig(process.env);
         pilotReader = new PilotPlanReader(await createGeminiClient(config.apiKey));
       } catch { /* Pilot calls cannot fall through to an unrestricted reader. */ }
-      try {
-        const readingConfig = requirePaidPlanReadingConfig(process.env);
-        const geminiClient = await createGeminiClient(readingConfig.apiKey);
-        const gemini = new GeminiPlanReader(geminiClient, [readingConfig.model]);
-        configuredReaders.set('gemini', { name: 'gemini', read: (input: any) => gemini.read(input) });
-      } catch { /* Paid Gemini remains disabled unless explicitly configured. */ }
-      try {
-        const deepSeekConfig = requireDeepSeekVisionConfig(process.env);
-        const deepSeek = new OpenAiCompatibleVisionPlanReader(deepSeekConfig);
-        configuredReaders.set('deepseek', { name: 'deepseek', read: (input: any) => deepSeek.read(input) });
-      } catch { /* Low-cost DeepSeek route stays disabled until explicitly configured. */ }
-      try {
-        const kimiConfig = requireKimiVisionConfig(process.env);
-        const kimi = new OpenAiCompatibleVisionPlanReader(kimiConfig);
-        configuredReaders.set('kimi', { name: 'kimi', read: (input: any) => kimi.read(input) });
-      } catch { /* Kimi remains a final fallback and is disabled by default. */ }
-      try {
-        // Claude reads the plan PDF natively and is metered through the same
-        // company spend breaker as the other paid readers.
-        const claudeConfig = requireClaudePlanReadingConfig(process.env);
-        const claude = new ClaudePlanReader(new HttpClaudeMessagesClient(claudeConfig.apiKey), claudeConfig.model);
-        configuredReaders.set('claude', { name: 'claude', read: (input: any) => claude.read(input) });
-      } catch { /* Claude stays closed until its exact model and key are verified. */ }
-      try {
-        // OpenAI reads the plan PDF (or rendered page images) natively; no
-        // server-side renderer is required for this route.
-        const openAiConfig = requireOpenAiVisionConfig(process.env);
-        const openai = new OpenAiCompatibleVisionPlanReader(openAiConfig);
-        configuredReaders.set('openai', { name: 'openai', read: (input: any) => openai.read(input) });
-      } catch { /* OpenAI stays closed until explicitly configured and enabled. */ }
-      const readers = configuredProviderOrder(process.env)
-        .map(name => configuredReaders.get(name))
-        .filter((reader): reader is { name: string; read(input: any): Promise<any> } => Boolean(reader));
       // The owner-only free reader is built from its OWN credentials and kept in
       // a separate dependency, never appended to `readers`. A free reading can
       // therefore never fall through to the billed Gemini project, and a paid

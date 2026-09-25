@@ -116,7 +116,7 @@ test('Kimi requires an explicit region-matched base URL', () => {
   assert.equal(config.model, 'kimi-k2.6');
 });
 
-test('DeepSeek defaults to Flash and provider order stays cost-first', () => {
+test('DeepSeek defaults to Flash and provider order is explicit and complete', () => {
   assert.throws(() => requireDeepSeekVisionConfig({
     DEEPSEEK_PLAN_READING_ENABLED: 'true',
     DEEPSEEK_API_KEY: 'test-key',
@@ -130,10 +130,11 @@ test('DeepSeek defaults to Flash and provider order stays cost-first', () => {
   assert.equal(config.model, 'deepseek-flash');
   assert.equal(config.baseUrl, 'https://api.deepseek.com');
 
-  // Cost-first default: Gemini (PDF-native) first, then the remaining paid
-  // readers in a fixed, explicit order. Unknown names are ignored and every
-  // supported provider is appended exactly once.
-  assert.deepEqual(configuredProviderOrder({}), ['gemini', 'claude', 'openai', 'kimi', 'deepseek']);
+  // OpenAI first: the owner-selected reader for the drawing itself, then the
+  // remaining paid readers in a fixed, explicit order. Unknown names are ignored
+  // and every supported provider is appended exactly once. A name is only a
+  // preference: a reader is built only when its own gate passes.
+  assert.deepEqual(configuredProviderOrder({}), ['openai', 'gemini', 'claude', 'kimi', 'deepseek']);
   assert.deepEqual(
     configuredProviderOrder({ AI_PLAN_PROVIDER_ORDER: 'kimi,gemini' }),
     ['kimi', 'gemini', 'claude', 'openai', 'deepseek'],

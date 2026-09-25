@@ -89,8 +89,12 @@ CRITICAL HARD INVARIANTS:
 3. Every numeric quantity MUST have: a physical page number, a verbatim source_excerpt quoting the exact callout or schedule note, and a unit strictly from SF, LF, EA, CY, SY, HR, LS.
 4. Report every material called out or shown in a schedule/legend as a "material" finding with its measured quantity and unit, so it can be priced.
 5. Report every distinct labor/service task the drawings imply (demolition, framing, electrical, plumbing, install labor, finishing, trade rough-ins) as its own "labor" finding with its own quantity and unit, so labor can be priced independently of materials.
-6. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
-7. Reply with ONLY a single JSON object, no prose before or after it, no markdown code fences, matching exactly:
+6. Report every enclosed space the drawing actually draws as a "room" finding, whether or not it carries a printed name: a closet, bathroom, vestibule, corridor, shaft or stair is still a space, found from its drawn walls, door swing and fixtures. Never invent a room name and never omit a space because it has no printed label; when there is no printed name, describe what is drawn and lower the confidence. Cite drawn evidence (wall run, door swing, fixture, dimension string) when there is no printed label to quote.
+
+7. Doors, openings and changes of plane are drawn objects: report each drawn door leaf and swing, cased opening, passage and window as a "symbol" finding with its own location, even when untagged. A drawn location never replaces a printed schedule count and never becomes one.
+
+8. finding_type must be one of: measurement, symbol, room, scope_note, risk, question, material, labor.
+9. Reply with ONLY a single JSON object, no prose before or after it, no markdown code fences, matching exactly:
 {"summary":{"sheet_count":<integer>,"detected_trade_scope":["Framing",...],"scale_status":"detected"|"missing"|"conflicting"},"findings":[{"page_number":<integer>,"finding_type":"material","label":"...","value_text":"...","quantity":<number|null>,"unit":"SF"|"LF"|"EA"|"CY"|"SY"|"HR"|"LS"|null,"confidence":<0..1>,"source_excerpt":"verbatim quote from the sheet"}]}
 Sheet: "${sanitizeSheetLabel(sheetName)}". Requested trade scope: ${requestedTrades.join(', ') || 'all trades visible on the plan'}.`;
 

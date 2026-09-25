@@ -21,6 +21,13 @@ export interface OpenAiVisionProviderConfig {
   maxTotalFindings: number;
   /** Per-request ceiling. A multi-page PDF needs longer than a single image. */
   timeoutMs: number;
+  /**
+   * Output ceiling for one request. A window that exceeds it comes back with
+   * finish_reason "length" and is discarded whole, so its sheets produce no
+   * evidence at all. 8000 was measured as too small for a dense window on the
+   * Gemini route; the same ceiling applies here.
+   */
+  maxOutputTokens: number;
   /** Wall-clock deadline for the whole sweep. 0 means no deadline (durable worker only). */
   budgetMs: number;
 }
@@ -61,6 +68,7 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     maxBatches: 0,
     maxTotalFindings: 200,
     timeoutMs: 60_000,
+    maxOutputTokens: 8_000,
     budgetMs: 0,
   };
 }
@@ -84,6 +92,7 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
     maxBatches: 0,
     maxTotalFindings: 200,
     timeoutMs: 60_000,
+    maxOutputTokens: 8_000,
     budgetMs: 0,
   };
 }
@@ -101,19 +110,35 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     baseUrl: safeHttpsBaseUrl(env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1', ['api.openai.com']),
     model,
     maxImages: maxImagesFromEnv(env),
-    batchPages: env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 8, 50)),
+    // Four sheets per request, not eight: a window has to be small enough that the
+    // model enumerates every drawn space and door on each sheet instead of
+    // skimming the window. `AI_PLAN_OPENAI_BATCH_PAGES=1` reads one sheet per
+    // request, which is the slowest and most careful setting.
+    batchPages: env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 4, 50)),
     maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, 60)),
     maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
-    // old hard 60 s abort turned a slow reading into a failed one.
-    timeoutMs: integerFromEnv(env.AI_PLAN_OPENAI_TIMEOUT_MS, 120_000, 300_000),
+    // old hard 60 s abort turned a slow reading into a failed one. Fifteen minutes
+    // is the ceiling: a single dense sheet read carefully is allowed to be slow,
+    // and the sweep deadline (not this) is what protects an HTTP request.
+    timeoutMs: integerFromEnv(env.AI_PLAN_OPENAI_TIMEOUT_MS, 120_000, 900_000),
+    // Same reason the Gemini route uses 16000: at 8000 a dense window came back
+    // with finish_reason "length" and every sheet in it produced no evidence.
+    maxOutputTokens: integerFromEnv(env.AI_PLAN_OPENAI_MAX_OUTPUT_TOKENS, 16_000, 64_000),
     budgetMs: sweepBudgetFromEnv(env),
   };
 }
 
 export function configuredProviderOrder(env: Record<string, string | undefined>): Array<'claude' | 'deepseek' | 'gemini' | 'kimi' | 'openai'> {
   const allowed = new Set(['claude', 'deepseek', 'gemini', 'kimi', 'openai']);
-  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'gemini,claude,openai,kimi,deepseek')
+  // OpenAI first: the owner-selected reader for the drawing itself. It reads the
+  // plan PDF natively, so the local geometry pass and the printed-text transcript
+  // are reinforcement rather than the only evidence, and it is the route whose
+  // window/patience knobs are documented above. An unconfigured or disabled name
+  // is skipped, so this default changes nothing on a deployment whose OpenAI gate
+  // is closed: the next configured reader is tried, and a provider failure still
+  // falls through in order.
+  const raw = (env.AI_PLAN_PROVIDER_ORDER || 'openai,gemini,claude,kimi,deepseek')
     .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   const unique = [...new Set(raw.filter(value => allowed.has(value)))] as Array<'claude' | 'deepseek' | 'gemini' | 'kimi' | 'openai'>;
   for (const provider of ['gemini', 'claude', 'openai', 'kimi', 'deepseek'] as const) if (!unique.includes(provider)) unique.push(provider);
@@ -235,7 +260,7 @@ export class OpenAiCompatibleVisionPlanReader {
         ? { max_tokens: 8000, thinking: { type: input.reasoningEffort === 'high' ? 'enabled' : 'disabled' },
             reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'none' }
         : {
-            max_completion_tokens: 8000,
+            max_completion_tokens: this.config.maxOutputTokens,
             ...(this.config.model.startsWith('kimi-k3')
               ? { reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'low' }
               : {}),

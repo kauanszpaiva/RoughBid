@@ -67,6 +67,29 @@ test('the plan-reading prompt requests evidenced project address metadata withou
   assert.match(prompt, /never output money, prices, rates, construction costs/i);
 });
 
+test('the plan-reading prompt requires drawn spaces and openings, not only printed labels', () => {
+  const prompt = systemPrompt('Floor plan', []);
+
+  // A closet, bathroom or corridor has no printed name, and the prompt used to ask
+  // for "labeled" rooms and to "cite a visible label" — which instructed the model
+  // to skip exactly the spaces the estimator wanted, so the reading looked like it
+  // had only read the text.
+  assert.match(prompt, /whether or not it carries a printed name/i);
+  assert.match(prompt, /never omit a space merely because the sheet prints no label/i);
+  assert.match(prompt, /a printed label is not a requirement/i);
+  assert.doesNotMatch(prompt, /Identify each labeled room/);
+  assert.doesNotMatch(prompt, /Cite a visible label for each location/);
+
+  // A doorway is drawn as a wall that stops and restarts, so it has to be asked for
+  // as a drawn object rather than as a schedule line.
+  assert.match(prompt, /door leaf and swing, cased opening, passage, window/i);
+  assert.match(prompt, /wall that stops and starts again/i);
+  // Asking for drawn evidence must not relax the honesty rule that keeps a location
+  // from becoming an invented quantity.
+  assert.match(prompt, /never becomes one/i);
+  assert.match(prompt, /never guess/i);
+});
+
 test('reads a plan via the injected Gemini client and returns its findings', async () => {
   let calledWith: { model: string; contents: unknown[] } | undefined;
   const client = {
