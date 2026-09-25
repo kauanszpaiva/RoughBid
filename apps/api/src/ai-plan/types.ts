@@ -59,6 +59,17 @@ export interface PlanProjectAddressEvidence {
   confidence: number;
 }
 
+export interface PlanScanCoverage {
+  physical_page_count: number;
+  base_pages_attempted: number[];
+  base_pages_failed: number[];
+  base_pages_unread: number[];
+  dense_pages_selected: number[];
+  regional_pages_completed: number[];
+  regional_pages_failed: number[];
+  exhaustive_scan_completed: boolean;
+}
+
 export interface PlanReadingSummary {
   sheet_count: number;
   detected_trade_scope: string[];
@@ -66,6 +77,8 @@ export interface PlanReadingSummary {
   human_review_required: true;
   /** Honesty-over-coverage disclosures: unreadable pages, ambiguous scale, dropped findings, fallback notices. */
   limitations: string[];
+  /** Deterministic server-side execution coverage. Model assertions never populate this field. */
+  scan_coverage?: PlanScanCoverage;
   /** EVIDENCE only. Pricing/address resolution code decides whether this address may drive market lookup. */
   project_address?: PlanProjectAddressEvidence;
   /** True when this result is the deterministic placeholder takeoff, not a real model reading — lets a multi-provider orchestrator know to try the next provider instead of trusting it. */
