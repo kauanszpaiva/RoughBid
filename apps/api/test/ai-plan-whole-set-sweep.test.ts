@@ -106,7 +106,7 @@ test('exhaustive scan requires drawing-object inventory and emits a per-page cov
   });
 
   const prompt = calls[0]!.body.messages[1].content[0].text;
-  assert.match(prompt, /entire displayed region edge-to-edge/i);
+  assert.match(prompt, /sweep the entire displayed sheet or region edge-to-edge/i);
   assert.match(prompt, /closets, walk-in closets/i);
   assert.match(prompt, /casework\/cabinets/i);
   assert.match(prompt, /HVAC\/mechanical equipment/i);
