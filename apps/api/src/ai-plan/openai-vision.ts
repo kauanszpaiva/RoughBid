@@ -224,7 +224,7 @@ ${source}`;
 function findingBox(finding: PlanReadingFinding): [number,number,number,number] | null {
   const raw=(finding.geometry as {bbox?:unknown}|undefined)?.bbox;
   if(!Array.isArray(raw)||raw.length!==4||raw.some(value=>typeof value!=='number'||!Number.isFinite(value))) return null;
-  const [x,y,w,h]=raw as number[];
+  const [x,y,w,h]=raw as [number,number,number,number];
   return w>0&&h>0?[x,y,w,h]:null;
 }
 
