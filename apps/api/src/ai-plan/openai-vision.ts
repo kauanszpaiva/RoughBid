@@ -155,11 +155,11 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // A region read is per sheet by construction: a window of four sheets cut nine
     // ways would be thirty-six requests that each see a quarter sheet.
     batchPages: tiles.grid > 1 ? 1 : env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 4, 50)),
-    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, MAX_MAX_BATCHES)),
+    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, tiles.grid > 1 ? MAX_MAX_BATCHES : 25, MAX_MAX_BATCHES)),
     // A real 17-page set reported 640 findings across its windows, so a cap of 400
     // discarded 240 that had already been read and paid for. The cap still bounds
     // storage; it must not be the thing that decides how much of a plan survived.
-    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 1_000, 3_000),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 5_000, 10_000),
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
     // old hard 60 s abort turned a slow reading into a failed one. Fifteen minutes
     // is the ceiling: a single dense sheet read carefully is allowed to be slow,
@@ -205,7 +205,10 @@ function userPrompt(
     ? `This request contains ONE REGION of physical PDF page ${window.from}: ${describeRegion(region.region, region.page)}.
 It is a crop of that sheet, so it is displayed at a much higher effective resolution than the whole sheet would be. Use that: enumerate what this region actually draws, at the level of detail a zoomed view allows.
 - Every door leaf and its swing arc, every cased opening, passage, window and storefront is its own "symbol" finding, including ones with no printed tag. A doorway is a wall that stops and starts again, with the leaf and its swing.
-- Every enclosed space drawn inside this region is its own "room" finding, including a closet, toilet, shaft, vestibule or corridor with no printed name.
+- Every enclosed space drawn inside this region is its own "room" finding, including closets, walk-in closets, bathrooms, toilet/shower rooms, pantries, storage, vestibules, corridors, stairs, shafts and mechanical/electrical spaces even when no printed room tag exists.
+- Inventory ALL visible construction objects and evidence in this region, not just rooms and doors: walls/partitions, columns, beams, stairs, railings, casework/cabinets, plumbing fixtures, appliances/equipment, electrical devices/fixtures when legible, HVAC/mechanical equipment/duct elements when legible, fire-protection symbols when legible, dimensions, grids, levels, slopes, scales, materials, finishes, demolition/existing/new-work graphics, keynotes, callouts, detail/section/elevation references and schedule/legend evidence.
+- A visible object with no printed label must still be reported from its drawn geometry when you can identify it honestly. If its exact classification is uncertain, report the observed object as a risk/question with geometry instead of omitting it or guessing.
+- Do not stop after finding a few representative examples. Sweep the ENTIRE displayed region edge-to-edge before returning JSON.
 Report page_number 1 for every finding in this request. Report geometry.bbox normalized 0..1 measured from the TOP-LEFT OF THIS REGION exactly as it is displayed; the server restores sheet coordinates. Never cite or describe a page other than this region's own sheet, and do not generalize about the rest of the set from one region.`
     : window
       ? `This request contains physical PDF pages ${window.from}-${window.to} of a larger set, in order: its first page is page 1 of this request. Report page_number 1-${localPages} for every finding in this request and cite only the pages attached here; the server restores the original physical numbering. Nothing outside this window is attached, so never cite or describe a page you were not given.`
@@ -216,9 +219,63 @@ Report page_number 1 for every finding in this request. Report geometry.bbox nor
 Return JSON only. Every quantity must cite a visible physical page and verbatim source excerpt.
 Do not estimate prices or infer hidden dimensions. If the drawing is ambiguous, return a risk/question instead.
 Locate rooms, walls, outlines and symbols from what is actually drawn on the sheet, not from typical layouts.
+Exhaustive drawing contract for EVERY provided physical sheet:
+- Sweep the entire displayed sheet or region edge-to-edge; do not return only representative examples.
+- Identify labeled AND unlabeled enclosed spaces, including closets, walk-in closets, bathrooms, pantries, storage, vestibules, corridors, stairs, shafts and mechanical/electrical rooms when visibly supported.
+- Identify every visible door/opening/window/storefront from the drawing itself, including untagged doors indicated by wall gaps, leaves and swing arcs.
+- Inventory visible walls/partitions, columns/beams, stairs/railings, casework/cabinets, plumbing fixtures, appliances/equipment, electrical devices/fixtures when legible, HVAC/mechanical equipment and duct elements when legible, fire-protection symbols when legible, dimensions, grids, levels, slopes, scales, materials, finishes, demolition/existing/new-work graphics, keynotes, callouts, schedules, legends and detail/section/elevation references.
+- If an object is visible but its exact classification is uncertain, return a risk/question with its observed geometry rather than omitting it or guessing.
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
 ${source}`;
+}
+
+function findingBox(finding: PlanReadingFinding): [number,number,number,number] | null {
+  const raw=(finding.geometry as {bbox?:unknown}|undefined)?.bbox;
+  if(!Array.isArray(raw)||raw.length!==4||raw.some(value=>typeof value!=='number'||!Number.isFinite(value))) return null;
+  const [x,y,w,h]=raw as [number,number,number,number];
+  return w>0&&h>0?[x,y,w,h]:null;
+}
+
+function boxIoU(a:[number,number,number,number],b:[number,number,number,number]):number{
+  const left=Math.max(a[0],b[0]), top=Math.max(a[1],b[1]);
+  const right=Math.min(a[0]+a[2],b[0]+b[2]), bottom=Math.min(a[1]+a[3],b[1]+b[3]);
+  if(right<=left||bottom<=top) return 0;
+  const intersection=(right-left)*(bottom-top);
+  const union=a[2]*a[3]+b[2]*b[3]-intersection;
+  return union>0?intersection/union:0;
+}
+
+function normalizedFindingText(value:string|null|undefined):string{
+  return (value||'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+
+/**
+ * Overlapping regions deliberately see the same seam twice. Collapse only
+ * high-confidence spatial duplicates after both crop boxes have been restored
+ * to physical-sheet coordinates. Findings without trustworthy boxes remain
+ * separate rather than risking an undercount.
+ */
+export function dedupeOverlappingFindings(findings:readonly PlanReadingFinding[]):PlanReadingFinding[]{
+  const output:PlanReadingFinding[]=[];
+  for(const candidate of findings){
+    const box=findingBox(candidate);
+    const duplicateIndex=output.findIndex(existing=>{
+      if(existing.page_number!==candidate.page_number||existing.finding_type!==candidate.finding_type) return false;
+      const existingBox=findingBox(existing);
+      if(box&&existingBox&&boxIoU(box,existingBox)>=0.72) return true;
+      return !box&&!existingBox
+        && normalizedFindingText(existing.label)===normalizedFindingText(candidate.label)
+        && Boolean(existing.source_excerpt)
+        && existing.source_excerpt===candidate.source_excerpt;
+    });
+    if(duplicateIndex<0){output.push(candidate);continue;}
+    const existing=output[duplicateIndex]!;
+    const candidateScore=candidate.confidence+(box?0.05:0)+(candidate.source_excerpt?0.02:0);
+    const existingScore=existing.confidence+(findingBox(existing)?0.05:0)+(existing.source_excerpt?0.02:0);
+    if(candidateScore>existingScore) output[duplicateIndex]=candidate;
+  }
+  return output;
 }
 
 /** A sweep never invents coverage: a failed batch is named by its classified reason only. */
@@ -464,6 +521,11 @@ export class OpenAiCompatibleVisionPlanReader {
     const failed: PageWindow[] = [];
     const tiledPages: number[] = [];
     const wholePages: number[] = [];
+    type PageCoverage = { mode: 'unread' | 'whole' | 'regions'; planned: number; read: number; failed: number };
+    const pageCoverage = new Map<number, PageCoverage>();
+    for (let page = 1; page <= pageCount; page += 1) {
+      pageCoverage.set(page, { mode: 'unread', planned: 0, read: 0, failed: 0 });
+    }
     let address: PlanProjectAddressEvidence | undefined;
     let scaleConflict = false;
     let scaleDetected = false;
@@ -502,6 +564,8 @@ export class OpenAiCompatibleVisionPlanReader {
           // silently, and a region that fails never removes the other regions.
           tiledPages.push(window.from);
           const { regions, frame } = cropped;
+          const coverage = { mode: 'regions' as const, planned: regions.length, read: 0, failed: 0 };
+          pageCoverage.set(window.from, coverage);
           const page: PageSize = { width: frame.width, height: frame.height };
           const pageText = input.sheetText?.pages.find(entry => entry.pageNumber === window.from)?.text ?? null;
           let regionsRead = 0;
@@ -517,6 +581,7 @@ export class OpenAiCompatibleVisionPlanReader {
               const tileBytes = await cropSheetRegion(bytes, frame, region);
               outcome = await this.readOnce(input, { fileBytes: tileBytes, window, region: { region, page } });
             } catch (error) {
+              coverage.failed += 1;
               failed.push(window);
               lastError = error;
               batchNotes.push(`Physical page ${window.from}, ${describeRegion(region, page)}, could not be read: ${sweepFailureReason(error)}`);
@@ -546,13 +611,20 @@ export class OpenAiCompatibleVisionPlanReader {
               address = { ...outcome.summary.project_address };
             }
             regionsRead += 1;
+            coverage.read += 1;
           }
           if (requestCapReached) break;
           continue;
         }
-        wholePages.push(window.from);
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          wholePages.push(physicalPage);
+          pageCoverage.set(physicalPage, { mode: 'whole', planned: 1, read: 0, failed: 0 });
+        }
         requestsMade += 1;
         const result = await this.readOnce(input, { fileBytes: bytes, window });
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          pageCoverage.set(physicalPage, { mode: 'whole', planned: 1, read: 1, failed: 0 });
+        }
         const localPages = window.to - window.from + 1;
         const accepted = result.findings.filter(finding =>
           typeof finding.page_number === 'number' && finding.page_number >= 1 && finding.page_number <= localPages);
@@ -568,6 +640,12 @@ export class OpenAiCompatibleVisionPlanReader {
         }
         for (const note of result.summary.limitations) batchNotes.push(`Physical pages ${window.from}-${window.to}: ${note}`);
       } catch (error) {
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          const currentCoverage = pageCoverage.get(physicalPage);
+          pageCoverage.set(physicalPage, currentCoverage?.mode === 'regions'
+            ? { ...currentCoverage, failed: Math.max(currentCoverage.failed, currentCoverage.planned - currentCoverage.read) }
+            : { mode: 'whole', planned: 1, read: 0, failed: 1 });
+        }
         failed.push(window);
         lastError = error;
         batchNotes.push(`Physical pages ${window.from}-${window.to} could not be read and produced no evidence in this reading: ${sweepFailureReason(error)}`);
@@ -599,7 +677,26 @@ export class OpenAiCompatibleVisionPlanReader {
     for (const note of partiallyRead) limitations.push(`Partly read: ${note}; the configured provider-request budget of ${this.config.maxBatches} request(s) was reached. Findings from that page cover only the regions actually read.`);
     if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
 
-    const ordered = [...findings].sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
+    // Auditability: every physical page gets an explicit coverage state. A scan
+    // may be slow or incomplete, but it may never claim a page was reviewed
+    // merely because text was extracted somewhere in the set.
+    const coverageEntries = [...pageCoverage.entries()].map(([page, coverage]) => {
+      if (coverage.mode === 'regions') {
+        const complete = coverage.read === coverage.planned && coverage.failed === 0;
+        return `p${page}=regions:${coverage.read}/${coverage.planned}${complete ? '' : ':REVIEW_REQUIRED'}`;
+      }
+      if (coverage.mode === 'whole') {
+        return `p${page}=whole:${coverage.read === 1 && coverage.failed === 0 ? 'complete' : 'REVIEW_REQUIRED'}`;
+      }
+      return `p${page}=unread:REVIEW_REQUIRED`;
+    });
+    for (let index = 0; index < coverageEntries.length; index += 25) {
+      const chunk = coverageEntries.slice(index, index + 25);
+      limitations.push(`Coverage manifest ${index + 1}-${index + chunk.length}: ${chunk.join(', ')}.`);
+    }
+
+    const ordered = dedupeOverlappingFindings(findings)
+      .sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
     const capped = ordered.slice(0, this.config.maxTotalFindings);
     if (ordered.length > capped.length) {
       limitations.push(`Findings capped at ${this.config.maxTotalFindings} for this set (${ordered.length} were reported across all batches).`);
