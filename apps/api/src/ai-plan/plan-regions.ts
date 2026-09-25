@@ -49,10 +49,11 @@ export function denseDrawingPages(linework: DrawingLinework | undefined, pageCou
  * screenshot. Regions overlap by 20% in each direction, so a door, room or
  * symbol straddling a quadrant boundary is visible in at least one crop.
  */
-export async function cropPdfRegion(
+async function appendRegionPage(
+  target: PDFDocument,
   source: PDFDocument,
   region: PlanRegion,
-): Promise<Uint8Array> {
+): Promise<void> {
   const sourcePage = source.getPage(region.pageNumber - 1);
   if (!sourcePage) throw new Error('The requested region page is outside the plan.');
 
@@ -69,7 +70,6 @@ export async function cropPdfRegion(
   const top = height - y * height;
   const bottom = height - (y + regionHeight) * height;
 
-  const target = await PDFDocument.create();
   const embedded = await target.embedPage(sourcePage, { left, bottom, right, top });
   const page = target.addPage([right - left, top - bottom]);
   page.drawPage(embedded, {
@@ -78,7 +78,30 @@ export async function cropPdfRegion(
     width: right - left,
     height: top - bottom,
   });
+}
+
+export async function cropPdfRegion(
+  source: PDFDocument,
+  region: PlanRegion,
+): Promise<Uint8Array> {
+  const target = await PDFDocument.create();
+  await appendRegionPage(target, source, region);
   return target.save();
+}
+
+/**
+ * One provider request per dense physical sheet. Its four PDF pages are
+ * overlapping vector crops in stable order, which is both cheaper and more
+ * complete than four unrelated provider calls.
+ */
+export async function cropPdfRegions(
+  source: PDFDocument,
+  physicalPage: number,
+): Promise<{ bytes: Uint8Array; regions: PlanRegion[] }> {
+  const regions = overlappingRegions(physicalPage);
+  const target = await PDFDocument.create();
+  for (const region of regions) await appendRegionPage(target, source, region);
+  return { bytes: await target.save(), regions };
 }
 
 export function remapRegionFinding(finding: PlanReadingFinding, region: PlanRegion): PlanReadingFinding {
