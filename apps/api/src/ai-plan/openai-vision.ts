@@ -219,6 +219,12 @@ Report page_number 1 for every finding in this request. Report geometry.bbox nor
 Return JSON only. Every quantity must cite a visible physical page and verbatim source excerpt.
 Do not estimate prices or infer hidden dimensions. If the drawing is ambiguous, return a risk/question instead.
 Locate rooms, walls, outlines and symbols from what is actually drawn on the sheet, not from typical layouts.
+Exhaustive drawing contract for EVERY provided physical sheet:
+- Sweep the entire displayed sheet or region edge-to-edge; do not return only representative examples.
+- Identify labeled AND unlabeled enclosed spaces, including closets, walk-in closets, bathrooms, pantries, storage, vestibules, corridors, stairs, shafts and mechanical/electrical rooms when visibly supported.
+- Identify every visible door/opening/window/storefront from the drawing itself, including untagged doors indicated by wall gaps, leaves and swing arcs.
+- Inventory visible walls/partitions, columns/beams, stairs/railings, casework/cabinets, plumbing fixtures, appliances/equipment, MEP/fire-protection objects when legible, dimensions, grids, levels, slopes, scales, materials, finishes, demolition/existing/new-work graphics, keynotes, callouts, schedules, legends and detail/section/elevation references.
+- If an object is visible but its exact classification is uncertain, return a risk/question with its observed geometry rather than omitting it or guessing.
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
 ${source}`;
