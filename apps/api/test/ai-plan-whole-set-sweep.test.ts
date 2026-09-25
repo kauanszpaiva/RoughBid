@@ -87,6 +87,8 @@ test('a set larger than one request is swept window by window with physical numb
     [1, 'Batch one page one'], [5, 'Batch one page five'], [6, 'Batch two page one'], [12, 'Batch three page two'],
   ]);
   assert.equal(result.summary.limitations.some(note => /read as 3 separate provider request/.test(note)), true);
+  assert.equal(result.summary.limitations.some(note => /p1=whole:complete/.test(note)), true);
+  assert.equal(result.summary.limitations.some(note => /p12=whole:complete/.test(note)), true);
   assert.equal(result.summary.human_review_required, true);
 });
 
