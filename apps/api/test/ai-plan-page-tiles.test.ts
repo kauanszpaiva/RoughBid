@@ -57,9 +57,9 @@ test('the tile grid is bounded, and grid 1 is the off switch that returns the wh
   assert.deepEqual(planPageRegions(SHEET, 1), [{ column: 1, row: 1, columns: 1, rows: 1, x: 0, y: 0, width: 1000, height: 800 }]);
   // A malformed page still gets read rather than silently producing no regions.
   assert.deepEqual(planPageRegions({ width: 0, height: 0 }, 2), []);
-  assert.equal(tileOptionsFromEnv({}).grid, 1);
+  assert.equal(tileOptionsFromEnv({}).grid, 2);
   assert.equal(tileOptionsFromEnv({ AI_PLAN_OPENAI_TILE_GRID: '3' }).grid, 3);
-  assert.equal(tileOptionsFromEnv({ AI_PLAN_OPENAI_TILE_GRID: '-4' }).grid, 1);
+  assert.equal(tileOptionsFromEnv({ AI_PLAN_OPENAI_TILE_GRID: '-4' }).grid, 2);
   assert.equal(tileOptionsFromEnv({}).minWallStrokes, DEFAULT_TILE_MIN_WALL_STROKES);
 });
 
