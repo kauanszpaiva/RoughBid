@@ -616,11 +616,15 @@ export class OpenAiCompatibleVisionPlanReader {
           if (requestCapReached) break;
           continue;
         }
-        wholePages.push(window.from);
-        pageCoverage.set(window.from, { mode: 'whole', planned: 1, read: 0, failed: 0 });
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          wholePages.push(physicalPage);
+          pageCoverage.set(physicalPage, { mode: 'whole', planned: 1, read: 0, failed: 0 });
+        }
         requestsMade += 1;
         const result = await this.readOnce(input, { fileBytes: bytes, window });
-        pageCoverage.set(window.from, { mode: 'whole', planned: 1, read: 1, failed: 0 });
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          pageCoverage.set(physicalPage, { mode: 'whole', planned: 1, read: 1, failed: 0 });
+        }
         const localPages = window.to - window.from + 1;
         const accepted = result.findings.filter(finding =>
           typeof finding.page_number === 'number' && finding.page_number >= 1 && finding.page_number <= localPages);
@@ -636,10 +640,12 @@ export class OpenAiCompatibleVisionPlanReader {
         }
         for (const note of result.summary.limitations) batchNotes.push(`Physical pages ${window.from}-${window.to}: ${note}`);
       } catch (error) {
-        const currentCoverage = pageCoverage.get(window.from);
-        pageCoverage.set(window.from, currentCoverage?.mode === 'regions'
-          ? { ...currentCoverage, failed: Math.max(currentCoverage.failed, currentCoverage.planned - currentCoverage.read) }
-          : { mode: 'whole', planned: 1, read: 0, failed: 1 });
+        for (let physicalPage = window.from; physicalPage <= window.to; physicalPage += 1) {
+          const currentCoverage = pageCoverage.get(physicalPage);
+          pageCoverage.set(physicalPage, currentCoverage?.mode === 'regions'
+            ? { ...currentCoverage, failed: Math.max(currentCoverage.failed, currentCoverage.planned - currentCoverage.read) }
+            : { mode: 'whole', planned: 1, read: 0, failed: 1 });
+        }
         failed.push(window);
         lastError = error;
         batchNotes.push(`Physical pages ${window.from}-${window.to} could not be read and produced no evidence in this reading: ${sweepFailureReason(error)}`);
