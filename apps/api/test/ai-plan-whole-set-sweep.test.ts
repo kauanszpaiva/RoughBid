@@ -210,7 +210,7 @@ test('the default window and request caps are bounded, and a huge set is capped 
   });
   assert.equal(configured.batchPages, 4);
   assert.equal(configured.maxBatches, 25);
-  assert.equal(configured.maxTotalFindings, 1_000);
+  assert.equal(configured.maxTotalFindings, 5_000);
   // The output ceiling is what decides whether a dense window is readable at all:
   // at 8000 the provider returned finish_reason "length" and the whole window was
   // discarded, so a window of dense sheets produced no evidence whatsoever.
@@ -226,7 +226,7 @@ test('the default window and request caps are bounded, and a huge set is capped 
   });
   assert.equal(bounded.batchPages, 50);
   assert.equal(bounded.maxBatches, 25);
-  assert.equal(bounded.maxTotalFindings, 1_000);
+  assert.equal(bounded.maxTotalFindings, 5_000);
   assert.equal(bounded.maxOutputTokens, 64_000);
   assert.equal(bounded.timeoutMs, 900_000);
 
@@ -253,4 +253,80 @@ test('the image-native providers never sweep: they read the supplied images only
     /requires server-rendered plan page images/,
   );
   assert.equal(calls.length, 0, 'no provider request is sent without rendered pages');
+});
+
+
+test('durable OpenAI sweep adds four overlapping vector crops for a dense physical sheet', async () => {
+  const bytes = await planBytes(1);
+  const { fetcher, calls } = recorder([
+    () => ({ json: answer(1, [{
+      ...finding(1, 'Whole-page room'),
+      finding_type: 'room',
+      quantity: null,
+      unit: null,
+      geometry: { bbox: [0.1,0.1,0.3,0.3] },
+    }]) }),
+    () => ({ json: answer(4, [
+      {
+        page_number: 1, finding_type: 'symbol', label: 'Unlabeled door swing',
+        value_text: 'drawn leaf and swing', quantity: null, unit: null, confidence: 0.95,
+        source_excerpt: 'drawn leaf and swing', geometry: { bbox: [0.5,0.5,0.1,0.1] },
+      },
+      {
+        page_number: 4, finding_type: 'room', label: 'Unlabeled closet-sized space',
+        value_text: 'enclosed by drawn walls', quantity: null, unit: null, confidence: 0.88,
+        source_excerpt: 'drawn walls and door opening', geometry: { bbox: [0.2,0.2,0.2,0.2] },
+      },
+    ]) }),
+  ]);
+  const reader = new OpenAiCompatibleVisionPlanReader(openAiConfig({
+    AI_PLAN_SWEEP_BUDGET_MS: '0',
+    AI_PLAN_OPENAI_REGION_SWEEP: 'true',
+  }), fetcher);
+  const linework = {
+    pages: [{
+      pageNumber: 1, spaces: [{ bbox:[0.1,0.1,0.1,0.1], widthPoints:20, heightPoints:20, areaFraction:0.001, size:'small' }],
+      openings: [], wallLikeSegments: 80, segments: 5000, truncated: false,
+    }],
+    pageLimit: 100, pageLimitReached: false, segmentLimitedPages: [], truncated: false,
+  } as any;
+
+  const result = await reader.read({
+    fileBytes: bytes, mimeType: 'application/pdf', sheetName: 'dense.pdf',
+    requestedTrades: [], scope: null, pageCount: 1, linework,
+  });
+
+  assert.deepEqual(calls.map(call => call.pages), [1, 4], 'one base read plus one four-crop regional read');
+  assert.match(calls[1]!.body.messages[1].content[0].text, /high-attention regional pass/i);
+  assert.ok(result.findings.some(item => item.label === 'Unlabeled door swing' && item.page_number === 1));
+  const closet = result.findings.find(item => item.label === 'Unlabeled closet-sized space');
+  assert.equal(closet?.page_number, 1);
+  assert.deepEqual((closet?.geometry.bbox as number[]).map(n => Number(n.toFixed(2))), [0.52,0.52,0.12,0.12]);
+  assert.equal(result.summary.scan_coverage?.exhaustive_scan_completed, true);
+  assert.deepEqual(result.summary.scan_coverage?.regional_pages_completed, [1]);
+});
+
+test('inline OpenAI sweep explicitly defers regional detail instead of pretending exhaustive coverage', async () => {
+  const bytes = await planBytes(1);
+  const { fetcher, calls } = recorder([
+    () => ({ json: answer(1, [finding(1, 'Partition')]) }),
+  ]);
+  const reader = new OpenAiCompatibleVisionPlanReader(openAiConfig({
+    AI_PLAN_SWEEP_BUDGET_MS: '240000',
+    AI_PLAN_OPENAI_REGION_SWEEP: 'true',
+  }), fetcher);
+  const linework = {
+    pages: [{ pageNumber: 1, spaces: [], openings: [], wallLikeSegments: 80, segments: 5000, truncated: false }],
+    pageLimit: 100, pageLimitReached: false, segmentLimitedPages: [], truncated: false,
+  } as any;
+
+  const result = await reader.read({
+    fileBytes: bytes, mimeType: 'application/pdf', sheetName: 'dense.pdf',
+    requestedTrades: [], scope: null, pageCount: 1, linework,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.summary.scan_coverage?.exhaustive_scan_completed, false);
+  assert.deepEqual(result.summary.scan_coverage?.regional_pages_failed, [1]);
+  assert.equal(result.summary.limitations.some(note => /Regional detail sweep deferred/.test(note)), true);
 });
