@@ -6,6 +6,7 @@ import { describePlanEvidenceDigest, describePlanEvidenceWindow } from './sheet-
 import { boundedBatchPages, boundedMaxBatches, integerFromEnv, loadPlanDocument, planPageWindows, slicePlanDocument, sweepBudgetFromEnv, unreadPages, type PageWindow } from './plan-batches.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
+import { cropPdfRegions, denseDrawingPages, mergeRegionFindings, remapRegionFinding, type PlanRegion } from './plan-regions.ts';
 
 export interface OpenAiVisionProviderConfig {
   provider: MeteredVisionProvider;
@@ -30,6 +31,10 @@ export interface OpenAiVisionProviderConfig {
   maxOutputTokens: number;
   /** Wall-clock deadline for the whole sweep. 0 means no deadline (durable worker only). */
   budgetMs: number;
+  /** High-attention overlapping crop pass for dense drawing sheets. OpenAI only. */
+  regionSweep: boolean;
+  /** Physical dense pages eligible for the regional pass. */
+  maxRegionPages: number;
 }
 
 const DEFAULT_MAX_IMAGES = 8;
@@ -70,6 +75,8 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     timeoutMs: 60_000,
     maxOutputTokens: 8_000,
     budgetMs: 0,
+    regionSweep: false,
+    maxRegionPages: 0,
   };
 }
 
@@ -94,6 +101,8 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
     timeoutMs: 60_000,
     maxOutputTokens: 8_000,
     budgetMs: 0,
+    regionSweep: false,
+    maxRegionPages: 0,
   };
 }
 
@@ -134,6 +143,8 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // with finish_reason "length" and every sheet in it produced no evidence.
     maxOutputTokens: integerFromEnv(env.AI_PLAN_OPENAI_MAX_OUTPUT_TOKENS, 16_000, 64_000),
     budgetMs: sweepBudgetFromEnv(env),
+    regionSweep: env.AI_PLAN_OPENAI_REGION_SWEEP !== 'false',
+    maxRegionPages: integerFromEnv(env.AI_PLAN_OPENAI_MAX_REGION_PAGES, 100, 200),
   };
 }
 
@@ -167,6 +178,18 @@ Locate rooms, walls, outlines and symbols from what is actually drawn on the she
 Project scope: ${input.scope || 'not supplied'}.
 Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
 ${source}`;
+}
+
+function regionPrompt(input: GeminiPlanReadInput, physicalPage: number, regions: readonly PlanRegion[]): string {
+  const order = regions.map((region, index) =>
+    `crop page ${index + 1}=${region.id} bbox[${region.bbox.join(',')}]`).join('; ');
+  return `This request is the high-attention regional pass for physical PDF page ${physicalPage}.
+The attached four-page PDF contains OVERLAPPING VECTOR CROPS of that same physical sheet, not four different construction sheets.
+Crop order: ${order}.
+Inspect EVERY crop edge-to-edge. Intentionally inventory small or unlabeled drawn objects that a whole-sheet view can miss: every enclosed closet/storage/bathroom/shaft/vestibule/room, every door leaf+swing and wall opening, windows/storefront, fixtures, casework/cabinets, equipment, stairs/railings, columns, material/symbol/keynote/detail markers and visible dimensions.
+Do not invent classification when the crop is ambiguous: emit a risk/question with a geometry bbox instead of silently omitting it.
+Report page_number 1-${regions.length} according to the crop page where the evidence is visible. The server remaps that crop-local bbox and page number back to physical page ${physicalPage}.
+Do not report money or infer hidden quantities. Project scope: ${input.scope || 'not supplied'}. Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.`;
 }
 
 /** A sweep never invents coverage: a failed batch is named by its classified reason only. */
@@ -209,7 +232,7 @@ export class OpenAiCompatibleVisionPlanReader {
     // output limit truncates the last third. Read it window by window instead —
     // one metered request per window — with physical numbering restored locally.
     if (attachesPdf && !images.length && this.config.batchPages > 0
-      && pageCount !== null && pageCount > this.config.batchPages) {
+      && pageCount !== null && (pageCount > this.config.batchPages || (this.config.regionSweep && Boolean(input.linework)))) {
       return this.readWholeSet(input, pageCount);
     }
     if (!images.length && input.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
@@ -224,23 +247,32 @@ export class OpenAiCompatibleVisionPlanReader {
   /** One provider request over one document: the whole set, or one window of it. */
   private async readOnce(
     input: GeminiPlanReadInput,
-    options: { fileBytes: Uint8Array; images?: readonly PlanPageImage[]; window?: PageWindow },
+    options: { fileBytes: Uint8Array; images?: readonly PlanPageImage[]; window?: PageWindow; region?: { physicalPage: number; regions: readonly PlanRegion[] } },
   ): Promise<PlanReadingResult> {
     const images = options.images ?? [];
     if (options.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
       throw new ProjectApiError(413, 'This plan is too large to attach as a document. No provider request was sent.');
     }
 
-    const evidenceDigest = options.window
-      ? describePlanEvidenceWindow({ linework: input.linework, sheetText: input.sheetText }, options.window)
-      : describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
-    const content: Array<Record<string, unknown>> = [{ type: 'text', text: userPrompt(input, options.window) }];
+    const evidenceDigest = options.region
+      ? ''
+      : options.window
+        ? describePlanEvidenceWindow({ linework: input.linework, sheetText: input.sheetText }, options.window)
+        : describePlanEvidenceDigest({ linework: input.linework, sheetText: input.sheetText });
+    const content: Array<Record<string, unknown>> = [{
+      type: 'text',
+      text: options.region
+        ? regionPrompt(input, options.region.physicalPage, options.region.regions)
+        : userPrompt(input, options.window),
+    }];
     if (evidenceDigest) content.push({ type: 'text', text: evidenceDigest });
     if (!images.length) {
       content.push({
         type: 'file',
         file: {
-          filename: options.window ? `plan-pages-${options.window.from}-${options.window.to}.pdf` : 'construction-plan.pdf',
+          filename: options.region
+            ? `physical-page-${options.region.physicalPage}-regional-crops.pdf`
+            : options.window ? `plan-pages-${options.window.from}-${options.window.to}.pdf` : 'construction-plan.pdf',
           file_data: `data:${input.mimeType};base64,${Buffer.from(options.fileBytes).toString('base64')}`,
         },
       });
@@ -321,13 +353,13 @@ export class OpenAiCompatibleVisionPlanReader {
       // A windowed request is told how many pages it carries, so pin that count:
       // the sanitizer then validates every citation against this window's pages
       // instead of the whole set. The caller restores physical numbering.
-      const normalized = options.window && parsed && typeof parsed === 'object'
+      const normalized = (options.window || options.region) && parsed && typeof parsed === 'object'
         ? {
             ...(parsed as Record<string, unknown>),
             summary: {
               ...((parsed as Record<string, unknown>).summary && typeof (parsed as Record<string, unknown>).summary === 'object'
                 ? (parsed as Record<string, unknown>).summary as Record<string, unknown> : {}),
-              sheet_count: options.window.to - options.window.from + 1,
+              sheet_count: options.region ? options.region.regions.length : options.window!.to - options.window!.from + 1,
             },
           }
         : parsed;
@@ -357,7 +389,7 @@ export class OpenAiCompatibleVisionPlanReader {
     const windows = planPageWindows(pageCount, this.config.batchPages, this.config.maxBatches);
     const attempted: PageWindow[] = [];
     const limitations: string[] = [];
-    const findings: PlanReadingFinding[] = [];
+    let findings: PlanReadingFinding[] = [];
     const trades = new Set<string>();
     const batchNotes: string[] = [];
     const failed: PageWindow[] = [];
@@ -406,6 +438,39 @@ export class OpenAiCompatibleVisionPlanReader {
         failed.push(window);
         lastError = error;
         batchNotes.push(`Physical pages ${window.from}-${window.to} could not be read and produced no evidence in this reading: ${sweepFailureReason(error)}`);
+      }
+    }
+
+
+    if (this.config.provider === 'openai' && this.config.regionSweep && input.linework) {
+      const densePages = denseDrawingPages(input.linework, pageCount, this.config.maxRegionPages);
+      if (densePages.length) {
+        if (this.config.budgetMs !== 0) {
+          batchNotes.push(`Regional detail sweep deferred for ${densePages.length} dense physical page(s): exhaustive crop passes run only on the durable worker so an HTTP deadline cannot cut them off.`);
+        } else {
+          const supplemental: PlanReadingFinding[] = [];
+          let regionalFailures = 0;
+          for (const physicalPage of densePages) {
+            try {
+              const { bytes, regions } = await cropPdfRegions(source, physicalPage);
+              const regional = await this.readOnce(input, { fileBytes: bytes, region: { physicalPage, regions } });
+              for (const finding of regional.findings) {
+                const localPage = finding.page_number;
+                if (typeof localPage !== 'number' || localPage < 1 || localPage > regions.length) continue;
+                supplemental.push(remapRegionFinding(finding, regions[localPage - 1]!));
+              }
+              for (const note of regional.summary.limitations) {
+                batchNotes.push(`Physical page ${physicalPage} regional pass: ${note}`);
+              }
+            } catch (error) {
+              regionalFailures += 1;
+              batchNotes.push(`Physical page ${physicalPage} regional detail pass could not be completed: ${sweepFailureReason(error)}. Review this sheet manually.`);
+            }
+          }
+          findings = mergeRegionFindings(findings, supplemental);
+          limitations.push(`Regional detail sweep inspected ${densePages.length - regionalFailures} of ${densePages.length} dense physical page(s) as four overlapping vector crops per page, with crop-local geometry remapped to the original sheet.`);
+          if (regionalFailures) limitations.push(`${regionalFailures} dense physical page(s) did not complete the regional detail pass and remain REVIEW REQUIRED.`);
+        }
       }
     }
 
