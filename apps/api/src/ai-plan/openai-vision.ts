@@ -155,11 +155,11 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // A region read is per sheet by construction: a window of four sheets cut nine
     // ways would be thirty-six requests that each see a quarter sheet.
     batchPages: tiles.grid > 1 ? 1 : env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 4, 50)),
-    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, MAX_MAX_BATCHES)),
+    maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, tiles.grid > 1 ? MAX_MAX_BATCHES : 25, MAX_MAX_BATCHES)),
     // A real 17-page set reported 640 findings across its windows, so a cap of 400
     // discarded 240 that had already been read and paid for. The cap still bounds
     // storage; it must not be the thing that decides how much of a plan survived.
-    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 1_000, 3_000),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 5_000, 10_000),
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
     // old hard 60 s abort turned a slow reading into a failed one. Fifteen minutes
     // is the ceiling: a single dense sheet read carefully is allowed to be slow,
