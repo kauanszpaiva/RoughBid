@@ -32,9 +32,9 @@ export interface OpenAiVisionProviderConfig {
   /** Wall-clock deadline for the whole sweep. 0 means no deadline (durable worker only). */
   budgetMs: number;
   /** High-attention overlapping crop pass for dense drawing sheets. OpenAI only. */
-  regionSweep: boolean;
+  regionSweep?: boolean;
   /** Physical dense pages eligible for the regional pass. */
-  maxRegionPages: number;
+  maxRegionPages?: number;
 }
 
 const DEFAULT_MAX_IMAGES = 8;
@@ -133,7 +133,7 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // A real 17-page set reported 640 findings across its windows, so a cap of 400
     // discarded 240 that had already been read and paid for. The cap still bounds
     // storage; it must not be the thing that decides how much of a plan survived.
-    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 1_000, 3_000),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 5_000, 10_000),
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
     // old hard 60 s abort turned a slow reading into a failed one. Fifteen minutes
     // is the ceiling: a single dense sheet read carefully is allowed to be slow,
@@ -443,7 +443,7 @@ export class OpenAiCompatibleVisionPlanReader {
 
 
     if (this.config.provider === 'openai' && this.config.regionSweep && input.linework) {
-      const densePages = denseDrawingPages(input.linework, pageCount, this.config.maxRegionPages);
+      const densePages = denseDrawingPages(input.linework, pageCount, this.config.maxRegionPages ?? 100);
       if (densePages.length) {
         if (this.config.budgetMs !== 0) {
           batchNotes.push(`Regional detail sweep deferred for ${densePages.length} dense physical page(s): exhaustive crop passes run only on the durable worker so an HTTP deadline cannot cut them off.`);
