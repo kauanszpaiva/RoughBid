@@ -90,6 +90,28 @@ test('a set larger than one request is swept window by window with physical numb
   assert.equal(result.summary.human_review_required, true);
 });
 
+test('exhaustive scan requires drawing-object inventory and emits a per-page coverage manifest', async () => {
+  const bytes = await planBytes(2);
+  const { fetcher, calls } = recorder([
+    () => ({ json: answer(1, [note(1, 'Unlabeled closet-sized space')]) }),
+    () => ({ json: answer(1, [note(1, 'Door leaf and swing')]) }),
+  ]);
+  const reader = new OpenAiCompatibleVisionPlanReader(openAiConfig({ AI_PLAN_OPENAI_BATCH_PAGES: '1' }), fetcher);
+
+  const result = await reader.read({
+    fileBytes: bytes, mimeType: 'application/pdf', sheetName: 'set.pdf',
+    requestedTrades: [], scope: null, pageCount: 2,
+  });
+
+  const prompt = calls[0]!.body.messages[1].content[0].text;
+  assert.match(prompt, /entire displayed region edge-to-edge/i);
+  assert.match(prompt, /closets, walk-in closets/i);
+  assert.match(prompt, /casework\/cabinets/i);
+  assert.match(prompt, /HVAC\/mechanical equipment/i);
+  assert.ok(result.summary.limitations.some(note => /Coverage manifest 1-2: p1=whole:complete, p2=whole:complete\./.test(note)));
+});
+
+
 test('each window is reserved against the company breaker on its own', async () => {
   const bytes = await planBytes(12);
   const { fetcher } = recorder([() => ({ json: answer(5, [finding(1, 'Partition')]) })]);
