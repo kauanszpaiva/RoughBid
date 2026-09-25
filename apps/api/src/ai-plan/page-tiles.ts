@@ -46,7 +46,7 @@ export interface PageRegion {
 
 export const MIN_TILE_GRID = 1;
 export const MAX_TILE_GRID = 3;
-export const DEFAULT_TILE_GRID = 1;
+export const DEFAULT_TILE_GRID = 2;
 /** 12% of a cell, shared between its two sides, so neighbouring regions overlap. */
 export const DEFAULT_TILE_OVERLAP_RATIO = 0.12;
 export const MAX_TILE_OVERLAP_RATIO = 0.4;
@@ -59,8 +59,8 @@ export const MAX_REGIONS_PER_PAGE = MAX_TILE_GRID * MAX_TILE_GRID;
  * about its title.
  */
 export const DEFAULT_TILE_MIN_WALL_STROKES = 1_500;
-export const MAX_TILE_PAGES = 40;
-export const DEFAULT_TILE_MAX_PAGES = 12;
+export const MAX_TILE_PAGES = 200;
+export const DEFAULT_TILE_MAX_PAGES = 200;
 
 export function boundedTileGrid(value: number | undefined): number {
   return Number.isSafeInteger(value) && (value as number) >= MIN_TILE_GRID
