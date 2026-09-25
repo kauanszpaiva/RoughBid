@@ -139,10 +139,13 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
         const platformAdmin = await isPlatformAdmin(db, data.user.id);
         if (platformAdmin) {
           if (!deps.paidReaderAvailable) throw new ProjectApiError(503, 'The paid plan-reading provider is not configured. No job was started.');
-          // Platform owner testing remains synchronous even if durable mode is
-          // enabled later. The durable paid queue currently requires a paid quote;
-          // forcing an admin through it would either charge the owner or weaken the
-          // queue's payment invariant.
+          if (durableEnabled) {
+            if (!deps.durableQueue) throw new ProjectApiError(503, 'Durable AI plan queue is not configured. No job was queued.');
+            const durable = new DurableAiPlanReadingService(
+              db, deps.findingsWriter, deps.storage, deps.durableQueue, data.user.id, workspaceId,
+            );
+            return json(await durable.reservePlatformAdmin(parts[1], body), 202);
+          }
           const adminService = new AiPlanReadingService(
             db, deps.findingsWriter, deps.storage, deps.reader,
             data.user.id, workspaceId, undefined, deps.freeReader, true, undefined, deps.pageImagesEnabled === true,
