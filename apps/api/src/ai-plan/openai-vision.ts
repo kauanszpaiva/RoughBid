@@ -221,6 +221,54 @@ Requested trades: ${input.requestedTrades.join(', ') || 'all visible trades'}.
 ${source}`;
 }
 
+function findingBox(finding: PlanReadingFinding): [number,number,number,number] | null {
+  const raw=(finding.geometry as {bbox?:unknown}|undefined)?.bbox;
+  if(!Array.isArray(raw)||raw.length!==4||raw.some(value=>typeof value!=='number'||!Number.isFinite(value))) return null;
+  const [x,y,w,h]=raw as number[];
+  return w>0&&h>0?[x,y,w,h]:null;
+}
+
+function boxIoU(a:[number,number,number,number],b:[number,number,number,number]):number{
+  const left=Math.max(a[0],b[0]), top=Math.max(a[1],b[1]);
+  const right=Math.min(a[0]+a[2],b[0]+b[2]), bottom=Math.min(a[1]+a[3],b[1]+b[3]);
+  if(right<=left||bottom<=top) return 0;
+  const intersection=(right-left)*(bottom-top);
+  const union=a[2]*a[3]+b[2]*b[3]-intersection;
+  return union>0?intersection/union:0;
+}
+
+function normalizedFindingText(value:string|null|undefined):string{
+  return (value||'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+
+/**
+ * Overlapping regions deliberately see the same seam twice. Collapse only
+ * high-confidence spatial duplicates after both crop boxes have been restored
+ * to physical-sheet coordinates. Findings without trustworthy boxes remain
+ * separate rather than risking an undercount.
+ */
+export function dedupeOverlappingFindings(findings:readonly PlanReadingFinding[]):PlanReadingFinding[]{
+  const output:PlanReadingFinding[]=[];
+  for(const candidate of findings){
+    const box=findingBox(candidate);
+    const duplicateIndex=output.findIndex(existing=>{
+      if(existing.page_number!==candidate.page_number||existing.finding_type!==candidate.finding_type) return false;
+      const existingBox=findingBox(existing);
+      if(box&&existingBox&&boxIoU(box,existingBox)>=0.72) return true;
+      return !box&&!existingBox
+        && normalizedFindingText(existing.label)===normalizedFindingText(candidate.label)
+        && Boolean(existing.source_excerpt)
+        && existing.source_excerpt===candidate.source_excerpt;
+    });
+    if(duplicateIndex<0){output.push(candidate);continue;}
+    const existing=output[duplicateIndex]!;
+    const candidateScore=candidate.confidence+(box?0.05:0)+(candidate.source_excerpt?0.02:0);
+    const existingScore=existing.confidence+(findingBox(existing)?0.05:0)+(existing.source_excerpt?0.02:0);
+    if(candidateScore>existingScore) output[duplicateIndex]=candidate;
+  }
+  return output;
+}
+
 /** A sweep never invents coverage: a failed batch is named by its classified reason only. */
 function sweepFailureReason(error: unknown): string {
   if (error instanceof AiProviderError) return error.diagnostic.code;
@@ -599,7 +647,8 @@ export class OpenAiCompatibleVisionPlanReader {
     for (const note of partiallyRead) limitations.push(`Partly read: ${note}; the configured provider-request budget of ${this.config.maxBatches} request(s) was reached. Findings from that page cover only the regions actually read.`);
     if (failed.length) limitations.push(`${failed.length} of ${windows.length} batch(es) failed, so this reading does not cover the whole set.`);
 
-    const ordered = [...findings].sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
+    const ordered = dedupeOverlappingFindings(findings)
+      .sort((a, b) => (a.page_number ?? 0) - (b.page_number ?? 0));
     const capped = ordered.slice(0, this.config.maxTotalFindings);
     if (ordered.length > capped.length) {
       limitations.push(`Findings capped at ${this.config.maxTotalFindings} for this set (${ordered.length} were reported across all batches).`);
