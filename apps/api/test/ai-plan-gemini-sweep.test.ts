@@ -200,7 +200,7 @@ test('the sweep is configurable and can be switched off', () => {
   assert.deepEqual(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_SWEEP: 'false' }).batchPages, 0);
   // Bounded, never unbounded, and nonsense falls back instead of widening.
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: '9999' }).batchPages, 50);
-  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_MAX_BATCHES: '9999' }).maxBatches, 60);
+  assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_MAX_BATCHES: '9999' }).maxBatches, 400);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_TIMEOUT_MS: '9999999' }).timeoutMs, 900_000);
   assert.equal(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: 'abc' }).batchPages, 8);
   // The shared sweep deadline is bounded too, and 0 explicitly means "no deadline"

@@ -27,7 +27,12 @@ export interface PageWindow {
 export const DEFAULT_BATCH_PAGES = 8;
 export const MAX_BATCH_PAGES = 50;
 export const DEFAULT_MAX_BATCHES = 25;
-export const MAX_MAX_BATCHES = 60;
+/**
+ * Ceiling on provider requests for one reading. A region read multiplies sheets by
+ * regions, so a 17-page set cut 3x3 is 153 requests; the cap has to be able to
+ * admit that before the operator can configure it at all. The default stays at 25.
+ */
+export const MAX_MAX_BATCHES = 400;
 
 const boundedInteger = (value: number | undefined, fallback: number, ceiling: number): number =>
   Number.isSafeInteger(value) && (value as number) > 0 ? Math.min(value as number, ceiling) : fallback;
