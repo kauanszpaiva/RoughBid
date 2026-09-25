@@ -16,6 +16,7 @@ const openAiConfig = (env: Record<string, string | undefined> = {}) => requireOp
   OPENAI_MODEL: 'gpt-4.1',
   // Small windows keep these fixtures readable; the default is asserted separately.
   AI_PLAN_OPENAI_BATCH_PAGES: '5',
+  AI_PLAN_OPENAI_TILE_GRID: '1',
   ...env,
 });
 
@@ -208,9 +209,9 @@ test('the default window and request caps are bounded, and a huge set is capped 
   const configured = requireOpenAiVisionConfig({
     OPENAI_PLAN_READING_ENABLED: 'true', OPENAI_API_KEY: 'sk-plan-reading-key', OPENAI_MODEL: 'gpt-4.1',
   });
-  assert.equal(configured.batchPages, 4);
-  assert.equal(configured.maxBatches, 25);
-  assert.equal(configured.maxTotalFindings, 1_000);
+  assert.equal(configured.batchPages, 1);
+  assert.equal(configured.maxBatches, 400);
+  assert.equal(configured.maxTotalFindings, 5_000);
   // The output ceiling is what decides whether a dense window is readable at all:
   // at 8000 the provider returned finish_reason "length" and the whole window was
   // discarded, so a window of dense sheets produced no evidence whatsoever.
@@ -224,9 +225,9 @@ test('the default window and request caps are bounded, and a huge set is capped 
     AI_PLAN_OPENAI_BATCH_PAGES: '9999', AI_PLAN_OPENAI_MAX_BATCHES: 'nonsense', AI_PLAN_MAX_TOTAL_FINDINGS: '-3',
     AI_PLAN_OPENAI_MAX_OUTPUT_TOKENS: '9999999', AI_PLAN_OPENAI_TIMEOUT_MS: '9999999',
   });
-  assert.equal(bounded.batchPages, 50);
-  assert.equal(bounded.maxBatches, 25);
-  assert.equal(bounded.maxTotalFindings, 1_000);
+  assert.equal(bounded.batchPages, 1);
+  assert.equal(bounded.maxBatches, 400);
+  assert.equal(bounded.maxTotalFindings, 5_000);
   assert.equal(bounded.maxOutputTokens, 64_000);
   assert.equal(bounded.timeoutMs, 900_000);
 
@@ -235,7 +236,7 @@ test('the default window and request caps are bounded, and a huge set is capped 
   const reader = new OpenAiCompatibleVisionPlanReader(configured, fetcher);
   const result = await reader.read({ fileBytes: bytes, mimeType: 'application/pdf', sheetName: 'set.pdf', requestedTrades: [], scope: null, pageCount: 20 });
 
-  assert.deepEqual(calls.map(call => call.pages), [4, 4, 4, 4, 4], 'the default reads a 20-page set in five requests');
+  assert.deepEqual(calls.map(call => call.pages), Array(20).fill(1), 'the exhaustive default reads one physical sheet per request');
   assert.equal(calls[0]!.body.max_completion_tokens, 16_000, 'one request may return enough findings to enumerate a dense sheet');
   assert.equal(result.summary.sheet_count, 20);
 });
