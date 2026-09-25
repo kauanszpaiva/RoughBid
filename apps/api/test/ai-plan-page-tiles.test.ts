@@ -14,7 +14,7 @@ import {
   readSheetFrame,
   tileOptionsFromEnv,
 } from '../src/ai-plan/page-tiles.ts';
-import { OpenAiCompatibleVisionPlanReader, requireOpenAiVisionConfig } from '../src/ai-plan/openai-vision.ts';
+import { dedupeOverlappingFindings, OpenAiCompatibleVisionPlanReader, requireOpenAiVisionConfig } from '../src/ai-plan/openai-vision.ts';
 import { withUsageMeter } from '../src/owner-usage/meter.ts';
 import type { DrawingLinework } from '../src/ai-plan/drawing-linework.ts';
 
@@ -260,4 +260,26 @@ test('a sparse sheet is read whole even when tiling is configured', async () => 
   // One request per sheet, not nine: a cover sheet has nothing to zoom into.
   assert.equal(requests, 2);
   assert.ok(!result.summary.limitations.some(note => /overlapping region/.test(note)));
+});
+
+
+test('overlapping crop evidence is deduplicated only when it maps to the same physical object', () => {
+  const findings:any[]=[
+    {
+      page_number:1,finding_type:'symbol',label:'Door swing',value_text:null,quantity:null,unit:null,
+      confidence:0.82,geometry:{bbox:[0.48,0.20,0.08,0.10]},source_excerpt:'door leaf and swing arc',
+    },
+    {
+      page_number:1,finding_type:'symbol',label:'Unlabeled door',value_text:null,quantity:null,unit:null,
+      confidence:0.94,geometry:{bbox:[0.482,0.202,0.079,0.099]},source_excerpt:'door leaf and swing arc',
+    },
+    {
+      page_number:1,finding_type:'symbol',label:'Second door',value_text:null,quantity:null,unit:null,
+      confidence:0.9,geometry:{bbox:[0.68,0.20,0.08,0.10]},source_excerpt:'another door leaf and swing arc',
+    },
+  ];
+  const deduped=dedupeOverlappingFindings(findings);
+  assert.equal(deduped.length,2);
+  assert.ok(deduped.some(item=>item.label==='Unlabeled door'),'higher-confidence duplicate survives');
+  assert.ok(deduped.some(item=>item.label==='Second door'),'distinct nearby door is not collapsed');
 });
