@@ -51,7 +51,7 @@ test('OpenAI plan reading stays closed until its key, model and enable flag are 
   const config = requireOpenAiVisionConfig(enabled);
   assert.equal(config.provider, 'openai');
   assert.equal(config.baseUrl, 'https://api.openai.com/v1');
-  assert.equal(config.model, 'gpt-4.1');
+  assert.equal(config.model, 'gpt-5.4');
   assert.equal(requireOpenAiVisionConfig({ ...enabled, OPENAI_MODEL: 'gpt-5.1', OPENAI_BASE_URL: 'https://api.openai.com/v1/' }).baseUrl, 'https://api.openai.com/v1');
 });
 

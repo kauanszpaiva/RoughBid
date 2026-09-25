@@ -210,7 +210,7 @@ test('the default window and request caps are bounded, and a huge set is capped 
   });
   assert.equal(configured.batchPages, 4);
   assert.equal(configured.maxBatches, 25);
-  assert.equal(configured.maxTotalFindings, 400);
+  assert.equal(configured.maxTotalFindings, 1_000);
   // The output ceiling is what decides whether a dense window is readable at all:
   // at 8000 the provider returned finish_reason "length" and the whole window was
   // discarded, so a window of dense sheets produced no evidence whatsoever.
@@ -226,7 +226,7 @@ test('the default window and request caps are bounded, and a huge set is capped 
   });
   assert.equal(bounded.batchPages, 50);
   assert.equal(bounded.maxBatches, 25);
-  assert.equal(bounded.maxTotalFindings, 400);
+  assert.equal(bounded.maxTotalFindings, 1_000);
   assert.equal(bounded.maxOutputTokens, 64_000);
   assert.equal(bounded.timeoutMs, 900_000);
 

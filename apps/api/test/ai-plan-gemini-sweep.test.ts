@@ -193,9 +193,9 @@ test('the sweep stops at its deadline and names the pages it never read', async 
 });
 
 test('the sweep is configurable and can be switched off', () => {
-  assert.deepEqual(geminiSweepOptionsFromEnv({}), { batchPages: 8, maxBatches: 25, maxTotalFindings: 400, timeoutMs: 120_000, budgetMs: 240_000 });
+  assert.deepEqual(geminiSweepOptionsFromEnv({}), { batchPages: 8, maxBatches: 25, maxTotalFindings: 1_000, timeoutMs: 120_000, budgetMs: 240_000 });
   assert.deepEqual(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_BATCH_PAGES: '4', AI_PLAN_GEMINI_MAX_BATCHES: '3', AI_PLAN_GEMINI_TIMEOUT_MS: '60000' }), {
-    batchPages: 4, maxBatches: 3, maxTotalFindings: 400, timeoutMs: 60_000, budgetMs: 240_000,
+    batchPages: 4, maxBatches: 3, maxTotalFindings: 1_000, timeoutMs: 60_000, budgetMs: 240_000,
   });
   assert.deepEqual(geminiSweepOptionsFromEnv({ AI_PLAN_GEMINI_SWEEP: 'false' }).batchPages, 0);
   // Bounded, never unbounded, and nonsense falls back instead of widening.

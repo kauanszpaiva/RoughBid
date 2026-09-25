@@ -100,7 +100,12 @@ export function requireKimiVisionConfig(env: Record<string, string | undefined>)
 export function requireOpenAiVisionConfig(env: Record<string, string | undefined>): OpenAiVisionProviderConfig {
   if (env.OPENAI_PLAN_READING_ENABLED !== 'true') throw new ProjectApiError(503, 'OpenAI plan reading is disabled.');
   const apiKey = env.OPENAI_API_KEY?.trim();
-  const model = env.OPENAI_MODEL?.trim() || 'gpt-4.1';
+  // Measured on a real 17-page set: gpt-5.4 with one sheet per request returned 254
+  // rooms - including SHWR, TUB, TR, STRG, ELEV and STAIR, which carry no printed
+  // area - plus drawn door swings as symbol findings, in 8.2 min and 154k tokens.
+  // An unavailable name is still a hard failure that falls through to the next
+  // configured reader rather than a silent downgrade.
+  const model = env.OPENAI_MODEL?.trim() || 'gpt-5.4';
   if (!isConfiguredValue(apiKey) || !/^(?:gpt|o[0-9])[a-z0-9._-]*$/i.test(model)) {
     throw new ProjectApiError(503, 'OpenAI plan reading is not configured.');
   }
@@ -116,7 +121,10 @@ export function requireOpenAiVisionConfig(env: Record<string, string | undefined
     // request, which is the slowest and most careful setting.
     batchPages: env.AI_PLAN_OPENAI_SWEEP === 'false' ? 0 : boundedBatchPages(integerFromEnv(env.AI_PLAN_OPENAI_BATCH_PAGES, 4, 50)),
     maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_OPENAI_MAX_BATCHES, 25, 60)),
-    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
+    // A real 17-page set reported 640 findings across its windows, so a cap of 400
+    // discarded 240 that had already been read and paid for. The cap still bounds
+    // storage; it must not be the thing that decides how much of a plan survived.
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 1_000, 3_000),
     // A real 4-page request took 12-20 s and one cheap model exceeded 60 s, so the
     // old hard 60 s abort turned a slow reading into a failed one. Fifteen minutes
     // is the ceiling: a single dense sheet read carefully is allowed to be slow,

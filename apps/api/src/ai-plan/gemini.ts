@@ -54,7 +54,7 @@ export function geminiSweepOptionsFromEnv(env: Record<string, string | undefined
       ? 0
       : boundedBatchPages(integerFromEnv(env.AI_PLAN_GEMINI_BATCH_PAGES, DEFAULT_BATCH_PAGES, MAX_BATCH_PAGES)),
     maxBatches: boundedMaxBatches(integerFromEnv(env.AI_PLAN_GEMINI_MAX_BATCHES, DEFAULT_MAX_BATCHES, MAX_MAX_BATCHES)),
-    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 400, 1_000),
+    maxTotalFindings: integerFromEnv(env.AI_PLAN_MAX_TOTAL_FINDINGS, 1_000, 3_000),
     timeoutMs: integerFromEnv(env.AI_PLAN_GEMINI_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS),
     budgetMs: sweepBudgetFromEnv(env),
   };
