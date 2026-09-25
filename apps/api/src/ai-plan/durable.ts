@@ -106,6 +106,92 @@ export class DurableAiPlanReadingService {
     this.fetcher = fetcher;
   }
 
+  async reservePlatformAdmin(projectId: string, input: Record<string, unknown>) {
+    if (!this.writer.rpc) throw new ProjectApiError(503, 'Durable AI plan reservation is unavailable.');
+    const fileId = typeof input.file_id === 'string' ? input.file_id : '';
+    if (!fileId) throw new ProjectApiError(400, 'file_id is required');
+
+    const workspace = dbResult<any>(
+      await this.db.from('workspaces').select('ai_processing_consented_at').eq('id', this.workspaceId).maybeSingle(), true,
+    );
+    if (!workspace.ai_processing_consented_at) {
+      throw new ProjectApiError(403, 'This workspace must accept AI plan-reading data processing before starting a job.');
+    }
+    dbResult(await this.db.from('projects').select('id').eq('workspace_id', this.workspaceId).eq('id', projectId).maybeSingle(), true);
+    const file = dbResult<any>(
+      await this.db.from('project_files').select('id, original_name, storage_path, processing_status, page_count')
+        .eq('workspace_id', this.workspaceId).eq('project_id', projectId).eq('id', fileId).maybeSingle(), true,
+    );
+    if (file.processing_status === 'uploading' || file.processing_status === 'failed') {
+      throw new ProjectApiError(409, 'Plan file must finish uploading before AI reading can start');
+    }
+
+    const heartbeat = await this.writer.rpc('ai_plan_worker_available', { p_entitlement: 'paid' });
+    if (heartbeat.error || heartbeat.data !== true || !(await this.queue.isWorkerAvailable('paid'))) {
+      throw new ProjectApiError(503, 'A live durable worker with paid-provider access is not available. No job was queued.');
+    }
+
+    assertPlanStoragePath(file.storage_path, this.workspaceId, projectId, fileId);
+    const presigned = await this.storage.presign('GET', file.storage_path, { expiresIn: 300 });
+    const bytes = await downloadPlan(presigned.url, this.fetcher);
+    const inspected = await inspectPdf(bytes);
+    const sha256 = PDF_DIGEST(bytes);
+    const normalized = normalizeScope(input);
+    const model = process.env.OPENAI_MODEL?.trim() || process.env.GEMINI_MODEL?.trim() || 'openai';
+    const fingerprint = await requestFingerprint({
+      trades: normalized.trades,
+      scope: normalized.scope,
+      model,
+      mode: 'detailed',
+      sha256,
+    });
+
+    const reserved = await this.writer.rpc('reserve_platform_admin_reading_async', {
+      p_user_id: this.userId,
+      p_workspace_id: this.workspaceId,
+      p_project_id: projectId,
+      p_file_id: fileId,
+      p_model: model,
+      p_file_sha256: sha256,
+      p_request_fingerprint: fingerprint,
+      p_requested_trades: normalized.trades,
+      p_requested_scope: normalized.scope,
+      p_page_count: inspected.pages,
+    });
+    if (reserved.error) {
+      const message = reserved.error.message ?? 'Platform owner durable reading is not authorized.';
+      throw new ProjectApiError(/daily AI reading limit/i.test(message) ? 429 : 403, message);
+    }
+
+    const payload = reserved.data as { reused?: boolean; job?: any };
+    if (!payload?.job?.id) throw new ProjectApiError(500, 'Durable AI plan reservation did not return a job.');
+    let durableJob = normalizedJob(payload.job);
+    if (payload.reused) {
+      durableJob = normalizedJob(await this.get(payload.job.id));
+      if (durableJob.status !== 'queued') return durableJob;
+    }
+
+    try {
+      await this.queue.add(payload.job.id, 'paid');
+    } catch {
+      let released = false;
+      try {
+        const rollback = await this.writer.rpc('rollback_ai_plan_enqueue', {
+          p_job_id: payload.job.id,
+          p_user_id: this.userId,
+        });
+        released = !rollback.error && rollback.data === true;
+      } catch { /* Reconcile from durable state below. */ }
+      if (released) throw new ProjectApiError(503, 'AI plan queue is unavailable. The reservation was released before provider work began.');
+      try {
+        const current = normalizedJob(await this.get(payload.job.id));
+        if (current.status !== 'queued') return current;
+      } catch { /* Fall through. */ }
+      throw new ProjectApiError(503, 'AI plan queue acknowledgement failed. Retry safely; the same job id will be reused.');
+    }
+    return durableJob;
+  }
+
   async reserve(projectId: string, input: Record<string, unknown>) {
     if (!this.writer.rpc) throw new ProjectApiError(503, 'Durable AI plan reservation is unavailable.');
     const fileId = typeof input.file_id === 'string' ? input.file_id : '';
@@ -333,6 +419,7 @@ export class DurableAiPlanJobProcessor {
           ...(linework ? { linework } : {}),
           ...(sheetText ? { sheetText } : {}),
           pageCount: context.page_count,
+          reasoningEffort: context.mode === 'detailed' ? 'high' : 'low',
         }));
         if (result.summary.synthetic || !result.findings.length) throw new Error('No usable findings were returned. No substitute quantities were saved.');
         if (coverageNotices.length) result.summary.limitations = [...result.summary.limitations, ...coverageNotices];
@@ -386,10 +473,15 @@ export class DurableAiPlanJobProcessor {
             p_job_id: queueJob.data.jobId, p_user_id: context.requested_by,
             p_summary: result.summary, p_findings: findings, p_error: null,
           })
-        : await this.writer.rpc('finish_project_reading', {
-            p_quote_id: context.quote_id, p_job_id: queueJob.data.jobId,
-            p_summary: result.summary, p_findings: findings, p_error: null,
-          });
+        : context.entitlement === 'platform_admin_complimentary'
+          ? await this.writer.rpc('finish_platform_admin_reading', {
+              p_job_id: queueJob.data.jobId, p_user_id: context.requested_by,
+              p_summary: result.summary, p_findings: findings, p_error: null,
+            })
+          : await this.writer.rpc('finish_project_reading', {
+              p_quote_id: context.quote_id, p_job_id: queueJob.data.jobId,
+              p_summary: result.summary, p_findings: findings, p_error: null,
+            });
       if (finish.error) throw new Error(finish.error.message ?? 'Could not persist AI plan reading.');
       return finish.data;
     } catch (error) {
@@ -402,6 +494,11 @@ export class DurableAiPlanJobProcessor {
         });
       } else if (context.entitlement === 'owner_free') {
         await this.writer.rpc('finish_owner_free_reading', {
+          p_job_id: queueJob.data.jobId, p_user_id: context.requested_by,
+          p_summary: {}, p_findings: [], p_error: message,
+        });
+      } else if (context.entitlement === 'platform_admin_complimentary') {
+        await this.writer.rpc('finish_platform_admin_reading', {
           p_job_id: queueJob.data.jobId, p_user_id: context.requested_by,
           p_summary: {}, p_findings: [], p_error: message,
         });
