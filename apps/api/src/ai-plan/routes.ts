@@ -11,12 +11,8 @@ import { DurableAiPlanReadingService, type DurableAiPlanQueue } from './durable.
 import { isFreeOwnerWorkspace } from './owner-free.ts';
 import { isFreeProviderConfigured } from './free-provider.ts';
 import { hasPlatformAdminProjectAccess, isPlatformAdmin } from '../access/platform-admin.ts';
-import {
-  FULL_TAKEOFF_V2_MODE,
-  FullTakeoffV2Service,
-  SupabaseFullTakeoffV2Persistence,
-  type FullTakeoffV2ProviderFactory,
-} from '../takeoff-v2/service.ts';
+import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from '../takeoff-v2/service.ts';
+import { DurableFullTakeoffV2Service, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -83,8 +79,10 @@ export interface AiPlanRequestDependencies {
   pageImagesEnabled?: boolean | undefined;
   /** Durable BullMQ queue. Required only when AI_PLAN_DURABLE_ENABLED=true. */
   durableQueue?: DurableAiPlanQueue | undefined;
-  /** Closed-by-default provider factory for the explicit Full/Deep V2 path. */
+  /** Legacy/internal dependency only. HTTP Full V2 never constructs a provider. */
   fullTakeoffV2ProviderFactory?: FullTakeoffV2ProviderFactory | undefined;
+  /** Full V2 always runs on a dedicated background worker, never on HTTP. */
+  fullTakeoffV2Queue?: FullTakeoffV2Queue | undefined;
 }
 
 export async function handleAiPlanRequest(request: Request, db: SupabaseLike, deps: AiPlanRequestDependencies): Promise<Response> {
@@ -99,37 +97,45 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
+    if (parts[0] === 'takeoff-runs' && parts[1]) {
+      if (!await isPlatformAdmin(db, data.user.id)) throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
+      const full = new DurableFullTakeoffV2Service(db, deps.findingsWriter, deps.storage,
+        deps.fullTakeoffV2Queue, data.user.id, workspaceId);
+      if (request.method === 'GET' && parts.length === 2) {
+        if (url.searchParams.has('page_number') || url.searchParams.has('pass_type')) {
+          return json(await full.checkpoint(parts[1], Number(url.searchParams.get('page_number')), url.searchParams.get('pass_type') ?? ''));
+        }
+        return json(await full.get(parts[1]));
+      }
+      if (request.method === 'POST' && parts[2] === 'cancel') return json(await full.cancel(parts[1]));
+      if (request.method === 'POST' && parts[2] === 'restart') {
+        if (process.env.TAKEOFF_V2_ENABLED !== 'true') throw new ProjectApiError(503, 'Full Takeoff V2 is disabled.');
+        return json(await full.restart(parts[1]), 202);
+      }
+    }
+
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
       return json(await getPageReadingInventory(db, deps.storage, data.user.id, workspaceId, parts[1],
         url.searchParams.get('file_id') ?? '', { scope: url.searchParams.get('scope') ?? '', trades: url.searchParams.getAll('trade') }));
     }
     if (request.method === 'POST' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-readings') {
       const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-      if (Object.prototype.hasOwnProperty.call(body, 'page_number')) {
+      if (Object.prototype.hasOwnProperty.call(body, 'page_number') && body.mode !== FULL_TAKEOFF_V2_MODE) {
         if (!await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) throw new ProjectApiError(403, 'Page-by-page review is not enabled for this account.');
         if (deps.paidReaderAvailable !== true) throw new ProjectApiError(503, 'The page-reading provider is unavailable. No job was started.');
         const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, undefined, true, undefined, deps.pageImagesEnabled === true);
         return json(await owner.create(parts[1], body), 201);
       }
       if (body.mode === FULL_TAKEOFF_V2_MODE) {
-        // Full V2 has no generally available paid entitlement yet. Restrict the
-        // first integration boundary to the verified platform owner and fail
-        // closed unless a dedicated pass provider was explicitly wired.
+        // A deep run can outlive Vercel's request limit. This boundary only
+        // reserves/enqueues; no HTTP path may initialize or call its provider.
         if (!await isPlatformAdmin(db, data.user.id)) {
           throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
         }
-        if (!deps.fullTakeoffV2ProviderFactory) {
-          throw new ProjectApiError(503, 'Full Takeoff V2 provider is not configured. No run was started.');
-        }
-        const full = new FullTakeoffV2Service(
-          db,
-          deps.storage,
-          new SupabaseFullTakeoffV2Persistence(deps.findingsWriter),
-          deps.fullTakeoffV2ProviderFactory,
-          data.user.id,
-          workspaceId,
-        );
-        return json(await full.create(parts[1], body), 201);
+        if (process.env.TAKEOFF_V2_ENABLED !== 'true') throw new ProjectApiError(503, 'Full Takeoff V2 is disabled. No run was started.');
+        const full = new DurableFullTakeoffV2Service(db, deps.findingsWriter, deps.storage,
+          deps.fullTakeoffV2Queue, data.user.id, workspaceId);
+        return json(await full.reserve(parts[1], body), 202);
       }
       // The outer production handler always supplies paidReaderAvailable. Tests
       // and internal callers that omit it preserve the legacy service contract.
@@ -178,6 +184,17 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       return json(await service.create(parts[1], body), 201);
     }
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
+      const fullEnabled = process.env.TAKEOFF_V2_ENABLED === 'true';
+      if (fullEnabled && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
+        let fullTakeoffV2Available = false;
+        if (process.env.REDIS_URL && deps.findingsWriter.rpc) {
+          try {
+            const live = await deps.findingsWriter.rpc('full_takeoff_v2_worker_available', { p_version: 'takeoff-v2.2-durable' });
+            fullTakeoffV2Available = !live.error && live.data === true;
+          } catch { /* Capability remains false until a verified worker heartbeat succeeds. */ }
+        }
+        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available });
+      }
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,
       // the project to belong to it, and AI consent to already exist. Only the

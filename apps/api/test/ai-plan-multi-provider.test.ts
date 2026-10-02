@@ -24,15 +24,14 @@ test('never calls the second (paid) reader when the first (free) reader returns 
   assert.deepEqual(result, realResult);
 });
 
-test('falls through to the next reader only when the previous one comes back synthetic', async () => {
+test('synthetic output stops before a second provider can spend money', async () => {
   const order: string[] = [];
   const reader = new MultiProviderPlanReader([
     { name: 'free', read: async () => { order.push('free'); return syntheticPlanReadingResult(['Framing'], 'free provider unconfigured'); } },
     { name: 'paid', read: async () => { order.push('paid'); return realResult; } },
   ]);
-  const result = await reader.read(baseInput);
-  assert.deepEqual(order, ['free', 'paid']);
-  assert.deepEqual(result, realResult);
+  await assert.rejects(reader.read(baseInput), /No quantities were generated/);
+  assert.deepEqual(order, ['free']);
 });
 
 test('fails when every provider returns synthetic results', async () => {
@@ -42,4 +41,12 @@ test('fails when every provider returns synthetic results', async () => {
 test('fails when providers return no findings or throw', async () => {
   const reader=new MultiProviderPlanReader([{name:'a',read:async()=>({...realResult,findings:[]})},{name:'b',read:async()=>{throw new Error('outage')}}]);
   await assert.rejects(reader.read(baseInput),/No quantities were generated/);
+});
+
+test('provider failure preserves its error and never invokes a configured alternative', async () => {
+  let alternatives = 0;
+  const reader = new MultiProviderPlanReader([{ name: 'selected', read: async () => { throw Object.assign(new Error('denied'), { status: 403 }); } },
+    { name: 'costlier', read: async () => { alternatives++; return realResult; } }]);
+  await assert.rejects(reader.read(baseInput));
+  assert.equal(alternatives, 0);
 });

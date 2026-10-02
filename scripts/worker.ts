@@ -12,7 +12,10 @@ import {
   type DurableAiPlanWorkerJob,
   type DurableEntitlement,
 } from '../apps/api/src/ai-plan/durable.ts';
-import { createGeminiClient, GeminiPlanReader } from '../apps/api/src/ai-plan/gemini.ts';
+import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
+import { DurableFullTakeoffV2Processor, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
+import { createStageDeepPassProviderFactory } from '../apps/api/src/takeoff-v2/stage-provider.ts';
+import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
 import { buildConfiguredPlanReaders } from '../apps/api/src/ai-plan/readers.ts';
 import { requireFreeProviderConfig } from '../apps/api/src/ai-plan/free-provider.ts';
@@ -46,7 +49,7 @@ async function buildReaders(): Promise<{
   try {
     const config = requireFreeProviderConfig(process.env);
     const client = await createGeminiClient(config.apiKey);
-    const gemini = new GeminiPlanReader(client, [config.model], workerSweep);
+    const gemini = new GeminiPlanReader(client, [config.model], { ...geminiSweepOptionsFromEnv(process.env), budgetMs: 0 });
     assertNoPaidFallback('gemini-free-tier');
     freeReader = { read: (input: any) => gemini.read(input) };
   } catch { /* Owner-free route is allowed to remain disabled. */ }
@@ -56,7 +59,7 @@ async function buildReaders(): Promise<{
     : { assertReady: () => { throw new Error(PLAN_READING_UNAVAILABLE); }, read: async () => { throw new Error(PLAN_READING_UNAVAILABLE); } };
   return {
     paidReader,
-    freeReader,
+    ...(freeReader ? { freeReader } : {}),
     paidEnabled: paid.length > 0,
     freeEnabled: Boolean(freeReader),
   };
@@ -78,6 +81,7 @@ async function main() {
   console.log('[worker] pdf-processing queue attached');
 
   const aiWorkers: Worker[] = [];
+  let fullTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
     const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
@@ -128,12 +132,50 @@ async function main() {
     console.log('[worker] ai-plan heartbeat active', { workerId, paidEnabled, freeEnabled });
   }
 
+  if (process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.TAKEOFF_V2_WORKER_ENABLED === 'true') {
+    // Construction validates the configured model identities and attestations;
+    // this starts no provider request. Fifty minutes is a sizing reference,
+    // never a delay or a claim that every plan completes within that time.
+    const factory = createStageDeepPassProviderFactory(process.env, fetch, {
+      async loadPageImages(input, page) {
+        const prefix = `${input.workspaceId}/${input.projectId}/${input.fileId}/pages/`;
+        const images = await loadPlanPageImages({ db, fileId: input.fileId, pageNumbers: [page], maxImages: 1,
+          storage: { async presign(method, key, options) {
+            if (!key.startsWith(prefix) || key.includes('..')) throw new Error('Full Takeoff page asset is outside the authorized file.');
+            return storage.presign(method, key, options);
+          } } });
+        return images.map(image => ({ dataUrl: `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString('base64')}`,
+          label: `Physical page ${image.pageNumber}`, pageNumber: image.pageNumber }));
+      },
+    });
+    const workerId = `${process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || 'roughbid'}-full-${crypto.randomUUID()}`.slice(0, 160);
+    const processor = new DurableFullTakeoffV2Processor(db as unknown as PlanReadingFindingsWriter,
+      storage, factory, workerId);
+    const touch = async () => {
+      const touched = await db.rpc('touch_full_takeoff_v2_worker', { p_worker_id: workerId, p_version: FULL_TAKEOFF_V2_DURABLE_VERSION });
+      if (touched.error || touched.data !== true) throw new Error('Full Takeoff V2 schema/capability heartbeat is unavailable.');
+    };
+    // Fail before attaching a consumer if the reviewed migration is missing.
+    await touch();
+    const worker = new Worker(FULL_TAKEOFF_V2_QUEUE, job => processor.process(job as unknown as FullTakeoffV2WorkerJob), {
+      connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1,
+      lockDuration: 30_000, stalledInterval: 30_000, maxStalledCount: 1,
+    });
+    worker.on('failed', job => console.error('[worker] Full Takeoff V2 stopped', { runId: job?.data?.runId }));
+    worker.on('error', () => console.error('[worker] Full Takeoff V2 queue connection failed'));
+    await worker.waitUntilReady();
+    aiWorkers.push(worker);
+    fullTakeoffHeartbeat = setInterval(() => { void touch().catch(() => console.error('[worker] Full Takeoff V2 heartbeat unavailable')); }, 30_000);
+    console.log('[worker] Full Takeoff V2 queue attached', { queue: FULL_TAKEOFF_V2_QUEUE, workerId });
+  }
+
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[worker] received ${signal}, shutting down`);
     if (workerHeartbeat) clearInterval(workerHeartbeat);
+    if (fullTakeoffHeartbeat) clearInterval(fullTakeoffHeartbeat);
     await Promise.allSettled([
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
       ...aiWorkers.map((worker) => worker.close()),

@@ -688,6 +688,7 @@ export default function App() {
       {canWrite && activeProject && (
         <AIPlanModal
           project={activeProject}
+          canWrite={canWrite}
           workspaceId={workspace?.id ?? null}
           isOpen={showAIModal}
           onClose={() => setShowAIModal(false)}

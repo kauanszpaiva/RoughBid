@@ -83,7 +83,7 @@ export const PlansPage: React.FC<PlansPageProps> = (props) => {
           workspaceId={workspaceId} projectId={project.remoteId} fileId={currentRevision.remoteFileId}
           scope={project.projectType} canWrite={canWrite} onBusyChange={setPageReviewBusy}
           onOpenJob={(jobId, status) => {
-            props.onPatchRevision(currentRevision.id, { aiPlanJobId: jobId, aiPlanStatus: status });
+            props.onPatchRevision(currentRevision.id, { aiPlanJobId: jobId, aiPlanStatus: status, aiPlanMode: 'quick' });
             props.onOpenAIAssistant();
           }}
         />}

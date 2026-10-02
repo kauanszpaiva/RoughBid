@@ -19,6 +19,8 @@
  *   POST /api/documents/:id/download-url
  *   POST /api/projects/:id/ai-plan-readings
  *   GET  /api/ai-plan-readings/:id
+ *   GET  /api/takeoff-runs/:id
+ *   POST /api/takeoff-runs/:id/cancel|restart
  *   PATCH /api/ai-plan-readings/findings/:id
  *   POST /api/workspaces/:id/ai-consent
  *   GET|POST /api/workspaces/:id/estimating-catalog
@@ -376,7 +378,7 @@ export type PlanReadingJob = {
  * receives false, and the POST route re-checks the allowlist server-side.
  */
 export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
-  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
 export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed" | "full_v2"; trades?: string[]; scope?: string }) {
@@ -390,6 +392,74 @@ export function createAiPlanReading(workspaceId: string, projectId: string, inpu
 /** GET /api/ai-plan-readings/:id — job status plus every finding recorded so far. */
 export function getAiPlanReading(workspaceId: string, jobId: string) {
   return request<PlanReadingJob>(`/api/ai-plan-readings/${jobId}`, { workspaceId });
+}
+
+export type FullTakeoffRunStatus = PlanReadingJobStatus | "cancelled";
+export type FullTakeoffPass = {
+  plan_sheet_id: string;
+  pass_type: string;
+  attempt: number;
+  status: "processing" | "succeeded" | "blocked" | "failed";
+  provider: string | null;
+  model: string | null;
+  checkpoint?: Record<string, unknown> | null;
+  failure_classification: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+};
+export type FullTakeoffSheet = {
+  id: string;
+  physical_page_number: number;
+  status: string;
+  status_reason: string | null;
+  passes: FullTakeoffPass[];
+};
+export type FullTakeoffRun = {
+  id: string;
+  mode: "full_v2";
+  status: FullTakeoffRunStatus;
+  processing_error?: string | null;
+  cancel_requested_at?: string | null;
+  resumed?: boolean;
+  progress?: { completed?: number; total?: number; currentPage?: number | null; currentPass?: string | null } | null;
+  output_summary?: {
+    takeoff_v2?: {
+      releaseStatus: "blocked" | "review_ready";
+      budgetStatus?: string;
+      humanReviewRequired?: boolean;
+      summary?: { attempted: number; succeeded: number; blocked: number; failed: number; sheets: Array<{ physicalPageNumber: number; status: string; passesCompleted: number; passesTotal: number; blockers: string[] }> };
+    };
+  } | null;
+  sheets?: FullTakeoffSheet[];
+  updated_at?: string;
+};
+
+/** Reserve a durable run; the response is an acknowledgement, never completed evidence. */
+export function createFullTakeoffRun(workspaceId: string, projectId: string, fileId: string) {
+  return request<FullTakeoffRun>(`/api/projects/${projectId}/ai-plan-readings`, {
+    method: "POST", workspaceId, body: { file_id: fileId, mode: "full_v2" },
+  });
+}
+
+/** Read saved progress/checkpoints. A failed request does not cancel the worker. */
+export function getFullTakeoffRun(workspaceId: string, runId: string) {
+  return request<FullTakeoffRun>(`/api/takeoff-runs/${encodeURIComponent(runId)}`, { workspaceId });
+}
+
+/** Load one saved checkpoint on demand; progress never downloads the entire evidence set. */
+export function getFullTakeoffCheckpoint(workspaceId: string, runId: string, pageNumber: number, passType: string) {
+  return request<{ id: string; mode: "full_v2"; sheet: Omit<FullTakeoffSheet, "passes">; pass: FullTakeoffPass }>(
+    `/api/takeoff-runs/${encodeURIComponent(runId)}?page_number=${pageNumber}&pass_type=${encodeURIComponent(passType)}`, { workspaceId },
+  );
+}
+
+export function cancelFullTakeoffRun(workspaceId: string, runId: string) {
+  return request<{ id: string; status: FullTakeoffRunStatus }>(`/api/takeoff-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", workspaceId });
+}
+
+/** The server denies restart until uncertain provider attempts have been reconciled. */
+export function restartFullTakeoffRun(workspaceId: string, runId: string) {
+  return request<{ id: string; status: FullTakeoffRunStatus }>(`/api/takeoff-runs/${encodeURIComponent(runId)}/restart`, { method: "POST", workspaceId });
 }
 
 /** PATCH /api/ai-plan-readings/findings/:id — accept or reject one finding. */

@@ -1,16 +1,18 @@
 /**
  * Live end-to-end reading: the real service, the real OpenAI reader, a real PDF.
  *
- * Skipped unless OPENAI_API_KEY is present, so the normal suite stays offline
- * and free. When it does run it is the strongest available check short of
+ * Skipped by default even when a credential is present. Both explicit live
+ * enablement and separately approved spend are required. When authorized it checks
  * production: the whole service path (authorization, local evidence extraction,
  * the provider call, page-number restoration, the citation check against the
  * local transcript, and the saved output summary) against a real model.
  *
- *   OPENAI_API_KEY=... OPENAI_MODEL=gpt-4o-mini \
+ *   ROUGH_BID_LIVE_TESTS_ENABLED=true ROUGH_BID_LIVE_TEST_SPEND_APPROVED=true \
+ *   OPENAI_API_KEY=... OPENAI_MODEL=<explicit-approved-model> \
  *     node --experimental-strip-types --test apps/api/test/live-openai-plan-reading.test.ts
  *
- * It costs a fraction of a cent per run on a cheap model.
+ * This test sends a generated PDF and may charge the provider account. A key,
+ * reported credit balance or configured production flag is never spend approval.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +21,10 @@ import { AiPlanReadingService } from '../src/ai-plan/service.ts';
 import { PDF_DIGEST } from '../src/billing/project-preflight.ts';
 import { OpenAiCompatibleVisionPlanReader, requireOpenAiVisionConfig } from '../src/ai-plan/openai-vision.ts';
 
-const live = Boolean(process.env.OPENAI_API_KEY);
+const live = process.env.ROUGH_BID_LIVE_TESTS_ENABLED === 'true'
+  && process.env.ROUGH_BID_LIVE_TEST_SPEND_APPROVED === 'true'
+  && Boolean(process.env.OPENAI_API_KEY)
+  && Boolean(process.env.OPENAI_MODEL);
 
 /** Three sheets: general notes, a floor plan with areas, and a schedule. */
 async function samplePlan(): Promise<Uint8Array> {
@@ -48,7 +53,7 @@ async function samplePlan(): Promise<Uint8Array> {
   return doc.save();
 }
 
-test('a real OpenAI reading of a real plan set saves cited evidence for every sheet it read', { skip: live ? false : 'OPENAI_API_KEY is not set; the live reading is skipped.' }, async () => {
+test('a real OpenAI reading of a real plan set saves cited evidence for every sheet it read', { skip: live ? false : 'Live provider calls require explicit opt-in, model selection and separately approved spend; skipped offline.' }, async () => {
   const bytes = await samplePlan();
 
   const jobs: any[] = [];
@@ -103,7 +108,7 @@ test('a real OpenAI reading of a real plan set saves cited evidence for every sh
   const config = requireOpenAiVisionConfig({
     OPENAI_PLAN_READING_ENABLED: 'true',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
     // Force the sweep so this run covers the windowed path as well.
     AI_PLAN_OPENAI_BATCH_PAGES: '2',
   });

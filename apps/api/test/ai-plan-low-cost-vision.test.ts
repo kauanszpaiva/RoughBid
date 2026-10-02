@@ -94,12 +94,14 @@ test('DeepSeek vision sends page images and sanitizes source-backed JSON', async
 test('Kimi requires an explicit region-matched base URL', () => {
   assert.throws(() => requireKimiVisionConfig({
     KIMI_PLAN_READING_ENABLED: 'true',
+    KIMI_PRIVATE_PLAN_DATA_APPROVED: 'true',
     KIMI_API_KEY: 'test-key',
     KIMI_MODEL: 'kimi-k2.6',
   }), /not configured/i);
 
   assert.throws(() => requireKimiVisionConfig({
     KIMI_PLAN_READING_ENABLED: 'true',
+    KIMI_PRIVATE_PLAN_DATA_APPROVED: 'true',
     KIMI_API_KEY: 'test-key',
     KIMI_BASE_URL: 'https://example.com/v1',
     KIMI_MODEL: 'kimi-k2.6',
@@ -107,6 +109,7 @@ test('Kimi requires an explicit region-matched base URL', () => {
 
   const config = requireKimiVisionConfig({
     KIMI_PLAN_READING_ENABLED: 'true',
+    KIMI_PRIVATE_PLAN_DATA_APPROVED: 'true',
     KIMI_API_KEY: 'test-key',
     KIMI_BASE_URL: 'https://api.moonshot.ai/v1',
     KIMI_MODEL: 'kimi-k2.6',
@@ -116,7 +119,7 @@ test('Kimi requires an explicit region-matched base URL', () => {
   assert.equal(config.model, 'kimi-k2.6');
 });
 
-test('DeepSeek defaults to Flash and provider order is explicit and complete', () => {
+test('DeepSeek requires an explicit visual model and provider order is complete', () => {
   assert.throws(() => requireDeepSeekVisionConfig({
     DEEPSEEK_PLAN_READING_ENABLED: 'true',
     DEEPSEEK_API_KEY: 'test-key',
@@ -126,9 +129,14 @@ test('DeepSeek defaults to Flash and provider order is explicit and complete', (
     DEEPSEEK_PLAN_READING_ENABLED: 'true',
     DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED: 'true',
     DEEPSEEK_API_KEY: 'test-key',
+    DEEPSEEK_MODEL: 'deepseek-flash',
   });
   assert.equal(config.model, 'deepseek-flash');
   assert.equal(config.baseUrl, 'https://api.deepseek.com');
+  assert.throws(() => requireDeepSeekVisionConfig({
+    DEEPSEEK_PLAN_READING_ENABLED: 'true', DEEPSEEK_PRIVATE_PLAN_DATA_APPROVED: 'true',
+    DEEPSEEK_API_KEY: 'test-key',
+  }), /not configured/i);
 
   // OpenAI first: the owner-selected reader for the drawing itself, then the
   // remaining paid readers in a fixed, explicit order. Unknown names are ignored

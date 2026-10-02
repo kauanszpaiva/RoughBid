@@ -16,6 +16,7 @@ import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { createDurableAiPlanQueue, type DurableAiPlanQueue } from '../ai-plan/durable.ts';
+import { createFullTakeoffV2Queue, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE } from '../ai-plan/readiness.ts';
@@ -205,13 +206,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       await queue?.close?.().catch(() => {});
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname) || /^\/api\/takeoff-runs\/[^/]+(?:\/(?:cancel|restart))?$/.test(pathname)) {
     const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     let durableQueue: DurableAiPlanQueue | undefined;
+    let fullTakeoffV2Queue: FullTakeoffV2Queue | undefined;
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
@@ -238,7 +240,8 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       } catch { /* Free owner route stays closed until its own config is verified. */ }
 
       const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
-      if (!readers.length && !freeReader && !pilotReader && isCreateReading) {
+      const fullV2Request = isCreateReading && (await request.clone().json().catch(() => ({})))?.mode === 'full_v2';
+      if (!readers.length && !freeReader && !pilotReader && isCreateReading && !fullV2Request) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
       if (isCreateReading && process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
@@ -249,6 +252,10 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           try { durableQueue = await createDurableAiPlanQueue(redisUrl); }
           catch { /* The selected durable route will fail closed without a queue. */ }
         }
+      }
+      if ((fullV2Request || pathname.endsWith('/restart')) && process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.REDIS_URL) {
+        try { fullTakeoffV2Queue = await createFullTakeoffV2Queue(process.env.REDIS_URL); }
+        catch { /* Full V2 fails closed without its dedicated queue. */ }
       }
       const reader = readers.length
         ? new MultiProviderPlanReader(readers)
@@ -268,12 +275,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         // PDF directly, so loading images for it would be wasted bandwidth.
         pageImagesEnabled: configuredReaders.has('kimi') || configuredReaders.has('deepseek'),
         ...(durableQueue ? { durableQueue } : {}),
+        ...(fullTakeoffV2Queue ? { fullTakeoffV2Queue } : {}),
       };
       return await handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);
     } finally {
       await durableQueue?.close?.().catch(() => {});
+      await fullTakeoffV2Queue?.close?.().catch(() => {});
     }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {

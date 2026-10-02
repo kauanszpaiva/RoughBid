@@ -18,6 +18,7 @@ import {
 } from './page-tiles.ts';
 import { AiProviderError, classifyProviderFailure, logProviderFailure } from './provider-errors.ts';
 import { isConfiguredValue } from './readiness.ts';
+import { assertRenderedVisionRequestSize, renderedVisionGenerationOptions, requireImageProviderBaseUrl, requireRenderedVisionModel } from './vision-capabilities.ts';
 
 export interface OpenAiVisionProviderConfig {
   provider: MeteredVisionProvider;
@@ -78,21 +79,22 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
     throw new ProjectApiError(503, 'DeepSeek private-plan processing is not approved.');
   }
   const apiKey = env.DEEPSEEK_API_KEY?.trim();
-  const model = env.DEEPSEEK_MODEL?.trim() || 'deepseek-flash';
-  if (!isConfiguredValue(apiKey) || !/^deepseek-[a-z0-9][a-z0-9._-]+$/i.test(model)) {
+  const model = (env.DEEPSEEK_VISION_MODEL ?? env.DEEPSEEK_MODEL)?.trim();
+  if (!isConfiguredValue(apiKey) || !isConfiguredValue(model)) {
     throw new ProjectApiError(503, 'DeepSeek plan reading is not configured.');
   }
+  requireRenderedVisionModel('deepseek', model);
   return {
     provider: 'deepseek',
     apiKey,
-    baseUrl: safeHttpsBaseUrl(env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com', ['api.deepseek.com']),
+    baseUrl: requireImageProviderBaseUrl('deepseek', env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com'),
     model,
     maxImages: maxImagesFromEnv(env),
     batchPages: 0,
     maxBatches: 0,
     maxTotalFindings: 200,
-    timeoutMs: 60_000,
-    maxOutputTokens: 8_000,
+    timeoutMs: integerFromEnv(env.AI_PLAN_DEEPSEEK_TIMEOUT_MS, 120_000, 900_000),
+    maxOutputTokens: integerFromEnv(env.AI_PLAN_DEEPSEEK_MAX_OUTPUT_TOKENS, 16_000, 64_000),
     budgetMs: 0,
     tileGrid: 1,
     tileOverlapRatio: 0,
@@ -103,24 +105,27 @@ export function requireDeepSeekVisionConfig(env: Record<string, string | undefin
 
 export function requireKimiVisionConfig(env: Record<string, string | undefined>): OpenAiVisionProviderConfig {
   if (env.KIMI_PLAN_READING_ENABLED !== 'true') throw new ProjectApiError(503, 'Kimi plan reading is disabled.');
+  if (env.KIMI_PRIVATE_PLAN_DATA_APPROVED !== 'true') {
+    throw new ProjectApiError(503, 'Kimi private-plan processing is not approved.');
+  }
   const apiKey = env.KIMI_API_KEY?.trim();
-  // K2.6 is the default cost-optimized vision fallback. K3 can still be selected explicitly.
-  const model = env.KIMI_MODEL?.trim() || 'kimi-k2.6';
+  const model = env.KIMI_MODEL?.trim();
   const baseUrl = env.KIMI_BASE_URL?.trim();
-  if (!isConfiguredValue(apiKey) || !isConfiguredValue(baseUrl) || !/^kimi-[a-z0-9][a-z0-9._-]+$/i.test(model)) {
+  if (!isConfiguredValue(apiKey) || !isConfiguredValue(baseUrl) || !isConfiguredValue(model)) {
     throw new ProjectApiError(503, 'Kimi plan reading is not configured.');
   }
+  requireRenderedVisionModel('kimi', model);
   return {
     provider: 'kimi',
     apiKey,
-    baseUrl: safeHttpsBaseUrl(baseUrl, ['api.moonshot.ai', 'api.moonshot.cn']),
+    baseUrl: requireImageProviderBaseUrl('kimi', baseUrl),
     model,
     maxImages: maxImagesFromEnv(env),
     batchPages: 0,
     maxBatches: 0,
     maxTotalFindings: 200,
-    timeoutMs: 60_000,
-    maxOutputTokens: 8_000,
+    timeoutMs: integerFromEnv(env.AI_PLAN_KIMI_TIMEOUT_MS, 120_000, 900_000),
+    maxOutputTokens: integerFromEnv(env.AI_PLAN_KIMI_MAX_OUTPUT_TOKENS, 16_000, 64_000),
     budgetMs: 0,
     tileGrid: 1,
     tileOverlapRatio: 0,
@@ -302,18 +307,36 @@ export class OpenAiCompatibleVisionPlanReader {
 
   assertReady(): void {
     if (!this.config.apiKey || !this.config.model || !this.config.baseUrl) throw new ProjectApiError(503, 'AI vision provider is not configured.');
+    if (this.config.provider === 'kimi' || this.config.provider === 'deepseek') {
+      requireRenderedVisionModel(this.config.provider, this.config.model);
+      requireImageProviderBaseUrl(this.config.provider, this.config.baseUrl);
+    }
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
     this.assertReady();
-    const images = (input.pageImages || []).slice(0, this.config.maxImages);
+    const pageCount = Number.isSafeInteger(input.pageCount) && (input.pageCount as number) > 0 ? input.pageCount as number : null;
+    const suppliedImages = input.pageImages || [];
+    // The per-page service extracts one PDF page and restores its original
+    // physical number after parsing. Its rendered image retains the original
+    // number, so normalize only the copied request image to that one-page PDF.
+    const images = pageCount === 1 && suppliedImages.length === 1
+      && Number.isSafeInteger(suppliedImages[0]?.pageNumber) && suppliedImages[0]!.pageNumber > 0
+      ? suppliedImages.map(image => ({ ...image, pageNumber: 1 }))
+      : suppliedImages;
+    if (images.length > this.config.maxImages) {
+      throw new ProjectApiError(413, 'Rendered page count exceeds this request limit. Split the plan into explicit page windows. No provider request was sent.');
+    }
     // OpenAI reads construction PDFs natively, so it needs no renderer; the
     // image-native low-cost providers still fail closed without page images.
     const attachesPdf = this.config.provider === 'openai';
     if (!images.length && !attachesPdf) {
       throw new ProjectApiError(503, `${this.config.provider} requires server-rendered plan page images. No provider request was sent.`);
     }
-    const pageCount = Number.isSafeInteger(input.pageCount) && (input.pageCount as number) > 0 ? input.pageCount as number : null;
+    if (!attachesPdf && pageCount !== null
+      && (images.length !== pageCount || images.some(image => image.pageNumber > pageCount))) {
+      throw new ProjectApiError(503, 'Full-set visual reading requires every physical page to be rendered. Select explicit per-page review or supply complete page windows. No provider request was sent.');
+    }
     // A whole set does not fit one honest request: the model skims it and the
     // output limit truncates the last third. Read it window by window instead —
     // one metered request per window — with physical numbering restored locally.
@@ -330,7 +353,16 @@ export class OpenAiCompatibleVisionPlanReader {
     if (images.some(image => image.bytes.byteLength < 1 || image.bytes.byteLength > MAX_IMAGE_BYTES)) {
       throw new ProjectApiError(413, 'A rendered plan page is outside the low-cost vision size limit. No provider request was sent.');
     }
-    return this.readOnce(input, { fileBytes: input.fileBytes, images });
+    if (images.some(image => !['image/jpeg', 'image/png', 'image/webp'].includes(image.mimeType)
+      || !Number.isSafeInteger(image.pageNumber) || image.pageNumber < 1)
+      || new Set(images.map(image => image.pageNumber)).size !== images.length) {
+      throw new ProjectApiError(422, 'Rendered plan pages require supported image types and unique physical page numbers. No provider request was sent.');
+    }
+    const result = await this.readOnce(input, { fileBytes: input.fileBytes, images });
+    if (!attachesPdf && pageCount === null) {
+      result.summary.limitations.push('Only the supplied rendered page images were reviewed. The source page count is unknown, so complete plan-set coverage is unverified.');
+    }
+    return result;
   }
 
   /** One provider request over one document: the whole set, one window of it, or one region of a sheet. */
@@ -339,7 +371,7 @@ export class OpenAiCompatibleVisionPlanReader {
     options: { fileBytes: Uint8Array; images?: readonly PlanPageImage[]; window?: PageWindow; region?: { region: PageRegion; page: PageSize } },
   ): Promise<PlanReadingResult> {
     const images = options.images ?? [];
-    if (options.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
+    if (!images.length && options.fileBytes.byteLength > MAX_INLINE_PLAN_BYTES) {
       throw new ProjectApiError(413, 'This plan is too large to attach as a document. No provider request was sent.');
     }
 
@@ -385,29 +417,28 @@ export class OpenAiCompatibleVisionPlanReader {
       ],
       response_format: { type: 'json_object' },
       stream: false,
-      ...(this.config.provider === 'deepseek'
-        ? { max_tokens: 8000, thinking: { type: input.reasoningEffort === 'high' ? 'enabled' : 'disabled' },
-            reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'none' }
-        : {
-            max_completion_tokens: this.config.maxOutputTokens,
-            ...(this.config.model.startsWith('kimi-k3')
-              ? { reasoning_effort: input.reasoningEffort === 'high' ? 'high' : 'low' }
-              : {}),
-          }),
+      ...(this.config.provider === 'kimi' || this.config.provider === 'deepseek'
+        ? renderedVisionGenerationOptions(this.config.provider, this.config.model, this.config.maxOutputTokens, input.reasoningEffort)
+        : { max_completion_tokens: this.config.maxOutputTokens }),
     };
+    const serializedBody = JSON.stringify(body);
+    if (this.config.provider === 'kimi' || this.config.provider === 'deepseek') {
+      assertRenderedVisionRequestSize(this.config.provider, serializedBody);
+    }
 
     const started = Date.now();
     let response: ChatCompletionResponse;
     try {
       response = await meterOpenAiCompatibleCall(this.config.provider, this.config.model, async () => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+        const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 120_000);
         try {
           const http = await this.fetcher(`${this.config.baseUrl}/chat/completions`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${this.config.apiKey}` },
-            body: JSON.stringify(body),
+            body: serializedBody,
             signal: controller.signal,
+            redirect: 'error',
           });
           if (!http.ok) {
             const error = Object.assign(new Error('provider_http_error'), { status: http.status });
@@ -442,18 +473,26 @@ export class OpenAiCompatibleVisionPlanReader {
       // A windowed request is told how many pages it carries, so pin that count:
       // the sanitizer then validates every citation against this window's pages
       // instead of the whole set. The caller restores physical numbering.
-      const normalized = options.window && parsed && typeof parsed === 'object'
+      const expectedSheetCount = options.window ? options.window.to - options.window.from + 1
+        : images.length && Number.isSafeInteger(input.pageCount) && input.pageCount! > 0 ? input.pageCount : null;
+      const normalized = expectedSheetCount !== null && parsed && typeof parsed === 'object'
         ? {
             ...(parsed as Record<string, unknown>),
             summary: {
               ...((parsed as Record<string, unknown>).summary && typeof (parsed as Record<string, unknown>).summary === 'object'
                 ? (parsed as Record<string, unknown>).summary as Record<string, unknown> : {}),
-              sheet_count: options.window.to - options.window.from + 1,
+              sheet_count: expectedSheetCount,
             },
           }
         : parsed;
       const result = sanitizePlanReadingResult(normalized);
       if (!result.findings.length) throw new Error('empty');
+      if (this.config.provider !== 'openai' && images.length) {
+        const attachedPages = new Set(images.map(image => image.pageNumber));
+        if (result.findings.some(finding => finding.page_number === null || !attachedPages.has(finding.page_number))) {
+          throw new Error('unattached_page_citation');
+        }
+      }
       return result;
     } catch (error) {
       if (error instanceof AiProviderError) throw error;

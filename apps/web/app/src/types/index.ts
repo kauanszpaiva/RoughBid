@@ -24,7 +24,8 @@ export interface PlanRevision {
   remoteFileId?: string;
   processingStatus?: "uploading" | "queued" | "processing" | "ready" | "failed";
   aiPlanJobId?: string;
-  aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed";
+  aiPlanMode?: "quick" | "detailed" | "full_v2";
+  aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed" | "cancelled";
   annotations?: PlanAnnotation[];
 }
 

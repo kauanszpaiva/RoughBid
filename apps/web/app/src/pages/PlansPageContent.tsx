@@ -10,9 +10,9 @@ import {
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
-import { presentAiPlanStatus } from "../utils/aiPlanStatus";
+import { isAiPlanInFlight, presentAiPlanStatus, presentFullTakeoffStatus } from "../utils/aiPlanStatus";
 import { BlueprintViewer } from "../components/BlueprintViewer";
-import { getAiPlanEntitlement, getAiPlanReading, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
+import { getAiPlanEntitlement, getAiPlanReading, getFullTakeoffRun, createFullTakeoffRun, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
   canWrite?: boolean;
@@ -48,6 +48,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [selectedTrades, setSelectedTrades] = useState(PLAN_TRADES);
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [fullTakeoffV2, setFullTakeoffV2] = useState(false);
+  const [fullTakeoffV2Available, setFullTakeoffV2Available] = useState(false);
   const [billingAvailable, setBillingAvailable] = useState(false);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
   // Per-workspace entitlement. Never derived from a global flag: a customer
@@ -58,17 +59,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [entitlementError, setEntitlementError] = useState(false);
   const [entitlementRetry, setEntitlementRetry] = useState(0);
   const entitlementReady = entitlementContext === `${workspaceId}:${project.remoteId}`;
-  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setFullTakeoffV2(value.fullTakeoffV2); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => {
     let active = true;
     const remoteId = project.remoteId;
     setEntitlementContext(null);
     setEntitlementError(false);
     setFreeReadingAvailable(false);
+    setFullTakeoffV2Available(false);
+    setFullTakeoffV2(false);
     setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
       .catch(() => { if (active) setEntitlementError(true); });
     return () => { active = false; };
   }, [workspaceId, project.remoteId, entitlementRetry]);
@@ -88,9 +91,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
   const contextRef = useRef('');
-  const contextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}:${selectedTrades.join(',')}`;
+  const contextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}:${selectedTrades.join(',')}:${fullTakeoffV2}`;
   const fileContextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}`;
-  const paidReading = entitlementReady && !freeReadingAvailable && !pilotActive;
+  const paidReading = entitlementReady && !freeReadingAvailable && !fullTakeoffV2Available && !pilotActive;
   const quoteRecoveryReady = quoteRecoveryContext === fileContextKey;
   contextRef.current = contextKey;
 
@@ -133,6 +136,22 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
     const pollAiPlanReading = async () => {
       try {
+        if (currentRevision.aiPlanMode === 'full_v2') {
+          const polledRun = await getFullTakeoffRun(workspaceId, jobId);
+          if (!active) return;
+          const presentation = presentFullTakeoffStatus(polledRun);
+          if (lastObservedStatus !== polledRun.status || (presentation.revisionNote && lastRevisionNote !== presentation.revisionNote)) {
+            onPatchRevision(currentRevision.id, {
+              aiPlanJobId: polledRun.id, aiPlanStatus: polledRun.status, aiPlanMode: 'full_v2',
+              ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
+            });
+            lastObservedStatus = polledRun.status;
+            if (presentation.revisionNote) lastRevisionNote = presentation.revisionNote;
+          }
+          setPlanNotice(polledRun.processing_error ? `${presentation.notice} ${polledRun.processing_error}` : presentation.notice);
+          if (isAiPlanInFlight(polledRun.status)) timer = setTimeout(pollAiPlanReading, 4000);
+          return;
+        }
         const polledJob = await getAiPlanReading(workspaceId, jobId);
         if (!active) return;
         setFindings(polledJob.plan_reading_findings);
@@ -141,6 +160,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           onPatchRevision(currentRevision.id, {
             aiPlanJobId: polledJob.id,
             aiPlanStatus: polledJob.status,
+            aiPlanMode: currentRevision.aiPlanMode ?? 'quick',
             ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
           });
           lastObservedStatus = polledJob.status;
@@ -158,7 +178,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           timer = setTimeout(pollAiPlanReading, 4000);
         }
       } catch (error) {
-        if (active) setPlanNotice(readableApiError(error));
+        if (active) {
+          setPlanNotice(`Saved progress could not be refreshed. The worker may still be running. ${readableApiError(error)}`);
+          if (!(error instanceof ApiError && [401, 403, 404].includes(error.status))) timer = setTimeout(pollAiPlanReading, 8000);
+        }
       }
     };
 
@@ -167,7 +190,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [workspaceId, currentRevision?.id, currentRevision?.aiPlanJobId]);
+  }, [workspaceId, currentRevision?.id, currentRevision?.aiPlanJobId, currentRevision?.aiPlanMode]);
 
   useEffect(() => {
     let canceled = false;
@@ -322,6 +345,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
    */
   const handleStartFreeReading = async () => {
     if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
+    if (fullTakeoffV2 && !fullTakeoffV2Available) return;
     if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
@@ -331,6 +355,18 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPlanNotice(null);
     setNeedsAiConsent(false);
     try {
+      if (fullTakeoffV2) {
+        const run = await createFullTakeoffRun(workspaceId, project.remoteId, currentRevision.remoteFileId);
+        if (contextRef.current !== contextKey) return;
+        setFindings([]);
+        const presentation = presentFullTakeoffStatus(run);
+        onPatchRevision(currentRevision.id, {
+          aiPlanJobId: run.id, aiPlanStatus: run.status, aiPlanMode: 'full_v2',
+          ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
+        });
+        setPlanNotice(presentation.notice);
+        return;
+      }
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
         mode: "quick",
@@ -343,6 +379,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       onPatchRevision(currentRevision.id, {
         aiPlanJobId: job.id,
         aiPlanStatus: job.status,
+        aiPlanMode: 'quick',
         ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
       });
       setPlanNotice(presentation.notice);
@@ -386,6 +423,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         onPatchRevision(currentRevision.id, {
           aiPlanJobId: existing.id,
           aiPlanStatus: existing.status,
+          aiPlanMode: 'quick',
           ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
         });
         setFindings(existing.plan_reading_findings);
@@ -395,7 +433,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       const job = await createAiPlanReading(workspaceId, project.remoteId, {
         file_id: currentRevision.remoteFileId,
         quote_id: quote.id,
-        mode: fullTakeoffV2 ? "full_v2" : "quick",
+        // Full V2 does not inherit this legacy quote's price or attempts.
+        mode: "quick",
         scope: quote.scope,
         trades: quote.trades,
       });
@@ -406,6 +445,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       onPatchRevision(currentRevision.id, {
         aiPlanJobId: job.id,
         aiPlanStatus: job.status,
+        aiPlanMode: 'quick',
         ...(presentation.revisionNote ? { notes: presentation.revisionNote } : {}),
       });
       setPlanNotice(presentation.notice);
@@ -666,6 +706,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying || isUploading} className="pb-3 border-b border-slate-200">
               <legend className="text-xs font-semibold mb-2">Analysis scope</legend>
               <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => { setSelectedTrades(previous => e.target.checked ? [...previous, trade] : previous.filter(value => value !== trade)); setReadingQuote(null); }} />{trade}</label>)}</div>
+              {fullTakeoffV2Available && !pilotActive && <label className="flex items-start gap-2 mt-3 text-xs text-slate-700">
+                <input type="checkbox" checked={fullTakeoffV2} onChange={event => setFullTakeoffV2(event.target.checked)} />
+                <span>Full Takeoff V2 — durable reading with saved evidence by sheet and stage. Quantities and sourced prices require verification.</span>
+              </label>}
             </fieldset>
 
             {/* Upload New Revision */}
@@ -687,17 +731,17 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             </label>
 
             {!entitlementReady && workspaceId && project.remoteId && <p role="status" className="text-xs text-slate-600">{entitlementError ? <button onClick={() => setEntitlementRetry(value => value + 1)}>Access could not be verified. Check again.</button> : 'Checking analysis access…'}</p>}
-            {entitlementReady && freeReadingAvailable && (
+            {entitlementReady && (freeReadingAvailable || fullTakeoffV2Available) && (
               <button
                 onClick={handleStartFreeReading}
-                disabled={!canWrite || !selectedTrades.length || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
+                disabled={!canWrite || (!freeReadingAvailable && !fullTakeoffV2) || (!fullTakeoffV2 && !selectedTrades.length) || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
                 className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>{isStartingAi ? 'Analyzing plan…' : pilotActive ? 'Run included pilot analysis' : 'Run AI analysis (owner workspace)'}</span>
+                  <span>{isStartingAi ? fullTakeoffV2 ? 'Saving durable reading…' : 'Analyzing plan…' : fullTakeoffV2 ? 'Start Full Takeoff V2' : pilotActive ? 'Run included pilot analysis' : 'Run AI analysis (owner workspace)'}</span>
                 </div>
-                <span className="text-[10px] font-mono text-emerald-700">no charge</span>
+                <span className="text-[10px] font-mono text-emerald-700">{fullTakeoffV2 ? 'provider spend tracked' : 'no charge'}</span>
               </button>
             )}
 

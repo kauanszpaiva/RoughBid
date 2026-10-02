@@ -39,7 +39,19 @@ test('Full Takeoff V2 requires explicit code, worker and schema gates', () => {
     TAKEOFF_V2_ENABLED: 'true',
     TAKEOFF_V2_WORKER_ENABLED: 'true',
     TAKEOFF_V2_SCHEMA_VERSION: 'takeoff-v2-foundation-v1',
+    REDIS_URL: 'redis://localhost:6379',
   }).fullTakeoffV2, true);
+});
+
+test('Full worker deployment declaration does not require Stripe or HTTP model credentials', () => {
+  const env = { ...configured, PAID_PLAN_READINGS_ENABLED: 'false', GEMINI_API_KEY: '', STRIPE_SECRET_KEY: '',
+    TAKEOFF_V2_ENABLED: 'true', TAKEOFF_V2_WORKER_ENABLED: 'true', TAKEOFF_V2_SCHEMA_VERSION: 'takeoff-v2-foundation-v1',
+    REDIS_URL: 'redis://localhost:6379' };
+  const flags = runtimeCapabilities(env);
+  assert.equal(flags.fullTakeoffV2, true);
+  assert.equal(flags.billing, false);
+  assert.equal(flags.aiReadingAvailable, false);
+  assert.equal(runtimeCapabilities({ ...env, REDIS_URL: '' }).fullTakeoffV2, false);
 });
 
 test('masked secrets, placeholder models and unmeasured policies cannot advertise paid availability', () => {
