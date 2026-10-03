@@ -19,6 +19,8 @@ const persist = () => localStorage.setItem(stateKey, JSON.stringify(fixture));
 fixture.advancePlan = (status: string) => { if (fixture.fullRun) { fixture.fullRun.status = status; fixture.fullRun.progress = { completed: 4, total: 20, currentPage: null, currentPass: null }; persist(); } };
 fixture.advancePhoto = () => { if (fixture.photoRun) { fixture.photoRun.status = 'needs_review'; fixture.photoRun.progress = { completed: 1, total: 1 }; fixture.photoRun.result = photoResult(); persist(); } };
 fixture.setPhotoEnabled = (enabled: boolean) => { fixture.photoEnabled = enabled; persist(); };
+fixture.setAutomatic = () => { fixture.automatic = true; persist(); };
+fixture.resetPhoto = () => { fixture.photoRun = null; fixture.assets = []; delete fixture.photoBytes; delete fixture.pendingAsset; persist(); };
 
 if (view === 'auth') localStorage.removeItem('sb-127-auth-token');
 else localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: 'offline-fixture-access-placeholder', refresh_token: 'offline-fixture-refresh-placeholder', token_type: 'bearer', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user }));
@@ -27,7 +29,7 @@ function photoResult(): NonNullable<PhotoRun['result']> {
   return { assets: fixture.assets, observations: [{ id: 'offline-observation', label: 'Visible wall surface', regions: [{ sourceAssetId: fixture.assets[0]?.id ?? 'offline-photo-1', surfaceKey: 'wall-a', bbox: [0.15, 0.15, 0.6, 0.6] }], proposedQuantity: null, proposedUnit: null, referenceId: null, method: 'visual_estimate', confidence: 0.7, uncertainty: ['dimensional_reference_missing', 'hidden_surfaces_not_verified'] }], approvedMeasurements: [], blockers: ['dimension_reference_required', 'independent_review_pending', 'missing_price'], humanReviewRequired: true, releaseStatus: 'blocked', pricingStatus: 'missing_price', estimate: null, independentReview: 'pending', stageStatus: { visual_observation: 'completed', independent_reconciliation: 'pending' } };
 }
 const initialPass = { plan_sheet_id: 'offline-sheet-1', pass_type: 'inventory', attempt: 1, status: 'succeeded', provider: 'offline_mock', model: 'fixture', failure_classification: null, started_at: '2026-10-02T00:00:00Z', completed_at: '2026-10-02T00:00:01Z' };
-const savedSheets = () => [{ id: 'offline-sheet-1', physical_page_number: 1, status: 'review_required', status_reason: 'Geometry and independent review remain pending.', passes: [initialPass] }, { id: 'offline-sheet-2', physical_page_number: 2, status: 'review_required', status_reason: 'Cross-sheet specification requires confirmation.', passes: [] }];
+const savedSheets = () => [{ id: 'offline-sheet-1', physical_page_number: 1, status: 'review_required', status_reason: 'Geometry and independent review remain pending.', passes: [initialPass] }, ...(fixture.automatic ? [] : [{ id: 'offline-sheet-2', physical_page_number: 2, status: 'review_required', status_reason: 'Cross-sheet specification requires confirmation.', passes: [] }])];
 const nativeFetch = window.fetch.bind(window);
 let geometryContext: any;
 window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -40,28 +42,51 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const path = url.pathname;
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
   fixture.requests.push({ method, path, query: url.search, body });
+  if (path.startsWith('/api/projects/offline-project/geometry/')) {
+    geometryContext ??= await (await nativeFetch('/offline-fixture/geometry-context')).json();
+    fixture.geometryRun ??= { id: 'offline-auto-geometry', provider: 'kamai', file_id: fixture.automatic ? 'offline-pdf' : geometryContext.fileId, physical_page_number: 1,
+      file_sha256: geometryContext.fileSha256, status: 'needs_review', error_code: null, created_at: new Date().toISOString(), profile_hash: 'f'.repeat(64), checkpoint: { fixtureOnly: true } };
+    if (!fixture.geometryCandidates) {
+      const generated = await nativeFetch('/offline-fixture/geometry-candidates');
+      const parsed = await generated.json();
+      if (!generated.ok || !Array.isArray(parsed.candidates)) return json({ error: 'Restart the offline fixture server to load its production DTO generator.' }, 503);
+      fixture.geometryCandidates = parsed.candidates;
+    }
+    persist();
+    if (path.endsWith('/capability')) return json({ enabled: true, workerReady: true, providerAvailability: { kamai: true, aps: false }, reason: null });
+    if (path.endsWith('/runs') && method === 'GET') return json({ runs: [fixture.geometryRun], hasMore: false });
+    if (path.endsWith('/offline-auto-geometry/review') && method === 'POST') {
+      const candidate = fixture.geometryCandidates.find((item: any) => item.id === body.candidateId);
+      if (!candidate || candidate.reviewRevision !== body.expectedRevision) return json({ error: 'Offline geometry revision conflict.' }, 409);
+      if ('quantity' in body || !['accepted', 'rejected'].includes(body.decision) || !body.identityReviewed || !body.geometryReviewed || !body.duplicateReviewComplete || !body.reviewNote?.trim()) return json({ error: 'Offline review requires source and identity review without browser quantity.' }, 422);
+      candidate.status = body.decision; candidate.reviewRevision++; persist(); return json({ candidate, replayed: false });
+    }
+    if (path.endsWith('/offline-auto-geometry') && method === 'GET') return json({ run: fixture.geometryRun, candidates: fixture.geometryCandidates,
+      coverage: { expectedPages: 1, verifiedPages: [], complete: false } });
+    return json({ error: 'Unmocked geometry fixture endpoint.' }, 501);
+  }
   if (path === '/api/projects/offline-project/construction-budget' && method === 'GET') return json({ quotes: fixture.quotes ?? [], snapshots: url.searchParams.has('snapshot_id') ? (fixture.snapshots ?? []).filter((saved: any) => saved.id === url.searchParams.get('snapshot_id')) : (fixture.snapshots ?? []).map((saved: any) => ({ ...saved, detailLoaded: false, result: { ...saved.result, lines: [], trace: [] } })),
-    measurements: (fixture.measurements ?? []).filter((row: any) => row.review_status === 'accepted' && row.quantity !== null).map((row: any) => ({
+    measurements: [...(fixture.photoRun?.result?.approvedMeasurements ?? []).map((row: any) => ({ id: row.id, sourceKind: 'photo', runId: 'offline-photo-run', label: row.objectIdentityKey, quantity: row.quantity, unit: row.unit, reviewStatus: 'accepted', evidenceRef: 'offline-photo-run:' + row.id })), ...(fixture.geometryCandidates ?? []).filter((row: any) => row.status === 'accepted' && row.measurementKind === 'area').map((row: any) => ({ id: row.id, sourceKind: 'geometry', runId: 'offline-auto-geometry', label: row.label, quantity: row.quantity / 0.09290304, unit: 'SF', reviewStatus: 'accepted', evidenceRef: 'offline-auto-geometry:' + row.id, pageNumber: 1 })), ...(fixture.measurements ?? []).filter((row: any) => row.review_status === 'accepted' && row.quantity !== null).map((row: any) => ({
       id: row.id, sourceKind: 'plan', runId: 'offline-geometry-run', label: row.label, quantity: row.quantity, unit: row.unit, reviewStatus: 'accepted',
-      evidenceRef: 'offline-geometry-run:sheet-1:' + row.id, pageNumber: 1 })),
+      evidenceRef: 'offline-geometry-run:sheet-1:' + row.id, pageNumber: 1 }))],
     pendingMeasurements: [], location: null, coverage: 'partial', humanReviewRequired: true });
   if (path === '/api/projects/offline-project/construction-budget' && method === 'POST') {
-    if (body.sourceKind !== 'plan' || body.runId !== 'offline-geometry-run' || !Array.isArray(body.selections) || body.selections.length !== 1) return json({ error: 'Select one accepted offline plan measurement.' }, 422);
+    if (!((body.sourceKind === 'plan' && body.runId === 'offline-geometry-run') || (body.sourceKind === 'geometry' && body.runId === 'offline-auto-geometry') || (body.sourceKind === 'photo' && body.runId === 'offline-photo-run')) || !Array.isArray(body.selections) || body.selections.length !== 1) return json({ error: 'Select one accepted offline measurement.' }, 422);
     const selected = body.selections[0];
-    const measurement = (fixture.measurements ?? []).find((row: any) => row.id === selected.measurementId && row.review_status === 'accepted' && row.unit === 'SF' && row.quantity !== null);
+    const measurement = body.sourceKind === 'photo' ? (fixture.photoRun?.result?.approvedMeasurements ?? []).find((row: any) => row.id === selected.measurementId && row.unit === 'SF') : body.sourceKind === 'geometry' ? (fixture.geometryCandidates ?? []).filter((row: any) => row.status === 'accepted' && row.measurementKind === 'area').map((row: any) => ({ ...row, quantity: row.quantity / 0.09290304, unit: 'SF', calibration: { verificationStatus: 'provider_si_measurement_reviewed' } })).find((row: any) => row.id === selected.measurementId) : (fixture.measurements ?? []).find((row: any) => row.id === selected.measurementId && row.review_status === 'accepted' && row.unit === 'SF' && row.quantity !== null);
     if (!measurement || selected.assemblyId !== 'RB-FLOOR-003' || 'quantity' in selected) return json({ error: 'The fixture accepts only the saved floor evidence with its server quantity.' }, 422);
     const pending = ['documented_material_quote_required', 'packaging_coverage_and_waste_pending', 'labor_productivity_and_rates_pending', 'project_location_required'];
-    const snapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), sourceKind: 'plan', runId: body.runId, selectionCount: 1, coverage: 'partial', humanReviewRequired: true, detailLoaded: true,
-      result: { status: 'pending', knownSubtotalUsd: 0, totalUsd: null, lines: [{ id: 'offline-floor-component', itemId: selected.assemblyId, description: 'Synthetic reviewed floor — documented product quote pending', category: 'material', quantity: measurement.quantity, unit: measurement.unit, cost: null, knownSubtotal: 0, pending, formulas: [], priceSources: [] }],
-        missingInputs: pending, warnings: ['Offline mocked budget response; no supplier quote or real construction price.'], trace: [{ measurementId: measurement.id, evidenceRef: 'offline-geometry-run:sheet-1:' + measurement.id, acceptedQuantity: measurement.quantity, unit: measurement.unit, geometry: measurement.geometry, calibration: measurement.calibration, assemblyId: selected.assemblyId, fixtureOnly: true }] } };
+    const snapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), sourceKind: body.sourceKind, runId: body.runId, selectionCount: 1, coverage: 'partial', humanReviewRequired: true, detailLoaded: true,
+      result: { status: 'pending', knownSubtotalUsd: 0, totalUsd: null, lines: [{ id: 'offline-floor-component', itemId: selected.assemblyId, description: body.sourceKind === 'photo' ? 'Synthetic reviewed surface - documented product quote pending' : 'Synthetic reviewed floor - documented product quote pending', category: 'material', quantity: measurement.quantity, unit: measurement.unit, cost: null, knownSubtotal: 0, pending, formulas: [], priceSources: [] }],
+        missingInputs: pending, warnings: ['Offline mocked budget response; no supplier quote or real construction price.'], trace: [{ measurementId: measurement.id, evidenceRef: body.runId + ':sheet-1:' + measurement.id, acceptedQuantity: measurement.quantity, unit: measurement.unit, geometry: measurement.geometry, calibration: measurement.calibration, planarProofs: measurement.planarProofs ?? [], assemblyId: selected.assemblyId, fixtureOnly: true }] } };
     fixture.snapshots = [snapshot, ...(fixture.snapshots ?? [])]; persist();
     // Direct snapshot shape matches the API; persistence and budget contents here remain explicit mocks.
     return json(snapshot, 201);
   }
-  if (path === '/api/takeoff-runs/offline-geometry-run/measurements') {
+  if (path === '/api/takeoff-runs/offline-geometry-run/measurements' || path === '/api/takeoff-runs/offline-full-run/measurements') {
     geometryContext ??= await (await nativeFetch('/offline-fixture/geometry-context')).json();
     fixture.measurements ??= [];
-    const common = { ...geometryContext, version: 'measurement-review-v1', humanReviewRequired: true, scopeCoverage: 'selected_elements_only', pricingStatus: 'awaiting_compositions_and_price_sources' };
+    const common = { ...geometryContext, ...(fixture.automatic ? { runId: 'offline-full-run', fileId: 'offline-pdf' } : {}), version: 'measurement-review-v1', humanReviewRequired: true, scopeCoverage: 'selected_elements_only', pricingStatus: 'awaiting_compositions_and_price_sources' };
     if (method === 'GET') {
       if (url.searchParams.get('native_candidates') === 'true') return json({ ...common, candidates: [{ id: 'c'.repeat(64), kind: 'enclosed_space_candidate', bbox: [0.1, 0.1, 0.6, 0.6], status: 'candidate', quantity: null, unit: null, physicalPageNumber: 1, pageSha256: geometryContext.sheet.pageSha256, source: 'native_pdf_vector' }], truncated: false, limitations: ['Boxes only locate evidence and do not establish room area.'] });
       return json({ ...common, measurements: url.searchParams.has('measurement_id') ? fixture.measurements.filter((row: any) => row.id === url.searchParams.get('measurement_id')) : fixture.measurements, offset: 0, nextOffset: null });
@@ -89,7 +114,7 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   if (path.endsWith('/ai-plan-entitlement')) return json({ freeReadingAvailable: false, fullTakeoffV2Available: true, pilotActive: false });
   if (path.endsWith('/documents/upload-url')) return json({ file: { id: 'offline-pdf', original_name: body.name, byte_size: body.byteSize, processing_status: 'uploading' }, upload: { url: `${location.origin}/offline-storage/pdf`, method: 'PUT', headers: {} } });
   if (path === '/offline-storage/pdf' && method === 'PUT') { fixture.pdfBytes = Array.from(new Uint8Array(await new Response(init.body).arrayBuffer())); persist(); return new Response('', { status: 200 }); }
-  if (path === '/api/documents/offline-pdf/complete') return json({ id: 'offline-pdf', original_name: 'offline-floor-plan.pdf', byte_size: fixture.pdfBytes?.length ?? 0, processing_status: 'ready', page_count: 2 });
+  if (path === '/api/documents/offline-pdf/complete') return json({ id: 'offline-pdf', original_name: fixture.automatic ? 'offline-automatic-plan.pdf' : 'offline-floor-plan.pdf', byte_size: fixture.pdfBytes?.length ?? 0, processing_status: 'ready', page_count: fixture.automatic ? 1 : 2 });
   if (path === '/api/documents/offline-pdf/download-url') return json({ url: `${location.origin}/offline-storage/pdf`, method: 'GET', headers: {} });
   if (path === '/offline-storage/pdf') return new Response(new Uint8Array(fixture.pdfBytes ?? []), { headers: { 'content-type': 'application/pdf' } });
   if (path.endsWith('/ai-plan-readings') && method === 'POST') {
@@ -118,16 +143,34 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   if (/\/photos\/uploads\/[^/]+\/complete$/.test(path)) { fixture.assets.push(fixture.pendingAsset); persist(); return json({ asset: fixture.pendingAsset }); }
   if (/\/photos\/uploads\/[^/]+\/download-url$/.test(path)) return json({ url: `${location.origin}/offline-storage/photo`, method: 'GET', headers: {} });
   if (path === '/offline-storage/photo') return new Response(new Uint8Array(fixture.photoBytes ?? []), { headers: { 'content-type': 'image/png' } });
-  if (path.endsWith('/photos/runs') && method === 'POST') { fixture.photoRun = { id: 'offline-photo-run', status: 'processing', request_key: body.requestKey, asset_ids: body.assetIds, progress: { completed: 0, total: 1 }, result: null, created_at: '2026-10-02T00:00:00Z' }; persist(); return json({ run: fixture.photoRun, enqueued: true }, 202); }
+  if (path.endsWith('/photos/runs') && method === 'POST') { fixture.photoRun = { id: 'offline-photo-run', status: 'processing', review_revision: 0, request_key: body.requestKey, asset_ids: body.assetIds, progress: { completed: 0, total: 1 }, result: null, created_at: '2026-10-02T00:00:00Z' }; persist(); return json({ run: fixture.photoRun, enqueued: true }, 202); }
   if (path.endsWith('/photos/runs')) return json({ runs: fixture.photoRun ? [{ ...fixture.photoRun, result: undefined }] : [] });
   if (path.endsWith('/photos/runs/offline-photo-run/cancel')) { fixture.photoRun.status = 'cancelled'; persist(); return json({ id: fixture.photoRun.id, status: 'cancelled' }); }
   if (path.endsWith('/photos/runs/offline-photo-run/review')) {
+    if ((fixture.photoRun.review_revision ?? 0) !== body.expectedReviewRevision) return json({ error: 'Offline photo review revision conflict.' }, 409);
+    if (body.decisions.some((decision: any) => decision.method === 'calibrated_planar_geometry')) {
+      const validated = await nativeFetch('/offline-fixture/photo-review', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ assets: fixture.assets, workspaceId, projectId,
+        observations: fixture.photoRun.result.observations,
+        references: body.references.map((reference: any) => ({ ...reference, reviewerId: 'offline-user' })),
+        decisions: body.decisions.map((decision: any) => ({ ...decision, reviewerId: 'offline-user' })) }) });
+      const result = await validated.json(); if (!validated.ok) return json(result, validated.status);
+      const review = { ...result, references: body.references, decisions: body.decisions, independentReview: 'pending', stageStatus: { visual_observation: 'completed', independent_reconciliation: 'pending' } };
+      fixture.photoRun.result = review; fixture.photoRun.review_revision = body.expectedReviewRevision + 1; persist();
+      return json({ review, reviewRevision: fixture.photoRun.review_revision, reused: false });
+    }
     const decision = body.decisions[0]; const review = photoResult();
     review.references = body.references; review.decisions = body.decisions;
     review.approvedMeasurements = decision.disposition === 'approved' ? [{ id: 'offline-approved', objectIdentityKey: decision.objectIdentityKey, quantity: decision.quantity, unit: decision.unit, method: decision.method, calculationMethod: decision.calculationMethod, sourceRegions: review.observations[0].regions, sourceRevisions: {}, referenceIds: decision.referenceId ? [decision.referenceId] : [], reviewerIds: ['offline-user'] }] : [];
-    fixture.photoRun.result = review; persist(); return json({ review });
+    fixture.photoRun.result = review; fixture.photoRun.review_revision = body.expectedReviewRevision + 1; persist(); return json({ review, reviewRevision: fixture.photoRun.review_revision, reused: false });
   }
-  if (path.endsWith('/photos/runs/offline-photo-run')) return json({ run: fixture.photoRun, assets: fixture.assets, references: fixture.photoRun?.result?.references ?? [], steps: fixture.assets.map((asset: any) => ({ photo_asset_id: asset.id, status: fixture.photoRun.status === 'needs_review' ? 'completed' : 'pending', result: null })) });
+  if (path.endsWith('/photos/runs/offline-photo-run')) {
+    if (url.searchParams.has('asset_id')) {
+      const asset = fixture.assets.find((item: any) => item.id === url.searchParams.get('asset_id'));
+      return json({ runId: fixture.photoRun.id, photo_asset_id: asset?.id, status: 'completed', asset,
+        checkpoint: { observations: fixture.photoRun.result?.observations ?? [], quality: { usable: true, limitations: ['Synthetic source: no physical scale until reviewed calibration.'], additionalViewsNeeded: false }, blockers: ['dimension_reference_required'], independentReview: 'pending' } });
+    }
+    return json({ run: fixture.photoRun, assets: fixture.assets, references: fixture.photoRun?.result?.references ?? [], steps: fixture.assets.map((asset: any) => ({ photo_asset_id: asset.id, status: fixture.photoRun.status === 'needs_review' ? 'completed' : 'pending', result: null })) });
+  }
   if (path.startsWith('/api/') || path.startsWith('/offline-supabase/')) return json({ error: `Unmocked offline endpoint: ${path}` }, 501);
   return nativeFetch(input, init);
 };

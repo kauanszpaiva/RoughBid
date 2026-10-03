@@ -27,6 +27,21 @@ function canonicalReviewValue(value:unknown):unknown {
   if (record(value)) return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonicalReviewValue(value[key])]));
   return value;
 }
+const planarPoints=(value:unknown)=>Array.isArray(value)?value.map(point=>Array.isArray(point)
+  ?[typeof point[0]==='number'?point[0]:null,typeof point[1]==='number'?point[1]:null]:null):null;
+function planarCalibrationInput(value:unknown):unknown {
+  if(!record(value))return null;
+  return {version:value.version,sourceAssetId:value.sourceAssetId,sourceRevision:value.sourceRevision,sourceSha256:value.sourceSha256,
+    surfaceKey:value.surfaceKey,referencePoints:planarPoints(value.referencePoints),referenceWidth:value.referenceWidth,
+    referenceHeight:value.referenceHeight,referenceUnit:value.referenceUnit,rectangleVerified:value.rectangleVerified,lensDistortionReviewed:value.lensDistortionReviewed};
+}
+function planarMeasurementInput(value:unknown):unknown {
+  if(!record(value))return null;
+  return {version:value.version,sourceAssetId:value.sourceAssetId,sourceRevision:value.sourceRevision,sourceSha256:value.sourceSha256,
+    surfaceKey:value.surfaceKey,kind:value.kind,points:planarPoints(value.points),measure:value.measure,
+    samePlaneReviewed:value.samePlaneReviewed,geometryReviewed:value.geometryReviewed,
+    ...(value.holes===undefined?{}:{holes:true}),...(value.rings===undefined?{}:{rings:true})};
+}
 
 /** All privileged writes/signing follow authenticated tenant, founder, role and consent checks. */
 export class PhotoTakeoffService {
@@ -118,7 +133,8 @@ export class PhotoTakeoffService {
     const references = value.map(item => ({id:item.id,region:record(item.region)?{sourceAssetId:item.region.sourceAssetId,
       surfaceKey:item.region.surfaceKey,bbox:item.region.bbox}:item.region,objectIdentityKey:item.objectIdentityKey,
       reviewerId:this.userId,kind:item.kind,value:item.value,unit:item.unit,verified:item.verified === true,
-      coplanarVerified:item.coplanarVerified === true,perspectiveVerified:item.perspectiveVerified === true})) as PhotoDimensionReference[];
+      coplanarVerified:item.coplanarVerified === true,perspectiveVerified:item.perspectiveVerified === true,
+      ...(item.planarCalibration===undefined?{}:{planarCalibration:planarCalibrationInput(item.planarCalibration)})})) as PhotoDimensionReference[];
     reviewPhotoEvidence({assets,workspaceId:this.workspaceId,projectId,observations:[],references,decisions:[]});
     return references;
   }
@@ -195,7 +211,8 @@ export class PhotoTakeoffService {
     const decisions=input.decisions.map(item=>({observationId:item.observationId,disposition:item.disposition,reviewerId:this.userId,
       quantity:item.quantity,unit:item.unit,method:item.method,calculationMethod:item.calculationMethod,referenceId:item.referenceId,
       objectIdentityKey:item.objectIdentityKey,identityAssetIds:Array.isArray(item.identityAssetIds)?[...new Set(item.identityAssetIds)].sort():item.identityAssetIds,
-      crossViewIdentityReviewed:item.crossViewIdentityReviewed,uncertaintyResolved:item.uncertaintyResolved})) as PhotoReviewDecision[];
+      crossViewIdentityReviewed:item.crossViewIdentityReviewed,uncertaintyResolved:item.uncertaintyResolved,
+      ...(item.planarMeasurement===undefined?{}:{planarMeasurement:planarMeasurementInput(item.planarMeasurement)})})) as PhotoReviewDecision[];
     // The request identity describes the human intent, independent of timestamp,
     // JSON property order and the current optimistic-lock revision. A retry must
     // return its own stored receipt even after a later review has been saved.

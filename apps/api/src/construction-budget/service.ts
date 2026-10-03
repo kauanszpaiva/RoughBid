@@ -10,6 +10,7 @@ import type { ConfirmedCatalogInput } from '../../../../packages/domain/src/cata
 import { buildConstructionBudgetTax,type ConstructionBudgetTaxBinding } from '../../../../packages/domain/src/construction-budget-tax.ts';
 import { isCanonicalUnit, type CanonicalUnit } from '../../../../packages/domain/src/takeoff-v2.ts';
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
+import { acceptedAutomaticGeometry } from './geometry-measurements.ts';
 
 const research = validateResearchConstructionCatalog(researchData);
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -22,8 +23,9 @@ function rows<T>(response: { data: T; error: unknown }, message: string): T {
   if (response.error) throw new ProjectApiError(503, message); return response.data;
 }
 export interface ConstructionMeasurement {
-  id: string; sourceKind: 'plan' | 'photo'; runId: string; label: string; quantity: number; unit: CanonicalUnit;
+  id: string; sourceKind: 'plan' | 'photo' | 'geometry'; runId: string; label: string; quantity: number; unit: CanonicalUnit;
   reviewStatus: 'accepted'; evidenceRef: string; pageNumber?: number;
+  sourceEvidence?: Record<string,unknown>;
 }
 export class ConstructionBudgetService {
   private readonly db: SupabaseLike;
@@ -75,7 +77,7 @@ export class ConstructionBudgetService {
     await this.rpc('save_construction_supplier_quotes',{ p_user_id:this.userId,p_workspace_id:this.workspaceId,p_project_id:projectId,p_quotes:quotes });
     return this.quotes(projectId);
   }
-  async measurements(projectId: string): Promise<{ measurements: ConstructionMeasurement[]; hasMore: boolean }> {
+  async measurements(projectId: string): Promise<{ measurements: ConstructionMeasurement[]; hasMore: boolean; geometryAvailability:string }> {
     const plans = rows<any[]>(await this.db.from('takeoff_measurement_reviews')
       .select('id,takeoff_run_id,label,quantity,unit,physical_page_number,page_sha256,review_revision')
       .eq('workspace_id',this.workspaceId).eq('project_id',projectId).eq('review_status','accepted').limit(501), 'Reviewed plan measurements could not be read.');
@@ -93,7 +95,10 @@ export class ConstructionBudgetService {
           quantity:value.quantity,unit:value.unit,reviewStatus:'accepted',evidenceRef:`photo:${run.id}:${value.id}` });
       }
     }
-    return { measurements:measurements.slice(0,500), hasMore:measurements.length>500 || plans.length>500 || photos.length>25 };
+    const automatic=await acceptedAutomaticGeometry(this.db,this.workspaceId,projectId);
+    measurements.push(...automatic.measurements);
+    return { measurements:measurements.slice(0,500), hasMore:measurements.length>500 || plans.length>500 || photos.length>25 || automatic.hasMore,
+      geometryAvailability:automatic.availability };
   }
   async get(projectId: string, snapshotId?: string) {
     await this.access(projectId);
@@ -125,9 +130,9 @@ export class ConstructionBudgetService {
   }
   async calculate(projectId: string, input: unknown) {
     await this.access(projectId,true);
-    if (!record(input) || !['plan','photo'].includes(String(input.sourceKind)) || !Array.isArray(input.selections)
+    if (!record(input) || !['plan','photo','geometry'].includes(String(input.sourceKind)) || !Array.isArray(input.selections)
       || !input.selections.length || input.selections.length>100 || !Array.isArray(input.quoteIds) || input.quoteIds.length>100) invalid('Select a saved run, 1–100 reviewed measurements and documented quotes.');
-    const sourceKind=input.sourceKind as 'plan'|'photo', runId=identity(input.runId,'source run'), at=this.now();
+    const sourceKind=input.sourceKind as 'plan'|'photo'|'geometry', runId=identity(input.runId,'source run'), at=this.now();
     const location=input.location === undefined || input.location === null ? null : input.location as QuoteLocation;
     if (location && (location.country!=='US' || !/^\d{5}(?:-\d{4})?$/.test(location.postalCode) || !location.storeId || !location.timeZone)) invalid('Choose an explicit ZIP, store and project time zone.');
     const asOf=quoteLocalDate(at,location?.timeZone ?? 'Etc/UTC'), context={effectiveDate:asOf,place:location ? `US ${location.postalCode}` : null};

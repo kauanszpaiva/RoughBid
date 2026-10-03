@@ -33,6 +33,10 @@ import { PHOTO_TAKEOFF_VERSION, requirePhotoTakeoffConfig } from '../apps/api/sr
 import { PHOTO_TAKEOFF_QUEUE, type PhotoTakeoffJob } from '../apps/api/src/photos/queue.ts';
 import { HttpPhotoReader } from '../apps/api/src/photos/provider.ts';
 import { PhotoTakeoffProcessor } from '../apps/api/src/photos/worker.ts';
+import { loadGeometryProfile } from '../apps/api/src/geometry/config.ts';
+import { createGeometryQueue, GEOMETRY_QUEUE, type GeometryJob, type GeometryQueue } from '../apps/api/src/geometry/queue.ts';
+import { GeometryProcessor } from '../apps/api/src/geometry/worker.ts';
+import { createAutomaticGeometryCoordinator, loadAutomaticGeometryForSheet } from '../apps/api/src/takeoff-v2/automatic-geometry.ts';
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -93,6 +97,27 @@ async function main() {
   let fullTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
   let photoTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
+  let geometryHeartbeat:ReturnType<typeof setInterval>|undefined;
+  let geometryQueue:GeometryQueue|undefined;
+  const geometryProfile=loadGeometryProfile(process.env);
+  if(geometryProfile){
+    geometryQueue=await createGeometryQueue(redisUrl);
+    const workerId=`${process.env.RAILWAY_REPLICA_ID||process.env.HOSTNAME||'roughbid'}-geometry-${crypto.randomUUID()}`.slice(0,160);
+    const processor=new GeometryProcessor(db as unknown as DocumentDb,storage,geometryProfile,workerId,geometryQueue);
+    const worker=new Worker(GEOMETRY_QUEUE,job=>processor.process(job as unknown as {data:GeometryJob}),{
+      connection:{url:redisUrl,maxRetriesPerRequest:null},concurrency:1,lockDuration:30_000,stalledInterval:30_000,maxStalledCount:1});
+    worker.on('failed',job=>console.error('[worker] geometry job requires reconciliation',{runId:job?.data?.runId}));
+    worker.on('error',()=>console.error('[worker] geometry queue connection unavailable'));
+    await worker.waitUntilReady();await processor.touch();await processor.recover();aiWorkers.push(worker);
+    let geometryRecoveryRunning=false;
+    geometryHeartbeat=setInterval(()=>{
+      if(geometryRecoveryRunning)return;
+      geometryRecoveryRunning=true;
+      void processor.touch().then(()=>processor.recover()).catch(()=>console.error('[worker] geometry heartbeat or recovery unavailable'))
+        .finally(()=>{geometryRecoveryRunning=false;});
+    },30_000);
+    console.log('[worker] geometry queue attached',{queue:GEOMETRY_QUEUE,workerId});
+  }
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
     const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
     if (!paidEnabled && !freeEnabled) throw new Error('AI_PLAN_DURABLE_ENABLED=true but no authorized AI provider is configured on the worker.');
@@ -151,7 +176,17 @@ async function main() {
     if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
-      prepareRun: input => configureFullRunSpendLimits(input, spendLimits, rpc),
+      async prepareRun(input){
+        await configureFullRunSpendLimits(input,spendLimits,rpc);
+        if(geometryProfile?.kamai&&geometryQueue){
+          const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
+            .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();
+          if(actor.error||!actor.data?.requested_by)throw new Error('Automatic geometry parent ownership could not be verified.');
+          const coordinator=createAutomaticGeometryCoordinator(db as unknown as DocumentDb,{writer:db as unknown as DocumentDb,storage,profile:geometryProfile,queue:geometryQueue});
+          const result=await coordinator.prepare({...input,userId:actor.data.requested_by});
+          if(result.state!=='reserved')console.error('[worker] some automatic geometry pages remain pending',{runId:input.runId});
+        }
+      },
       regionCheckpoints: new SqlRegionCheckpointStore(rpc),
       ...(renderRegion ? { renderRegion } : {}),
       async loadPriorEvidence(input) {
@@ -163,9 +198,12 @@ async function main() {
           ...(value.provider ? { provider: value.provider } : {}), ...(value.model ? { model: value.model } : {}) }));
       },
       async loadGeometryMeasurements(input, request) {
-        return loadAcceptedGeometryMeasurements(db, { runId: input.runId, workspaceId: input.workspaceId,
+        const reviewed=await loadAcceptedGeometryMeasurements(db, { runId: input.runId, workspaceId: input.workspaceId,
           projectId: input.projectId, fileId: input.fileId, fileSha256: input.manifest.fileSha256,
           physicalPageNumber: request.sheet.physicalPageNumber, pageSha256: request.sheet.pageSha256 });
+        const automatic=geometryProfile?await loadAutomaticGeometryForSheet(db as unknown as DocumentDb,{workspaceId:input.workspaceId,projectId:input.projectId,
+          fileId:input.fileId,fileSha256:input.manifest.fileSha256,physicalPageNumber:request.sheet.physicalPageNumber}):{coverage:'automatic_geometry_disabled',candidates:[]};
+        return {...reviewed,automatic_geometry:automatic};
       },
       async loadPageImages(input, page) {
         const prefix = `${input.workspaceId}/${input.projectId}/${input.fileId}/pages/`;
@@ -229,9 +267,11 @@ async function main() {
     if (workerHeartbeat) clearInterval(workerHeartbeat);
     if (fullTakeoffHeartbeat) clearInterval(fullTakeoffHeartbeat);
     if (photoTakeoffHeartbeat) clearInterval(photoTakeoffHeartbeat);
+    if (geometryHeartbeat) clearInterval(geometryHeartbeat);
     await Promise.allSettled([
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
       ...aiWorkers.map((worker) => worker.close()),
+      geometryQueue?.close?.(),
     ]);
     process.exit(0);
   };

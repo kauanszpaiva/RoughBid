@@ -9,6 +9,7 @@ import { reviewPhotoEvidence, PHOTO_ASSET_LIMITS } from '../../api/src/photo-evi
 import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
   PHOTO_UPLOAD_LIMITS, validatePhotoSelection, type PhotoReviewDraft } from '../app/src/utils/photoReview.ts';
 import type { PhotoObservation, PhotoRun, PhotoRunDetail, PhotoSourceAsset } from '../app/src/services/photos-api.ts';
+import { reviewIssueMessages } from '../app/src/utils/reviewMessages.ts';
 
 const code = readFileSync(new URL('../app/src/components/PhotoTakeoffPanel.tsx', import.meta.url), 'utf8');
 function productionFunction(name: string, context: Record<string, unknown>) {
@@ -219,7 +220,7 @@ test('saved photo evidence renders null quantities as undetermined, real regions
     stageStatus: { observation: 'completed', reconciliation: 'pending', risk_review: 'pending' },
     photoQuality: [{ sourceAssetId: 'photo-one', usable: false, additionalViewsNeeded: true, limitations: ['Wall edge is hidden.'] }] } }),
     steps: [{ photo_asset_id: 'photo-one', status: 'completed' }] });
-  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft });
+  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft, reviewIssueMessages });
   const html = renderToStaticMarkup(render({ detail: saved, previews: { 'photo-one': 'blob:private-source' }, previewErrors: {}, previewLoading: {}, onPreview: noop,
     canReview: false, disabled: false, drafts: {}, onDraft: noop }));
   assert.match(html, /Physical quantity is undetermined/);
@@ -234,7 +235,7 @@ test('saved photo evidence renders null quantities as undetermined, real regions
 test('photo proposals are labeled unverified and human review requires separate quantity input', () => {
   const item = observation({ method: 'visible_count', proposedQuantity: 3, proposedUnit: 'EA', uncertainty: [] });
   const review = reviewPhotoEvidence({ workspaceId: 'workspace-one', projectId: 'project-one', assets: [asset()], observations: [item], references: [], decisions: [] });
-  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft });
+  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft, reviewIssueMessages });
   const html = renderToStaticMarkup(render({ detail: detail({ run: photoRun({ status: 'needs_review', result: review }) }), previews: {}, previewErrors: {}, previewLoading: {}, onPreview: noop,
     canReview: true, disabled: false, drafts: { [item.id]: approvedDraft({ method: 'visible_count', quantity: '', unit: 'EA' }) }, onDraft: noop }));
   assert.match(html, /Unverified proposal: 3 EA/);
@@ -325,13 +326,14 @@ test('saved per-photo evidence is read lazily once and a stale result cannot rep
 });
 
 test('intermediate photo checkpoint renders saved limitations and never certifies unreviewed geometry', () => {
-  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft });
+  const render = productionFunction('PhotoRunEvidence', { React, emptyPhotoReviewDraft, reviewIssueMessages });
   const html = renderToStaticMarkup(render({ detail: detail({ run: photoRun({ status: 'blocked' }) }), previews: {}, previewErrors: {}, previewLoading: {},
     onPreview: noop, canReview: false, disabled: false, drafts: {}, onDraft: noop, onCheckpoint: noop, checkpointErrors: {}, checkpointLoading: {},
     checkpoints: { 'photo-one': { runId: 'run-one', photo_asset_id: 'photo-one', status: 'completed', asset: asset(), checkpoint: {
       observations: [observation({ label: '<script>Wall</script>' })], quality: { usable: true, limitations: ['Back side hidden'], additionalViewsNeeded: true },
       blockers: ['physical_scale_missing'], independentReview: 'pending' } } } }));
   assert.match(html, /Saved checkpoint for this photo/); assert.match(html, /quantity undetermined/);
-  assert.match(html, /Back side hidden/); assert.match(html, /physical scale missing/); assert.match(html, /Independent review remains pending/);
+  assert.match(html, /Back side hidden/); assert.match(html, /Review the physical scale using supported source references/); assert.match(html, /Independent review remains pending/);
+  assert.match(html, /Advanced checkpoint diagnostics/); assert.match(html, /physical_scale_missing/);
   assert.equal(html.includes('<script>Wall</script>'), false);
 });

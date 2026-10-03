@@ -7,7 +7,8 @@ import {
 import { validateDocumentedSupplierQuote, type DocumentedSupplierQuote, type QuotedSupplier, type QuoteChannel, type QuoteLocation } from './supplierQuotes.ts';
 import { isCanonicalUnit, type CanonicalUnit } from '../../../../../packages/domain/src/takeoff-v2.ts';
 
-export type BudgetSourceKind = 'plan' | 'photo';
+export type BudgetSourceKind = 'plan' | 'photo' | 'geometry';
+export const budgetSourceLabel = (kind: BudgetSourceKind) => kind === 'plan' ? 'Plan' : kind === 'photo' ? 'Photo' : 'Geometry';
 export type AcceptedBudgetMeasurement = {
   id: string; sourceKind: BudgetSourceKind; runId: string; label: string; quantity: number;
   unit: CanonicalUnit; reviewStatus: 'accepted'; evidenceRef: string; pageNumber?: number;
@@ -67,7 +68,7 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 function validateSnapshot(value: unknown): ConstructionBudgetSnapshot {
   const failure = () => new Error('The saved construction-budget snapshot could not be verified. Refresh saved budgets before submitting again.');
   if (!object(value) || !nonempty(value.id) || !nonempty(value.createdAt) || !Number.isFinite(Date.parse(value.createdAt))
-    || !['plan', 'photo'].includes(String(value.sourceKind)) || !nonempty(value.runId)
+    || !['plan', 'photo', 'geometry'].includes(String(value.sourceKind)) || !nonempty(value.runId)
     || typeof value.selectionCount !== 'number' || !Number.isSafeInteger(value.selectionCount) || value.selectionCount < 1
     || value.coverage !== 'partial' || value.humanReviewRequired !== true || !object(value.result)
     || (value.detailLoaded !== undefined && typeof value.detailLoaded !== 'boolean')) throw failure();
@@ -95,7 +96,7 @@ function validateState(value: ConstructionBudgetState): ConstructionBudgetState 
   if (!value || !Array.isArray(value.measurements) || !Array.isArray(value.quotes) || !Array.isArray(value.snapshots)
     || value.coverage !== 'partial' || value.humanReviewRequired !== true) throw new Error('The saved construction-budget response could not be verified.');
   for (const measure of value.measurements) {
-    if (!measure.id || !measure.runId || !measure.label || !['plan', 'photo'].includes(measure.sourceKind)
+    if (!measure.id || !measure.runId || !measure.label || !['plan', 'photo', 'geometry'].includes(measure.sourceKind)
       || measure.reviewStatus !== 'accepted' || !Number.isFinite(measure.quantity) || measure.quantity < 0
       || !isCanonicalUnit(measure.unit) || !measure.evidenceRef) throw new Error('A returned measurement lacks accepted quantity evidence. Review the source before budgeting.');
   }
@@ -116,7 +117,7 @@ export function createConstructionBudgetApi(requester: ConstructionBudgetRequest
     },
     async save(workspaceId: string, projectId: string, input: ConstructionBudgetCreateInput): Promise<{ snapshot: ConstructionBudgetSnapshot }> {
       scope(workspaceId, projectId);
-      if (!input.runId || !['plan', 'photo'].includes(input.sourceKind) || !input.selections.length) throw new Error('Select accepted quantities from one saved source run.');
+      if (!input.runId || !['plan', 'photo', 'geometry'].includes(input.sourceKind) || !input.selections.length) throw new Error('Select accepted quantities from one saved source run.');
       const measurementIds = new Set<string>();
       for (const selected of input.selections) {
         if (!selected.measurementId || !selected.assemblyId || measurementIds.has(selected.measurementId)) throw new Error('Each accepted measurement can appear once in a budget selection.');

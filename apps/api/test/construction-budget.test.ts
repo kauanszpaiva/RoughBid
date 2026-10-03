@@ -21,7 +21,7 @@ function quote(overrides:Record<string,unknown>={}) {return {schema:SUPPLIER_QUO
 function fixture(role='estimator') {
   const tables:Record<string,any[]>={workspace_members:[{workspace_id:WORKSPACE,user_id:USER,role}],projects:[{id:PROJECT,workspace_id:WORKSPACE}],
     takeoff_measurement_reviews:[{id:MEASUREMENT,workspace_id:WORKSPACE,project_id:PROJECT,takeoff_run_id:RUN,label:'Human-reviewed floor protection',quantity:'25',unit:'SF',review_status:'accepted',physical_page_number:1,page_sha256:'b'.repeat(64),review_revision:3}],
-    photo_takeoff_runs:[],construction_supplier_quotes:[],construction_budget_snapshots:[]};
+    photo_takeoff_runs:[],geometry_provider_candidates:[],construction_supplier_quotes:[],construction_budget_snapshots:[]};
   const calls:Array<{name:string;args:Record<string,any>}>=[];
   let authenticatedUser:string|null=USER;
   const db:any={auth:{getUser:async()=>({data:{user:authenticatedUser?{id:authenticatedUser}:null},error:null})},from(table:string){

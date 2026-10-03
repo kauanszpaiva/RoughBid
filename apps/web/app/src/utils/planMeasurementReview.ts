@@ -13,11 +13,11 @@ export type PlanMeasurementDraft = {
   boundaryMethod: 'human_trace' | 'verified_rectangular_surface'; boundaryReviewed: boolean; boundaryExcerpt: string;
 };
 export function emptyPlanMeasurementDraft(id: string): PlanMeasurementDraft {
-  return { measurementId: id, expectedRevision: 0, label: '', regionKey: '', regionBounds: null, canonicalElementKey: '', canonicalTrade: '',
+  return { measurementId: id, expectedRevision: 0, label: '', regionKey: `region:${id}`, regionBounds: null, canonicalElementKey: `element:${id}`, canonicalTrade: 'unclassified',
     geometryType: 'line', points: [], sourceKind: 'manual_trace', sourceCandidateId: null, sourceExcerpt: '', decision: 'candidate',
     geometryReviewed: false, identityReviewed: false, duplicateReviewComplete: false, uncertainty: '',
     boundaryMethod: 'human_trace', boundaryReviewed: false, boundaryExcerpt: '',
-    references: [0, 1].map(() => ({ sourceId: '', sourceType: 'explicit_dimension', sourceExcerpt: '', drawingLength: '', unit: 'ft', referenceLine: [], independenceVerified: false })) };
+    references: [0, 1].map(index => ({ sourceId: `reference:${id}:${index + 1}`, sourceType: 'explicit_dimension', sourceExcerpt: '', drawingLength: '', unit: 'ft', referenceLine: [], independenceVerified: false })) };
 }
 export function planPointFromPointer(clientX: number, clientY: number, bounds: { left: number; top: number; width: number; height: number }): PlanPoint | null {
   if (![clientX, clientY, bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) return null;
@@ -66,7 +66,7 @@ export function buildPlanMeasurementInput(draft: PlanMeasurementDraft, context: 
   const count = draft.geometryType === 'point' || draft.geometryType === 'count';
   const references: ReviewedScaleReference[] = [];
   if (!count) for (const reference of draft.references) {
-    if (!reference.sourceId && !reference.sourceExcerpt && !reference.drawingLength && !reference.referenceLine.length) continue;
+    if (!reference.sourceExcerpt && !reference.drawingLength && !reference.referenceLine.length) continue;
     const pdfPoints = planReferencePdfLength(reference.referenceLine, context);
     if (!reference.sourceId.trim() || !reference.sourceExcerpt.trim() || !/^\d+(?:\.\d{1,6})?$/.test(reference.drawingLength)
       || Number(reference.drawingLength) <= 0 || !pdfPoints || !reference.independenceVerified) throw new Error('Each scale reference needs its own identity, visible physical dimension, traced line and confirmed independence.');

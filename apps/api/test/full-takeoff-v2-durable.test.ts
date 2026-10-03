@@ -60,6 +60,20 @@ test('missing durable schema/worker closes Full before downloading or creating a
   assert.equal(downloads,0);assert.equal(reservations,0);
 });
 
+test('Full HTTP defers automatic geometry to its durable worker and cancellation includes its scoped children',async()=>{
+  const bytes=await pdf();let prepared=0,enqueued=0,cancelled:any;
+  const coordinator={prepare:async()=>{prepared++;throw new Error('Geometry fanout must not run on HTTP');},summary:async()=>({}),
+    cancel:async(input:any)=>{cancelled=input;return{cancelledChildren:2,uncertainRemoteCostPreserved:true};}};
+  const writer={from:()=>{},rpc:async(name:string)=>({data:name==='full_takeoff_v2_worker_available'?true:name==='reserve_full_takeoff_v2'?
+    {run:{id:'run',status:'queued'},reused:false}:{id:'run',status:'cancelled'},error:null})};
+  const service=new DurableFullTakeoffV2Service(db() as never,writer,{presign:async()=>({url:'https://storage.test/fixture.pdf'})},
+    {isWorkerAvailable:async()=>true,add:async()=>{enqueued++;}},'user','workspace',(async()=>new Response(bytes)) as typeof fetch,coordinator);
+  const reserved=await service.reserve('project',{file_id:'file',mode:'full_v2'});
+  assert.equal(prepared,0);assert.equal(enqueued,1);assert.equal(reserved.automaticGeometry!.state,'deferred_to_durable_worker');
+  const result=await service.cancel('run');assert.equal(result.automaticGeometry.cancelledChildren,2);
+  assert.deepEqual(cancelled,{runId:'run',workspaceId:'workspace',userId:'user'});
+});
+
 test('founder Full availability needs only authorized project and live Full heartbeat, independent of legacy reader or checkout',async()=>{
   const previous=process.env.TAKEOFF_V2_ENABLED,redis=process.env.REDIS_URL;
   process.env.TAKEOFF_V2_ENABLED='true';process.env.REDIS_URL='redis://localhost';

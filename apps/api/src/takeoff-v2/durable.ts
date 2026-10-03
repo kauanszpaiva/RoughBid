@@ -7,6 +7,7 @@ import { createPlanSetManifest } from './preflight.ts';
 import { DEEP_PASS_ORDER, runDeepTakeoff } from './orchestrator.ts';
 import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from './service.ts';
 import type { DeepCheckpointRepository, DeepPassRequest, DeepPassResult, PlanSetManifest } from './types.ts';
+import type { AutomaticGeometryCoordinator } from './automatic-geometry.ts';
 
 export const FULL_TAKEOFF_V2_QUEUE = 'takeoff-full-v2';
 export const FULL_TAKEOFF_V2_DURABLE_VERSION = 'takeoff-v2.2-durable';
@@ -53,11 +54,13 @@ export class DurableFullTakeoffV2Service {
   private readonly userId: string;
   private readonly workspaceId: string;
   private readonly fetcher: typeof fetch;
+  private readonly automaticGeometry: AutomaticGeometryCoordinator | undefined;
   constructor(db: SupabaseLike, writer: PlanReadingFindingsWriter,
     storage: AiPlanObjectStorage, queue: FullTakeoffV2Queue | undefined,
-    userId: string, workspaceId: string, fetcher: typeof fetch = fetch) {
+    userId: string, workspaceId: string, fetcher: typeof fetch = fetch, automaticGeometry?:AutomaticGeometryCoordinator) {
     this.db = db; this.writer = writer; this.storage = storage; this.queue = queue;
     this.userId = userId; this.workspaceId = workspaceId; this.fetcher = fetcher;
+    this.automaticGeometry = automaticGeometry;
   }
 
   private async ready() {
@@ -101,8 +104,11 @@ export class DurableFullTakeoffV2Service {
     if (reserved.error) throw new ProjectApiError(409, 'Full Takeoff V2 reservation could not be authorized. No provider call was started.');
     const payload = reserved.data as { run?: any; reused?: boolean };
     if (!payload?.run?.id) throw new ProjectApiError(503, 'Full Takeoff V2 reservation did not return a run.');
+    // HTTP enqueues only the durable parent. Page fanout happens under its
+    // worker lease, with stable child identities recoverable after a restart.
+    const geometry=this.automaticGeometry?{state:'deferred_to_durable_worker',requestedPages:manifest.physicalPageCount,coverage:'pending'}:undefined;
     if (payload.run.status === 'queued') await this.enqueue(String(payload.run.id));
-    return { ...payload.run, mode: FULL_TAKEOFF_V2_MODE, resumed: payload.reused === true };
+    return { ...payload.run, mode: FULL_TAKEOFF_V2_MODE, resumed: payload.reused === true,...(geometry?{automaticGeometry:geometry}:{}) };
   }
 
   private async enqueue(runId: string) {
@@ -112,7 +118,7 @@ export class DurableFullTakeoffV2Service {
 
   async get(runId: string) {
     const run = dbValue<any>(await this.db.from('takeoff_runs')
-      .select('id,workspace_id,project_id,file_id,status,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error')
+      .select('id,workspace_id,project_id,file_id,file_sha256,status,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error')
       .eq('id', runId).eq('workspace_id', this.workspaceId).eq('mode', 'full')
       .eq('orchestrator_version', FULL_TAKEOFF_V2_DURABLE_VERSION).maybeSingle(), 'Could not read Full Takeoff progress.');
     if (!run) throw new ProjectApiError(404, 'Full Takeoff run not found.');
@@ -124,7 +130,9 @@ export class DurableFullTakeoffV2Service {
       .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id), 'Could not read Full Takeoff sheets.');
     const reviewed = dbValue<any[]>(await this.db.from('takeoff_measurement_reviews').select('review_status')
       .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id).limit(501), 'Could not read Full Takeoff measurement coverage.');
-    return { ...run, mode: FULL_TAKEOFF_V2_MODE, sheets: sheets.map(sheet => ({ ...sheet,
+    const automaticGeometry=this.automaticGeometry?await this.automaticGeometry.summary({workspaceId:this.workspaceId,projectId:run.project_id,
+      fileId:run.file_id,fileSha256:run.file_sha256,expectedPages:sheets.length}):undefined;
+    return { ...run, mode: FULL_TAKEOFF_V2_MODE,...(automaticGeometry?{automaticGeometry}:{}), sheets: sheets.map(sheet => ({ ...sheet,
       passes: passes.filter(pass => pass.plan_sheet_id === sheet.id) })), measurementReview: {
         acceptedCount: reviewed.slice(0,500).filter(value=>value.review_status==='accepted').length,
         pendingCount: reviewed.slice(0,500).filter(value=>['candidate','blocked'].includes(value.review_status)).length,
@@ -169,6 +177,10 @@ export class DurableFullTakeoffV2Service {
       p_run_id: runId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
     });
     if (canceled.error) throw new ProjectApiError(409, 'Full Takeoff cancellation was not authorized.');
+    if(this.automaticGeometry){
+      try{return {...canceled.data,automaticGeometry:await this.automaticGeometry.cancel({runId,workspaceId:this.workspaceId,userId:this.userId})};}
+      catch{return {...canceled.data,automaticGeometry:{state:'cancellation_confirmation_pending',reason:'The parent is cancelled. Child worker guards prevent further dispatch; reload child states to reconcile.'}};}
+    }
     return canceled.data;
   }
 

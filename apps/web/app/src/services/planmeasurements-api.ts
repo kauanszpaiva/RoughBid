@@ -3,6 +3,7 @@ import type { MeasurementGeometry } from '../../../../api/src/takeoff-v2/types.t
 import type { MeasurementReviewInput, ReviewedScaleReference } from '../../../../api/src/takeoff-v2/measurement-review.ts';
 export type { MeasurementGeometry, MeasurementReviewInput, ReviewedScaleReference };
 export type PlanMeasurementContext = {
+  projectId?: string;
   fileId: string; fileSha256: string; physicalPageCount: number | null;
   sheet: { physicalPageNumber: number; pageSha256: string; pageWidthPoints: number; pageHeightPoints: number;
     rotationDegrees: number; displayWidthPoints: number; displayHeightPoints: number };

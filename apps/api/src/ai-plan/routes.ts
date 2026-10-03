@@ -13,6 +13,7 @@ import { isFreeProviderConfigured } from './free-provider.ts';
 import { hasPlatformAdminProjectAccess, isPlatformAdmin } from '../access/platform-admin.ts';
 import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from '../takeoff-v2/service.ts';
 import { DurableFullTakeoffV2Service, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
+import type { AutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -83,6 +84,7 @@ export interface AiPlanRequestDependencies {
   fullTakeoffV2ProviderFactory?: FullTakeoffV2ProviderFactory | undefined;
   /** Full V2 always runs on a dedicated background worker, never on HTTP. */
   fullTakeoffV2Queue?: FullTakeoffV2Queue | undefined;
+  automaticGeometry?:AutomaticGeometryCoordinator | undefined;
 }
 
 export async function handleAiPlanRequest(request: Request, db: SupabaseLike, deps: AiPlanRequestDependencies): Promise<Response> {
@@ -100,7 +102,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     if (parts[0] === 'takeoff-runs' && parts[1]) {
       if (!await isPlatformAdmin(db, data.user.id)) throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
       const full = new DurableFullTakeoffV2Service(db, deps.findingsWriter, deps.storage,
-        deps.fullTakeoffV2Queue, data.user.id, workspaceId);
+        deps.fullTakeoffV2Queue, data.user.id, workspaceId,fetch,deps.automaticGeometry);
       if (request.method === 'GET' && parts.length === 2) {
         if (url.searchParams.has('page_number') || url.searchParams.has('pass_type')) {
           return json(await full.checkpoint(parts[1], Number(url.searchParams.get('page_number')), url.searchParams.get('pass_type') ?? '',url.searchParams.get('region_key')??undefined));
@@ -134,7 +136,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
         }
         if (process.env.TAKEOFF_V2_ENABLED !== 'true') throw new ProjectApiError(503, 'Full Takeoff V2 is disabled. No run was started.');
         const full = new DurableFullTakeoffV2Service(db, deps.findingsWriter, deps.storage,
-          deps.fullTakeoffV2Queue, data.user.id, workspaceId);
+          deps.fullTakeoffV2Queue, data.user.id, workspaceId,fetch,deps.automaticGeometry);
         return json(await full.reserve(parts[1], body), 202);
       }
       // The outer production handler always supplies paidReaderAvailable. Tests

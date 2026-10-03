@@ -1,6 +1,7 @@
 import { UNIT_REGISTRY, isCanonicalUnit, type CanonicalUnit } from '../../../../packages/domain/src/takeoff-v2.ts';
 import { buildEvidenceBudget, type BudgetMeasurement, type EvidenceBudgetInput, type EvidenceBudgetResult } from '../takeoff-v2/evidence-budget.ts';
 import { PHOTO_EVIDENCE_STAGES, PhotoEvidenceError, requirePhotoEvidenceProfile, type PhotoStageRoute } from './profile.ts';
+import { calculatePhotoPlanarMeasurement, type PhotoPlanarCalibration, type PhotoPlanarMeasurement, type PhotoPlanarProof } from './planar.ts';
 
 export const PHOTO_ASSET_LIMITS = Object.freeze({ maximumAssets: 8, maximumAssetBytes: 20 * 1024 * 1024,
   maximumBatchBytes: 40 * 1024 * 1024, maximumPixels: 64_000_000,
@@ -49,6 +50,8 @@ export interface PhotoDimensionReference {
   unit: CanonicalUnit | 'M';
   coplanarVerified: boolean;
   perspectiveVerified: boolean;
+  /** Explicit calibrated rectangle; the legacy length-only reference cannot approve geometry. */
+  planarCalibration?:PhotoPlanarCalibration;
 }
 /** Trusted human decisions are separate from untrusted model observations. */
 export interface PhotoReviewDecision {
@@ -65,6 +68,7 @@ export interface PhotoReviewDecision {
   identityAssetIds: readonly string[];
   crossViewIdentityReviewed: boolean;
   uncertaintyResolved: boolean;
+  planarMeasurement?:PhotoPlanarMeasurement;
 }
 export interface PhotoApprovedMeasurement {
   id: string;
@@ -77,6 +81,8 @@ export interface PhotoApprovedMeasurement {
   sourceRevisions: Readonly<Record<string, string>>;
   referenceIds: readonly string[];
   reviewerIds: readonly string[];
+  planarProofs?:readonly PhotoPlanarProof[];
+  measurementScope?:'reviewed_planar_region';
 }
 export interface PhotoEvidenceReview {
   assets: readonly PhotoSourceAsset[];
@@ -87,6 +93,7 @@ export interface PhotoEvidenceReview {
   releaseStatus: 'blocked' | 'measurement_review_ready';
   pricingStatus: 'missing_price';
   estimate: null;
+  planarProofs?:readonly PhotoPlanarProof[];
 }
 
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -210,11 +217,11 @@ export function reviewPhotoEvidence(input: { assets: unknown; workspaceId: strin
     decisions.set(decision.observationId, decision);
   }
   const blockers: string[] = [];
-  const groups = new Map<string, Array<{ observation: PhotoObservation; decision: PhotoReviewDecision; reference: PhotoDimensionReference | undefined }>>();
+  const groups = new Map<string, Array<{ observation: PhotoObservation; decision: PhotoReviewDecision; reference: PhotoDimensionReference | undefined;planarProof?:PhotoPlanarProof }>>();
   for (const observation of observations) {
     const decision = decisions.get(observation.id);
     if (decision?.disposition === 'rejected') continue;
-    if (!decision || !decimal(decision.quantity) || typeof decision.unit !== 'string' || !isCanonicalUnit(decision.unit)
+    if (!decision || !(decimal(decision.quantity)||decision.method==='calibrated_planar_geometry'&&decision.quantity===null) || typeof decision.unit !== 'string' || !isCanonicalUnit(decision.unit)
       || !identifier(decision.objectIdentityKey) || !boundedText(decision.calculationMethod)
       || !METHODS.has(decision.method) || decision.method === 'visual_estimate' || decision.uncertaintyResolved !== true
       || !Array.isArray(decision.identityAssetIds) || decision.identityAssetIds.some(id => !assetMap.has(id))) {
@@ -223,13 +230,24 @@ export function reviewPhotoEvidence(input: { assets: unknown; workspaceId: strin
     const viewIds = new Set(observation.regions.map(region => region.sourceAssetId));
     if ([...viewIds].some(id => !decision.identityAssetIds.includes(id))) { blockers.push(`${observation.id}:object_identity_review_required`); continue; }
     const reference = decision.referenceId ? references.get(decision.referenceId) : undefined;
-    // A reviewed length and two booleans do not define a homography, source
-    // polygon or deterministic physical calculation. Keep this mode pending
-    // until those inputs are represented and verified by RoughBid itself.
+    let effectiveDecision=decision,planarProof:PhotoPlanarProof|undefined;
     if (decision.method === 'calibrated_planar_geometry') {
-      blockers.push(`${observation.id}:deterministic_photo_calibration_required`); continue;
-    }
-    if (decision.method === 'visible_count') {
+      if(!reference?.planarCalibration||!decision.planarMeasurement){blockers.push(`${observation.id}:deterministic_photo_calibration_required`);continue;}
+      const sameSurface=observation.regions.some(region=>region.sourceAssetId===reference.region.sourceAssetId&&region.surfaceKey===reference.region.surfaceKey);
+      if(reference.verified!==true||reference.kind!=='planar_calibration'||reference.coplanarVerified!==true||reference.perspectiveVerified!==true
+        ||reference.objectIdentityKey!==decision.objectIdentityKey||!sameSurface){blockers.push(`${observation.id}:verified_local_dimension_reference_required`);continue;}
+      if(decision.quantity!==null){blockers.push(`${observation.id}:photo_planar_client_quantity_forbidden`);continue;}
+      if(reference.value!==reference.planarCalibration.referenceWidth||reference.unit!==reference.planarCalibration.referenceUnit){blockers.push(`${observation.id}:photo_planar_reference_dimensions_mismatch`);continue;}
+      try{
+        planarProof=calculatePhotoPlanarMeasurement({asset:assetMap.get(reference.region.sourceAssetId)!,surfaceKey:reference.region.surfaceKey,
+          referenceId:reference.id,reviewerId:decision.reviewerId,objectIdentityKey:decision.objectIdentityKey,
+          calibration:reference.planarCalibration,measurement:decision.planarMeasurement,unit:decision.unit});
+        effectiveDecision={...decision,quantity:planarProof.quantity,calculationMethod:`homography_rectangle_v1_${planarProof.geometry.measure}`};
+      }catch(error){
+        if(error instanceof PhotoEvidenceError){blockers.push(`${observation.id}:${error.code}`);continue;}
+        throw error;
+      }
+    } else if (decision.method === 'visible_count') {
       if (decision.unit !== 'EA' || !Number.isSafeInteger(decision.quantity)) { blockers.push(`${observation.id}:invalid_reviewed_count`); continue; }
     } else {
       const sameSurface = reference && observation.regions.some(region => region.sourceAssetId === reference.region.sourceAssetId && region.surfaceKey === reference.region.surfaceKey);
@@ -242,7 +260,7 @@ export function reviewPhotoEvidence(input: { assets: unknown; workspaceId: strin
     // Conflicting units are reconciled explicitly rather than silently added.
     const key = `${decision.objectIdentityKey}:${UNIT_REGISTRY[decision.unit].dimension}`;
     const group = groups.get(key) ?? [];
-    group.push({ observation, decision, reference }); groups.set(key, group);
+    group.push({ observation, decision:effectiveDecision, reference,...(planarProof?{planarProof}:{}) }); groups.set(key, group);
   }
   const approvedMeasurements: PhotoApprovedMeasurement[] = [];
   for (const [key, group] of groups) {
@@ -255,16 +273,29 @@ export function reviewPhotoEvidence(input: { assets: unknown; workspaceId: strin
     if (group.some(item => item.decision.quantity !== primary.decision.quantity || item.decision.unit !== primary.decision.unit || item.decision.method !== primary.decision.method)) {
       blockers.push(`${primary.decision.objectIdentityKey}:conflicting_photo_measurements`); continue;
     }
+    if(group.some(item=>item.planarProof?.geometry.measure!==primary.planarProof?.geometry.measure)){
+      blockers.push(`${primary.decision.objectIdentityKey}:conflicting_photo_measurement_scope`);continue;
+    }
+    const planarProofs=group.flatMap(item=>item.planarProof?[item.planarProof]:[]);
+    const measuredRegions=planarProofs.length?planarProofs.map(proof=>{
+      const xs=proof.geometry.points.map(point=>point[0]),ys=proof.geometry.points.map(point=>point[1]);
+      // A polyline can have zero width/height; retain the observation region in
+      // that case while its exact path is always retained in the calculation proof.
+      const bbox=[Math.min(...xs),Math.min(...ys),Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)] as const;
+      return bbox[2]>0&&bbox[3]>0?{sourceAssetId:proof.sourceAssetId,surfaceKey:proof.surfaceKey,bbox}:regions.find(region=>region.sourceAssetId===proof.sourceAssetId)!;
+    }):regions;
     approvedMeasurements.push({ id: key, objectIdentityKey: primary.decision.objectIdentityKey,
       quantity: primary.decision.quantity!, unit: primary.decision.unit!, method: primary.decision.method as PhotoApprovedMeasurement['method'],
-      calculationMethod: primary.decision.calculationMethod, sourceRegions: regions.map(cleanRegion),
+      calculationMethod: primary.decision.calculationMethod, sourceRegions: measuredRegions.map(cleanRegion),
       sourceRevisions: Object.fromEntries(assetIds.map(id => [id, assetMap.get(id)!.revision])),
       referenceIds: [...new Set(group.flatMap(item => item.reference ? [item.reference.id] : []))],
-      reviewerIds: [...new Set(group.map(item => item.decision.reviewerId))] });
+      reviewerIds: [...new Set(group.map(item => item.decision.reviewerId))],
+      ...(planarProofs.length?{planarProofs,measurementScope:'reviewed_planar_region' as const}:{}) });
   }
   if (!observations.length || !approvedMeasurements.length) blockers.push('no_approved_photo_measurements');
   return { assets, observations, approvedMeasurements, blockers: [...new Set(blockers)], humanReviewRequired: true,
-    releaseStatus: blockers.length ? 'blocked' : 'measurement_review_ready', pricingStatus: 'missing_price', estimate: null };
+    releaseStatus: blockers.length ? 'blocked' : 'measurement_review_ready', pricingStatus: 'missing_price', estimate: null,
+    ...(approvedMeasurements.some(item=>item.planarProofs)?{planarProofs:approvedMeasurements.flatMap(item=>item.planarProofs??[])}:{}) };
 }
 
 /**

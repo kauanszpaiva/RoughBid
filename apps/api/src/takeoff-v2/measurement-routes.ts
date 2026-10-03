@@ -53,7 +53,7 @@ export class MeasurementReviewService {
     if(measurementId!==undefined&&(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(measurementId)||offset!==0||native))throw new ProjectApiError(400,'Select one valid measurement identity without a pagination offset or native-candidate query.');
     const scope=page!==undefined?await this.scope(run,page):undefined;
     const dimensions=scope?displayedPageDimensions(scope):undefined;
-    const context={fileId:run.file_id,fileSha256:run.file_sha256,physicalPageCount:run.manifest?.physicalPageCount??null,
+    const context={projectId:run.project_id,fileId:run.file_id,fileSha256:run.file_sha256,physicalPageCount:run.manifest?.physicalPageCount??null,
       ...(scope?{sheet:{physicalPageNumber:scope.physicalPageNumber,pageSha256:scope.pageSha256,pageWidthPoints:scope.widthPoints,
         pageHeightPoints:scope.heightPoints,rotationDegrees:scope.rotationDegrees,displayWidthPoints:dimensions!.width,displayHeightPoints:dimensions!.height}}:{})};
     if(native){if(!scope)throw new ProjectApiError(400,'Native candidates require one explicit physical page.');return {...await this.native(scope),...context,version:MEASUREMENT_REVIEW_VERSION};}

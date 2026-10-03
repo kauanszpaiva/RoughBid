@@ -42,7 +42,9 @@ test('workspace estimating catalog has a deployable function file', () => {
 
 test('photo/measurement routes and researched catalog have deployable source coverage',()=>{
   for(const route of ['projects/[id]/photos/uploads','projects/[id]/photos/capability','projects/[id]/photos/runs','projects/[id]/photos/runs/[runId]',
-    'projects/[id]/photos/runs/[runId]/cancel','projects/[id]/photos/runs/[runId]/resume','projects/[id]/photos/runs/[runId]/review','takeoff-runs/[id]/measurements']){
+    'projects/[id]/photos/runs/[runId]/cancel','projects/[id]/photos/runs/[runId]/resume','projects/[id]/photos/runs/[runId]/review','takeoff-runs/[id]/measurements',
+    'projects/[id]/geometry/capability','projects/[id]/geometry/runs','projects/[id]/geometry/runs/[runId]',
+    'projects/[id]/geometry/runs/[runId]/cancel','projects/[id]/geometry/runs/[runId]/resume','projects/[id]/geometry/runs/[runId]/review']){
     assert.ok(existsSync(new URL(`../../../api/${route}.ts`,import.meta.url)),`Missing deployable route: ${route}`);
   }
   const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));

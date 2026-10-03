@@ -1,6 +1,6 @@
 param(
   [string]$ChromePath = 'C:\Program Files\Google\Chrome\Application\chrome.exe',
-  [ValidateSet('upload', 'geometry', 'budget', 'all')][string]$Scenario = 'upload'
+  [ValidateSet('upload', 'geometry', 'budget', 'automatic', 'photo-planar', 'all')][string]$Scenario = 'upload'
 )
 $ErrorActionPreference = 'Stop'
 $fixtureRepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
@@ -34,6 +34,8 @@ try {
     'upload' { @('offline-browser-fixture.qa.mjs') }
     'geometry' { @('offline-browser-fixture.geometry-qa.mjs', 'offline-browser-fixture.capture.mjs') }
     'budget' { @('offline-browser-fixture.geometry-qa.mjs', 'offline-browser-fixture.budget-qa.mjs', 'offline-browser-fixture.capture.mjs') }
+    'automatic' { @('offline-browser-fixture.automatic-qa.mjs', 'offline-browser-fixture.automatic-capture.mjs', 'offline-browser-fixture.photo-planar-qa.mjs', 'offline-browser-fixture.photo-planar-capture.mjs') }
+    'photo-planar' { @('offline-browser-fixture.photo-planar-qa.mjs', 'offline-browser-fixture.photo-planar-capture.mjs') }
     'all' { @('offline-browser-fixture.qa.mjs', 'offline-browser-fixture.geometry-qa.mjs', 'offline-browser-fixture.budget-qa.mjs', 'offline-browser-fixture.capture.mjs') }
   }
   foreach ($fixtureScript in $fixtureScripts) {

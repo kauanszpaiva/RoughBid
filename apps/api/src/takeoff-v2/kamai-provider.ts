@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 /**
- * Experimental, isolated Kamai adapter; it is not wired into a product route.
+ * Kamai transport adapter used by the durable geometry product bridge.
  * Source: https://api.kamai.io/openapi.json (API 0.1.0, reviewed 2026-10-02).
  * Enablement, integration approval and data/OEM authorization are independent.
  * A key alone never enables transmission. All transport and persistence are injected.

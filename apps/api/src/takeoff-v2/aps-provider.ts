@@ -1,5 +1,5 @@
 /**
- * Experimental CAD/BIM translation adapter, not a product takeoff implementation.
+ * CAD/BIM translation adapter used by the durable native-geometry product bridge.
  * No upload is implemented here: an authorized host must supply an existing OSS object.
  * PDF stays on RoughBid's PDF path. Credentials are injected at runtime, never checkpointed.
  * Sources: APS OAuth v2 docs and autodesk-platform-services/aps-sdk-openapi.

@@ -3,8 +3,10 @@ import { Camera, Loader2 } from 'lucide-react';
 import { ApiError } from '../services/api';
 import { beginPhotoUpload, cancelPhotoRun, completePhotoUpload, createPhotoPreview, createPhotoRun, getPhotoCapability,
   getPhotoRun, getPhotoCheckpoint, listPhotoRuns, resumePhotoRun, savePhotoReview, type PhotoCapability, type PhotoRun, type PhotoRunDetail, type PhotoSourceAsset, type PhotoReviewRequest, type PhotoCheckpoint } from '../services/photos-api';
-import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
+import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, emptyPhotoPlanarDraft, restorePhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
   validatePhotoSelection, type PhotoReviewDraft } from '../utils/photoReview';
+import { PhotoPlanarReview } from './PhotoPlanarReview';
+import { reviewIssueMessage, reviewIssueMessages } from '../utils/reviewMessages';
 
 type UploadSelection = { file: File; asset?: PhotoSourceAsset; status: 'selected' | 'uploading' | 'ready' | 'failed'; error?: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'Photo operation could not be confirmed. Reload saved state.';
@@ -93,12 +95,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
           for (const observation of saved.run.result.observations) {
             const decision = saved.run.result.decisions?.find(item => item.observationId === observation.id);
             if (!decision) continue;
-            restored[observation.id] = { ...emptyPhotoReviewDraft(observation), disposition: decision.disposition,
-              quantity: decision.quantity === null ? '' : String(decision.quantity), unit: decision.unit ?? '',
-              method: decision.method === 'visible_count' ? 'visible_count' : 'instrument_measurement',
-              objectIdentity: decision.objectIdentityKey, calculationMethod: decision.calculationMethod,
-              verifiedReading: decision.method === 'instrument_measurement', uncertaintyResolved: decision.uncertaintyResolved,
-              crossViewIdentityReviewed: decision.crossViewIdentityReviewed };
+            restored[observation.id] = restorePhotoReviewDraft(observation, decision, saved.run.result.references ?? saved.references);
           }
           setDrafts(restored);
         }
@@ -195,7 +192,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
       if (!Number.isSafeInteger(revision) || revision! < 0) throw new Error('The saved review revision is unavailable. Reload this run before writing.');
       if (pendingReview.current?.runId === detail.run.id && pendingReview.current.input.expectedReviewRevision === revision) input = pendingReview.current.input;
       else {
-        input = { ...buildPhotoHumanReview(detail.run.result.observations, drafts, () => crypto.randomUUID()),
+        input = { ...buildPhotoHumanReview(detail.run.result.observations, drafts, () => crypto.randomUUID(), detail.assets),
           expectedReviewRevision: revision!, reviewRequestKey: crypto.randomUUID() };
         pendingReview.current = { runId: detail.run.id, input };
       }
@@ -269,7 +266,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
         <div role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
           <h4 className="font-semibold flex items-center gap-2">{isPhotoRunInFlight(detail.run.status) && <Loader2 className="h-4 w-4 animate-spin" />}Photo reading: {detail.run.status.replaceAll('_', ' ')}</h4>
           <p>{photoCheckpointProgress(detail)}</p><p>Saved checkpoints remain recoverable after leaving this page. The reading has no overall time deadline.</p>
-          {detail.run.error_code && <p className="text-amber-900">Unresolved state: {detail.run.error_code.replaceAll('_', ' ')}.</p>}
+          {detail.run.error_code && <><p className="text-amber-900">Unresolved state: {reviewIssueMessage(detail.run.error_code)}</p><details><summary>Advanced run diagnostic</summary><code>{detail.run.error_code}</code></details></>}
           <div className="flex flex-wrap gap-2 pt-1">
             {canWrite && isPhotoRunInFlight(detail.run.status) && !detail.run.cancel_requested && <button onClick={() => handleRunAction('cancel')} disabled={Boolean(busy) || needsRead.current} className="rounded-md border border-rose-300 px-3 py-1.5 text-xs text-rose-800 disabled:opacity-50">Cancel photo reading</button>}
             {canWrite && canResumePhotoRun(detail) && <button onClick={() => handleRunAction('resume')} disabled={!capability?.workerReady || Boolean(busy) || needsRead.current} className="rounded-md border px-3 py-1.5 text-xs disabled:opacity-50">Resume saved photo reading</button>}
@@ -300,11 +297,11 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
       <h4 className="font-semibold">Measurement evidence requires human review</h4>
       <p>Independent review: {review?.independentReview ?? 'pending'}. Pricing: missing source prices. No completed budget is implied by this reading.</p>
       {review?.stageStatus && <p>{Object.entries(review.stageStatus).map(([stage, status]) => `${stage.replaceAll('_', ' ')}: ${status}`).join(' · ')}</p>}
-      {review?.blockers.length ? <ul className="list-disc pl-4">{review.blockers.map((blocker, index) => <li key={index}>{blocker.replaceAll('_', ' ')}</li>)}</ul> : <p>Check coverage, scale, perspective, hidden surfaces and physical object identity before using any quantities.</p>}
+      {review?.blockers.length ? <><ul className="list-disc pl-4">{reviewIssueMessages(review.blockers).map((blocker, index) => <li key={index}>{blocker}</li>)}</ul><details><summary>Advanced review codes</summary><pre className="whitespace-pre-wrap break-all">{review.blockers.join('\n')}</pre></details></> : <p>Check coverage, scale, perspective, hidden surfaces and physical object identity before using any quantities.</p>}
     </div>
     <div className="grid gap-3 sm:grid-cols-2">{detail.assets.map((asset, index) => <figure key={asset.id} className="rounded-lg border border-slate-200 p-3 space-y-2">
       <figcaption className="text-xs font-semibold">Source photo {index + 1} — {asset.widthPixels} × {asset.heightPixels} pixels</figcaption>
-      <p className="text-[10px] text-slate-500 break-all">Asset: {asset.id}; revision: {asset.revision.slice(0, 12)}. Pixels locate evidence and do not measure physical dimensions.</p>
+      <p className="text-[10px] text-slate-500">Pixels locate evidence and do not measure physical dimensions.</p><details className="text-[10px] text-slate-500 break-all"><summary>Advanced source revision</summary>Asset: {asset.id}; revision: {asset.revision}.</details>
       {onCheckpoint && <details className="rounded border p-2 text-xs" onToggle={event => { if (event.currentTarget.open && !checkpoints[asset.id]) onCheckpoint(asset.id); }}>
         <summary className="cursor-pointer font-semibold">Saved checkpoint for this photo</summary>
         {checkpointLoading[asset.id] && <p role="status">Loading saved evidence…</p>}
@@ -312,7 +309,7 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
         {checkpoints[asset.id] && <div className="mt-2 space-y-1"><p>Checkpoint: {checkpoints[asset.id]!.status}. Independent review remains pending.</p>
           {checkpoints[asset.id]!.checkpoint ? <><p>{checkpoints[asset.id]!.checkpoint!.observations.length} saved observations. Quantities are proposals until reviewed.</p>
             {checkpoints[asset.id]!.checkpoint!.observations.map(observation => <p key={observation.id}>{observation.label}: {observation.proposedQuantity === null || !observation.proposedUnit ? 'quantity undetermined' : `unverified ${observation.proposedQuantity} ${observation.proposedUnit}`}</p>)}
-            <ul className="list-disc pl-4">{[...checkpoints[asset.id]!.checkpoint!.quality.limitations, ...checkpoints[asset.id]!.checkpoint!.blockers].map((item, at) => <li key={at}>{item.replaceAll('_', ' ')}</li>)}</ul></> : <p>No checkpoint payload has been persisted for this photo yet.</p>}
+            <ul className="list-disc pl-4">{reviewIssueMessages([...checkpoints[asset.id]!.checkpoint!.quality.limitations, ...checkpoints[asset.id]!.checkpoint!.blockers]).map((item, at) => <li key={at}>{item}</li>)}</ul><details><summary>Advanced checkpoint diagnostics</summary><pre className="whitespace-pre-wrap break-all">{JSON.stringify({ quality: checkpoints[asset.id]!.checkpoint!.quality, blockers: checkpoints[asset.id]!.checkpoint!.blockers }, null, 2)}</pre></details></> : <p>No checkpoint payload has been persisted for this photo yet.</p>}
         </div>}
         <button type="button" disabled={checkpointLoading[asset.id]} className="mt-2 underline disabled:opacity-40" onClick={() => onCheckpoint(asset.id)}>Reload this checkpoint</button>
       </details>}
@@ -339,20 +336,22 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
         return <article key={observation.id} className="rounded-lg border border-slate-200 p-3 space-y-2 text-xs">
           <h5 className="font-semibold text-slate-900">{observation.label}</h5>
           <p>{observation.proposedQuantity === null || !observation.proposedUnit ? 'Physical quantity is undetermined.' : `Unverified proposal: ${observation.proposedQuantity} ${observation.proposedUnit}.`} Method: {observation.method.replaceAll('_', ' ')}.</p>
-          <p>Evidence regions: {observation.regions.map(region => `photo ${detail.assets.findIndex(asset => asset.id === region.sourceAssetId) + 1}, surface ${region.surfaceKey}`).join('; ')}.</p>
-          {observation.uncertainty.length > 0 && <ul className="list-disc pl-4 text-amber-900">{observation.uncertainty.map((uncertainty, index) => <li key={index}>{uncertainty.replaceAll('_', ' ')}</li>)}</ul>}
+          <p>Evidence regions: {observation.regions.map((region, index) => `photo ${detail.assets.findIndex(asset => asset.id === region.sourceAssetId) + 1}, marked surface ${index + 1}`).join('; ')}.</p>
+          {observation.uncertainty.length > 0 && <ul className="list-disc pl-4 text-amber-900">{reviewIssueMessages(observation.uncertainty).map((uncertainty, index) => <li key={index}>{uncertainty}</li>)}</ul>}
           {canReview && <fieldset disabled={disabled} className="border-t border-slate-100 pt-2 space-y-2"><legend className="text-xs font-semibold">Human review for {observation.label}</legend>
-            <label className="block">Decision<select aria-label={`Review decision for ${observation.label}`} value={draft.disposition} onChange={event => onDraft(observation.id, { disposition: event.target.value as PhotoReviewDraft['disposition'] })} className="ml-2 rounded border p-1"><option value="unreviewed">Leave unresolved</option><option value="approved">Review a count or instrument measurement</option><option value="rejected">Reject this observation</option></select></label>
+            <label className="block">Decision<select aria-label={`Review decision for ${observation.label}`} value={draft.disposition} onChange={event => onDraft(observation.id, { disposition: event.target.value as PhotoReviewDraft['disposition'] })} className="ml-2 rounded border p-1"><option value="unreviewed">Leave unresolved</option><option value="approved">Review a physical measurement</option><option value="rejected">Reject this observation</option></select></label>
             {draft.disposition === 'approved' && <div className="space-y-2">
-              <div className="flex flex-wrap gap-2"><label>Measurement method<select value={draft.method} onChange={event => onDraft(observation.id, { method: event.target.value as PhotoReviewDraft['method'] })} className="block rounded border p-1"><option value="visible_count">Human-checked visible count</option><option value="instrument_measurement">Instrument reading</option></select></label>
-                <label>Reviewed quantity<input aria-label={`Reviewed quantity for ${observation.label}`} inputMode="decimal" value={draft.quantity} onChange={event => onDraft(observation.id, { quantity: event.target.value })} className="block w-28 rounded border p-1" placeholder="Enter a reading" /></label>
-                <label>Unit<select value={draft.unit} onChange={event => onDraft(observation.id, { unit: event.target.value })} className="block rounded border p-1"><option value="">Select unit</option>{['EA', 'SF', 'LF', 'CY', 'SY', 'CF', 'TON'].map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
-              <label className="block">Physical object identity<input value={draft.objectIdentity} onChange={event => onDraft(observation.id, { objectIdentity: event.target.value })} className="block w-full rounded border p-1" placeholder="Stable identity for this physical surface or element" /></label>
+              <div className="flex flex-wrap gap-2"><label>Measurement method<select aria-label={`Measurement method for ${observation.label}`} value={draft.method} onChange={event => { const method = event.target.value as PhotoReviewDraft['method']; onDraft(observation.id, { method, quantity: '', unit: method === 'calibrated_planar_geometry' ? 'SF' : method === 'visible_count' ? 'EA' : '', verifiedReading: false, uncertaintyResolved: false, ...(method === 'calibrated_planar_geometry' ? { planar: draft.planar ?? emptyPhotoPlanarDraft(observation, detail.assets) } : {}) }); }} className="block rounded border p-1"><option value="visible_count">Human-checked visible count</option><option value="instrument_measurement">Instrument reading</option><option value="calibrated_planar_geometry">Four-point planar reference</option></select></label>
+                {draft.method !== 'calibrated_planar_geometry' && <label>Reviewed quantity<input aria-label={`Reviewed quantity for ${observation.label}`} inputMode="decimal" value={draft.quantity} onChange={event => onDraft(observation.id, { quantity: event.target.value })} className="block w-28 rounded border p-1" placeholder="Enter a reading" /></label>}
+                <label>Unit<select aria-label={`Measurement unit for ${observation.label}`} value={draft.unit} onChange={event => onDraft(observation.id, { unit: event.target.value, uncertaintyResolved: false })} className="block rounded border p-1"><option value="">Select unit</option>{(draft.method === 'calibrated_planar_geometry' ? draft.planar?.measure === 'area' ? ['SF', 'SY', 'SQ'] : ['LF'] : ['EA', 'SF', 'LF', 'CY', 'SY', 'CF', 'TON']).map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
+              <label className="block">Physical element<select aria-label={`Physical element for ${observation.label}`} value={observations.find(item => item.id !== observation.id && (drafts[item.id] ?? emptyPhotoReviewDraft(item)).objectIdentity === draft.objectIdentity)?.id ?? ''} onChange={event => { const matching = observations.find(item => item.id === event.target.value); onDraft(observation.id, { objectIdentity: matching ? (drafts[matching.id] ?? emptyPhotoReviewDraft(matching)).objectIdentity : emptyPhotoReviewDraft(observation).objectIdentity, crossViewIdentityReviewed: false, uncertaintyResolved: false }); }} className="ml-2 rounded border p-1"><option value="">Distinct physical element</option>{observations.filter(item => item.id !== observation.id).map(item => <option key={item.id} value={item.id}>Same physical element as: {item.label}</option>)}</select></label>
+              <details><summary className="cursor-pointer">Advanced physical identity and evidence tracking</summary><label className="block">Physical element ID<input value={draft.objectIdentity} onChange={event => onDraft(observation.id, { objectIdentity: event.target.value, crossViewIdentityReviewed: false, uncertaintyResolved: false })} className="block w-full rounded border p-1" /></label><pre className="whitespace-pre-wrap break-all">{JSON.stringify({ observationId: observation.id, regions: observation.regions, uncertainty: observation.uncertainty }, null, 2)}</pre></details>
+              {draft.method === 'calibrated_planar_geometry' && <><p className="text-slate-600">The server computes the quantity after source and geometry checks. No client quantity is submitted.</p><PhotoPlanarReview observation={observation} assets={detail.assets} draft={draft.planar} previews={previews} onPreview={onPreview} disabled={disabled} onChange={planar => onDraft(observation.id, { planar, quantity: '', unit: planar.measure === 'area' ? ['SF', 'SY', 'SQ'].includes(draft.unit) ? draft.unit : 'SF' : 'LF', uncertaintyResolved: false })} /></>}
               <label className="block">Reading source and calculation<textarea value={draft.calculationMethod} onChange={event => onDraft(observation.id, { calculationMethod: event.target.value })} className="block w-full rounded border p-1" placeholder="Describe instrument, measurement location, units, or how you checked the count." /></label>
               {draft.method === 'instrument_measurement' && <label className="flex items-center gap-2"><input type="checkbox" checked={draft.verifiedReading} onChange={event => onDraft(observation.id, { verifiedReading: event.target.checked })} />I verified this instrument reading on the identified source surface.</label>}
               <label className="flex items-center gap-2"><input type="checkbox" checked={draft.uncertaintyResolved} onChange={event => onDraft(observation.id, { uncertaintyResolved: event.target.checked })} />I resolved the listed uncertainties for this quantity.</label>
               {detail.assets.length > 1 && <label className="flex items-center gap-2"><input type="checkbox" checked={draft.crossViewIdentityReviewed} onChange={event => onDraft(observation.id, { crossViewIdentityReviewed: event.target.checked })} />If this object appears in several views, I checked its identity and ensured its quantity is not duplicated.</label>}
-              <p className="text-slate-500">The instrument reference is bound to the first identified source region. Enter the physical reading in the selected unit; photo pixels are not converted to length or area.</p>
+              {draft.method === 'instrument_measurement' && <p className="text-slate-500">The instrument reference is bound to the first identified source region. Enter the physical reading in the selected unit; photo pixels are not converted to length or area.</p>}
             </div>}
           </fieldset>}
         </article>;
@@ -360,7 +359,7 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
     </section>}
     {review && <section aria-label="Human-reviewed photo measurements" className="rounded-lg border border-slate-200 p-3 text-xs space-y-2"><h4 className="font-semibold">Human-reviewed measurements</h4>
       {!review.approvedMeasurements.length && <p>No measurement has been approved. Missing quantities remain undetermined.</p>}
-      {review.approvedMeasurements.map(measurement => <div key={measurement.id} className="rounded bg-slate-50 p-2"><strong>{measurement.objectIdentityKey}: {measurement.quantity} {measurement.unit}</strong><p>{measurement.calculationMethod}</p><p>Sources: {measurement.sourceRegions.length} region(s); reviewed by {measurement.reviewerIds.length} reviewer(s). Pricing remains missing.</p></div>)}
+      {review.approvedMeasurements.map((measurement, index) => <div key={measurement.id} className="rounded bg-slate-50 p-2"><strong>Reviewed element {index + 1}: {measurement.quantity} {measurement.unit}</strong><p>{measurement.planarProofs?.length ? `Calculated ${measurement.planarProofs[0]!.geometry.measure} from the reviewed four-point planar reference.` : measurement.calculationMethod}</p><p>Sources: {measurement.sourceRegions.length} region(s); reviewed by {measurement.reviewerIds.length} reviewer(s). Pricing remains missing.</p>{measurement.planarProofs?.length ? <p>Conditional planar measurement of the marked region. Statistical uncertainty has not been quantified; independent review remains pending.</p> : null}<details><summary>Advanced measurement proof and source identity</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(measurement, null, 2)}</pre></details></div>)}
       <p>No estimate items or price totals are created from this photo review.</p>
     </section>}
   </div>;

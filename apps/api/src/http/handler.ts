@@ -41,6 +41,10 @@ import { createPhotoTakeoffQueue, type PhotoTakeoffQueue } from '../photos/queue
 import type { PhotoRequestDependencies } from '../photos/service.ts';
 import type { DocumentDb } from '../documents/service.ts';
 import { handleMeasurementReviewRequest, type MeasurementReviewDependencies } from '../takeoff-v2/measurement-routes.ts';
+import { handleGeometryRequest } from '../geometry/routes.ts';
+import { loadGeometryProfile } from '../geometry/config.ts';
+import { createGeometryQueue, type GeometryQueue } from '../geometry/queue.ts';
+import { createAutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -219,6 +223,21 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     const writer=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
     return handleConstructionBudgetRequest(request,client as unknown as SupabaseLike,writer);
   }
+  if (/^\/api\/projects\/[^/]+\/geometry\//.test(pathname)) {
+    const key=loadSupabaseServiceRoleKey(),url=process.env.SUPABASE_URL?.trim();
+    if(!key||!url)return json({error:'Geometric evidence persistence is not configured.'},503);
+    let geometryQueue:GeometryQueue|undefined;
+    try{
+      const storage=process.env.BLOB_READ_WRITE_TOKEN?new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env)):new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      let profile:ReturnType<typeof loadGeometryProfile>;
+      try{profile=loadGeometryProfile(process.env);}catch{/* Saved evidence and cancellation remain readable with dispatch closed. */}
+      const needsQueue=pathname.endsWith('/capability')||request.method==='POST'&&/\/runs(?:\/[^/]+\/resume)?$/.test(pathname);
+      if(profile&&needsQueue&&process.env.REDIS_URL){try{geometryQueue=await createGeometryQueue(process.env.REDIS_URL);}catch{/* Intake fails closed. */}}
+      const writer=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}) as unknown as DocumentDb;
+      return await handleGeometryRequest(request,client as unknown as SupabaseLike,{writer,storage,...(profile?{profile}:{}),...(geometryQueue?{queue:geometryQueue}:{})});
+    }catch{return json({error:'Geometric evidence is unavailable. No provider request was started on HTTP.'},503);}
+    finally{await geometryQueue?.close?.().catch(()=>{});}
+  }
   if (/^\/api\/projects\/[^/]+\/photos\/(?:capability|uploads|runs)(?:\/[^/]+(?:\/(?:complete|download-url|cancel|resume|review))?)?$/.test(pathname)) {
     const writerKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
@@ -262,6 +281,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
     let durableQueue: DurableAiPlanQueue | undefined;
     let fullTakeoffV2Queue: FullTakeoffV2Queue | undefined;
+    let geometryQueue:GeometryQueue|undefined;
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
@@ -311,6 +331,15 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;
+      let automaticGeometry:AiPlanRequestDependencies['automaticGeometry'];
+      try{
+        const profile=loadGeometryProfile(process.env);
+        // The HTTP boundary advertises a durable fanout only. It never calls
+        // Kamai/APS or performs page-by-page child reservations itself.
+        if(profile){
+          automaticGeometry=createAutomaticGeometryCoordinator(client as unknown as DocumentDb,{writer:findingsWriter as unknown as DocumentDb,storage,profile});
+        }
+      }catch{/* Explicit geometry enablement/configuration remains closed. */}
       const deps: AiPlanRequestDependencies = {
         pilotEnforcement: true,
         ...(pilotReader ? { pilotReader } : {}),
@@ -324,6 +353,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         pageImagesEnabled: configuredReaders.has('kimi') || configuredReaders.has('deepseek'),
         ...(durableQueue ? { durableQueue } : {}),
         ...(fullTakeoffV2Queue ? { fullTakeoffV2Queue } : {}),
+        ...(automaticGeometry?{automaticGeometry}:{}),
       };
       return await handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
     } catch (error) {
@@ -331,6 +361,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     } finally {
       await durableQueue?.close?.().catch(() => {});
       await fullTakeoffV2Queue?.close?.().catch(() => {});
+      await geometryQueue?.close?.().catch(()=>{});
     }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {
