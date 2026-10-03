@@ -30,8 +30,8 @@ function fixture() {
     from(table: string) {
       const query: any = {
         select: () => query,
-        eq: (_column: string, value: unknown) => {
-          if (table === 'project_reading_quotes' && value !== 'pi_project') query.noMatch = true;
+        eq: (column: string, value: unknown) => {
+          if (table === 'project_reading_quotes' && value !== (column === 'id' ? 'quote-1' : 'pi_project')) query.noMatch = true;
           return query;
         },
         maybeSingle: () => query,

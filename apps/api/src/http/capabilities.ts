@@ -6,7 +6,7 @@ import { loadObjectStorageConfig } from '../storage/object-storage.ts';
 
 /** Configuration flags only; this never probes a provider or reveals credentials. */
 export function runtimeCapabilities(env: Record<string, string | undefined>) {
-  const flags = { aiReadingAvailable: false, fullTakeoffV2: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport: false };
+  const flags = { aiReadingAvailable: false, fullTakeoffV2: false, fullTakeoffBilling: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport: false };
   // Free owner entitlement is deliberately NOT reported here. This endpoint is
   // public and env-only, so a global flag would advertise "free analysis" to
   // every customer workspace. Entitlement is per-workspace and is answered by
@@ -50,6 +50,12 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
       && env.TAKEOFF_V2_WORKER_ENABLED === 'true'
       && env.TAKEOFF_V2_SCHEMA_VERSION === 'takeoff-v2-foundation-v1'
       && isConfiguredValue(env.REDIS_URL);
+    // Paid Full is independent of the disabled quick reader. These are only
+    // declaration flags; quote/checkout enforce the profile, worker and capacity.
+    flags.fullTakeoffBilling = flags.fullTakeoffV2 && env.PAID_FULL_ENABLED === 'true' && live
+      && isConfiguredValue(key) && /^(?:sk|rk)_live_/.test(key)
+      && /^acct_[A-Za-z0-9]+$/.test(env.STRIPE_EXPECTED_ACCOUNT_ID ?? '')
+      && isConfiguredValue(env.STRIPE_WEBHOOK_SECRET) && isConfiguredValue(env.APP_URL) && new URL(env.APP_URL).protocol === 'https:';
     if (!flags.aiReadingAvailable || !stripeReady) return flags;
     quoteProject(1, 1, 'standard', env);
     flags.billing = true;

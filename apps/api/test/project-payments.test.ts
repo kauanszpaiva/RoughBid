@@ -35,7 +35,7 @@ test('scope cannot contain arbitrary trades or oversized user text',()=>{
 });
 test('unpaid and unrelated Stripe events never grant a project reading',async()=>{
   const calls:any[]=[];
-  const db={from:()=>({}),rpc:async(fn:string,args:any)=>{calls.push({fn,args});return {data:true,error:null}}};
+  const db={from:()=>{ const q:any={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:{id:'quote',mode:'quick'},error:null})};return q; },rpc:async(fn:string,args:any)=>{calls.push({fn,args});return {data:true,error:null}}};
   const payments=new ProjectPayments(db,{});
   const event={id:'evt_test',type:'checkout.session.completed',livemode:false,data:{object:{mode:'payment',payment_status:'unpaid',metadata:{roughbid_quote_id:'quote'}}}};
   await payments.reconcile(event);assert.equal(calls.length,0);
@@ -66,7 +66,7 @@ function checkoutFixture(env: Record<string, string | undefined>, pilot: any = {
     if (init?.body instanceof URLSearchParams) requestBodies.push(init.body.toString());
     return gatewayResponse ?? Response.json({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
   }) as typeof fetch;
-  return { payments: new ProjectPayments(db, env, fetcher), mutations, requests, requestBodies };
+  return { payments: new ProjectPayments(db, env, fetcher), mutations, requests, requestBodies, quote };
 }
 
 test('disabled or incomplete Gemini configuration blocks quotes and checkout before spending or reserving', async () => {
@@ -106,6 +106,26 @@ test('deliberately configured paid checkout still works with an injected test ga
   assert.deepEqual(f.requests, ['https://api.stripe.com/v1/checkout/sessions']);
   assert.deepEqual(f.mutations, ['project_reading_quotes']);
   assert.doesNotMatch(f.requestBodies[0]!, /payment_method_types/);
+});
+
+test('quick checkout accepts restricted keys only in the saved quote mode', async () => {
+  for (const livemode of [false, true]) {
+    for (const prefix of ['sk', 'rk', 'pk']) {
+      for (const keyMode of ['test', 'live']) {
+        const f = checkoutFixture({ PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
+          STRIPE_SECRET_KEY: `${prefix}_${keyMode}_unitcredential`, STRIPE_WEBHOOK_SECRET: 'whsec_test_unitcredential', APP_URL: 'https://roughbid.test' });
+        f.quote.livemode = livemode;
+        if (prefix !== 'pk' && keyMode === (livemode ? 'live' : 'test')) {
+          assert.equal((await f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1')).url, 'https://checkout.stripe.test/session');
+          assert.equal(f.requests.length, 1);
+        } else {
+          await assert.rejects(f.payments.checkout('user-1', 'workspace-1', 'project-1', 'quote-1'), (error: any) => error.status === 503);
+          assert.deepEqual(f.requests, []);
+          assert.deepEqual(f.mutations, []);
+        }
+      }
+    }
+  }
 });
 
 test('active pilot cannot pay around its limits and unknown pilot status fails closed', async () => {

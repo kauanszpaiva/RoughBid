@@ -129,11 +129,11 @@ export async function splitPhysicalPages(fileBytes: Uint8Array, manifest: PlanSe
   if (source.getPageCount() !== manifest.physicalPageCount) throw new ProjectApiError(409, 'Claude Deep page split does not match deterministic preflight.');
   const pages = new Map<number, Uint8Array>();
   for (const sheet of manifest.sheets) {
-    const target = await PDFDocument.create();
+    const target = await PDFDocument.create({ updateMetadata: false });
     const [page] = await target.copyPages(source, [sheet.physicalPageNumber - 1]);
     if (!page) throw new ProjectApiError(422, `Physical page ${sheet.physicalPageNumber} could not be isolated.`);
     target.addPage(page);
-    pages.set(sheet.physicalPageNumber, new Uint8Array(await target.save({ useObjectStreams: false })));
+    pages.set(sheet.physicalPageNumber, new Uint8Array(await target.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false })));
   }
   return pages;
 }

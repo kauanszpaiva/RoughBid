@@ -151,7 +151,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       ...(inviteMailer ? { sendInviteEmail: inviteMailer } : {}),
     });
   }
-  if (/^\/api\/projects\/[^/]+\/(reading-quote|reading-checkout)$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/(reading-quote|reading-checkout|reading-order|reading-order-checkout)$/.test(pathname)) {
     const serviceRoleKey = loadSupabaseServiceRoleKey();
     if (!serviceRoleKey || !process.env.SUPABASE_URL) return json({error:'Project billing is not configured.'},503);
     try {

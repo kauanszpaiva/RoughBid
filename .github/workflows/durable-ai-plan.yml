@@ -38,6 +38,8 @@ jobs:
         run: node --experimental-strip-types --test apps/api/test/ai-plan-durable.test.ts
       - name: Durable database state machine and lease recovery
         run: node --test supabase/test/durable-ai-plan.test.mjs supabase/test/durable-ai-plan-lease.test.mjs
+      - name: Paid batch transactions and durable budget waiting
+        run: node --experimental-strip-types --test supabase/test/paid-full-takeoff.test.mjs supabase/test/full-takeoff-budget-wait.test.mjs supabase/test/full-reading-orders.test.mjs
       - name: Durable UI status contract
         run: node --experimental-strip-types --test apps/web/test/ai-plan-status.test.ts
       - name: Backend and worker typecheck
@@ -61,6 +63,8 @@ jobs:
         run: node scripts/test-ai-review-browser.mjs
       - name: Paid return recovery without automatic AI or payment
         run: node scripts/test-paid-return-browser.mjs
+      - name: Full purchase consent, return and saved revision recovery
+        run: node scripts/test-full-purchase-browser.mjs
       - name: Physical page review and safe resume browser checks
         run: node scripts/test-page-review-browser.mjs
       - uses: actions/upload-artifact@v4

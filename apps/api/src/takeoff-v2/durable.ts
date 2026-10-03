@@ -10,6 +10,9 @@ import type { DeepCheckpointRepository, DeepPassRequest, DeepPassResult, PlanSet
 import type { AutomaticGeometryCoordinator } from './automatic-geometry.ts';
 import { approveFullTakeoffSpend, fullTakeoffApprovalProfile } from './user-spend-approval.ts';
 import { fullTakeoffConsumerPresent, type PresenceRedis } from './worker-presence.ts';
+import { hashPaidFullContract, validatePaidFullContract } from '../billing/full-takeoff-pricing.ts';
+import { paidFullRunLimits } from './paid-access.ts';
+import { FullTakeoffBudgetWait, FullTakeoffRunBudgetExhausted } from './budget-wait.ts';
 
 export const FULL_TAKEOFF_V2_QUEUE = 'takeoff-full-v2';
 export const FULL_TAKEOFF_V2_DURABLE_VERSION = 'takeoff-v2.2-durable';
@@ -18,6 +21,20 @@ export interface FullTakeoffV2Queue {
   isWorkerAvailable(): Promise<boolean>;
   add(runId: string): Promise<unknown>;
   close?(): Promise<void>;
+}
+
+/** A missed enqueue is harmless: SQL remains the durable source on every scan. */
+export async function requeueDueFullTakeoffBudgetRuns(writer: PlanReadingFindingsWriter,
+  queue: Pick<FullTakeoffV2Queue,'add'>): Promise<number> {
+  if (!writer.rpc) throw new Error('Full Takeoff budget recovery requires persistence.');
+  const due = await writer.rpc('due_full_takeoff_budget_runs',{p_version:FULL_TAKEOFF_V2_DURABLE_VERSION});
+  if (due.error || !Array.isArray(due.data)) throw new Error('Full Takeoff budget recovery unavailable.');
+  let count = 0;
+  for (const row of due.data) {
+    if (typeof row?.run_id !== 'string' || !/^[a-f0-9-]{36}$/i.test(row.run_id)) throw new Error('Invalid durable reading identity.');
+    await queue.add(row.run_id); count++;
+  }
+  return count;
 }
 
 export async function createFullTakeoffV2Queue(redisUrl: string,
@@ -29,6 +46,9 @@ export async function createFullTakeoffV2Queue(redisUrl: string,
     url: redisUrl, maxRetriesPerRequest: 1, enableOfflineQueue: false, autoResendUnfulfilledCommands: false,
     connectTimeout: 5_000, commandTimeout: 5_000, retryStrategy: () => null,
   } });
+  (queue as unknown as { on?: (event: string, listener: () => void) => unknown }).on?.('error', () => {
+    console.error('[full-takeoff-queue] Redis connection unavailable');
+  });
   return {
     async isWorkerAvailable() {
       return fullTakeoffConsumerPresent((queue as unknown as { client: Promise<PresenceRedis> }).client);
@@ -48,6 +68,34 @@ export async function createFullTakeoffV2Queue(redisUrl: string,
 function dbValue<T>(value: { data: T; error: unknown }, message: string): T {
   if (value.error) throw new ProjectApiError(503, message);
   return value.data;
+}
+
+/** Called after signed payment reconciliation, or by an authenticated retry.
+ * The database independently validates payment and atomically owns one run. */
+export async function ensurePaidFullRun(writer: PlanReadingFindingsWriter, queue: FullTakeoffV2Queue, quoteId: string,
+  actor?: { userId: string; workspaceId: string; projectId: string; fileId: string }) {
+  if (!writer.rpc) throw new ProjectApiError(503, 'Paid Full persistence is unavailable.');
+  let query = writer.from('project_reading_quotes').select('id,user_id,workspace_id,project_id,file_id,mode,status,livemode,paid_at,full_contract,full_contract_hash');
+  query = query.eq('id', quoteId).eq('mode', 'full_v2');
+  if (actor) query = query.eq('user_id', actor.userId).eq('workspace_id', actor.workspaceId).eq('project_id', actor.projectId).eq('file_id', actor.fileId);
+  const quote = dbValue<any>(await query.maybeSingle(), 'Could not read the paid Full quote.');
+  if (!quote || quote.livemode !== true || !quote.paid_at || !['paid','processing','complete','failed'].includes(quote.status)) {
+    throw new ProjectApiError(403, 'Confirmed live payment for this Full reading is required.');
+  }
+  const contract = validatePaidFullContract(quote.full_contract, process.env);
+  if (hashPaidFullContract(contract) !== quote.full_contract_hash) throw new ProjectApiError(409, 'The paid Full contract does not match its saved revision.');
+  const live = await writer.rpc('full_takeoff_v2_worker_available', { p_version: FULL_TAKEOFF_V2_DURABLE_VERSION });
+  if (live.error || live.data !== true || !await queue.isWorkerAvailable()) throw new ProjectApiError(503, 'The paid reading is saved and awaits an available Full worker.');
+  const reserved = await writer.rpc('reserve_paid_full_takeoff_v2', { p_quote_id: quote.id, p_user_id: quote.user_id,
+    p_workspace_id: quote.workspace_id, p_project_id: quote.project_id, p_file_id: quote.file_id,
+    p_contract_hash: quote.full_contract_hash, p_version: FULL_TAKEOFF_V2_DURABLE_VERSION });
+  if (reserved.error || !reserved.data?.run?.id) throw new ProjectApiError(409, 'Paid Full reservation was not authorized. Payment state and saved evidence were preserved.');
+  const payload = reserved.data;
+  if (payload.run.status === 'queued') {
+    try { await queue.add(payload.run.id); }
+    catch { throw new ProjectApiError(503, 'The paid Full run is saved. Retry will reuse this run after queue recovery.'); }
+  }
+  return { ...payload.run, mode: FULL_TAKEOFF_V2_MODE, resumed: payload.reused === true };
 }
 
 /** HTTP only reserves/enqueues. Provider credentials and calls stay on the worker. */
@@ -82,6 +130,10 @@ export class DurableFullTakeoffV2Service {
     const fileId = typeof input.file_id === 'string' ? input.file_id.trim() : '';
     if (!fileId) throw new ProjectApiError(400, 'file_id is required.');
     await this.ready();
+    if (Object.hasOwn(input, 'quote_id')) {
+      if (typeof input.quote_id !== 'string' || !input.quote_id.trim()) throw new ProjectApiError(400, 'A paid Full quote is required.');
+      return ensurePaidFullRun(this.writer, this.queue!, input.quote_id, { userId: this.userId, workspaceId: this.workspaceId, projectId, fileId });
+    }
     const spendApproval = approveFullTakeoffSpend(input.spend_approval, fullTakeoffApprovalProfile(process.env), this.userId);
     const membership = dbValue<any>(await this.db.from('workspace_members').select('role')
       .eq('workspace_id', this.workspaceId).eq('user_id', this.userId).maybeSingle(), 'Could not verify workspace access.');
@@ -125,7 +177,7 @@ export class DurableFullTakeoffV2Service {
 
   async get(runId: string) {
     const run = dbValue<any>(await this.db.from('takeoff_runs')
-      .select('id,workspace_id,project_id,file_id,file_sha256,status,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error')
+      .select('id,workspace_id,project_id,file_id,file_sha256,status,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error,not_before,waiting_reason,error_code')
       .eq('id', runId).eq('workspace_id', this.workspaceId).eq('mode', 'full')
       .eq('orchestrator_version', FULL_TAKEOFF_V2_DURABLE_VERSION).maybeSingle(), 'Could not read Full Takeoff progress.');
     if (!run) throw new ProjectApiError(404, 'Full Takeoff run not found.');
@@ -219,9 +271,16 @@ class LeasedDeepCheckpointRepository implements DeepCheckpointRepository {
     return { p_run_id: this.runId, p_lease_id: this.leaseId, p_page_number: request.sheet.physicalPageNumber,
       p_pass_type: request.passType, p_attempt: request.attempt, p_idempotency_key: request.idempotencyKey };
   }
-  async begin(request: DeepPassRequest) {
+  async inspect(request: DeepPassRequest) {
     await this.assertActive();
-    const saved = await this.rpc('begin_full_takeoff_v2_pass', this.identity(request));
+    const saved = await this.rpc('inspect_full_takeoff_v2_pass',this.identity(request));
+    if (saved.error || !['run','already_succeeded','already_blocked'].includes(saved.data)) throw new Error('Full checkpoint cannot repeat uncertain evidence.');
+    return saved.data as 'run'|'already_succeeded'|'already_blocked';
+  }
+  async begin(request: DeepPassRequest, eventId?: string) {
+    await this.assertActive();
+    const saved = await this.rpc(eventId ? 'begin_funded_full_takeoff_v2_pass' : 'begin_full_takeoff_v2_pass',
+      { ...this.identity(request),...(eventId ? {p_event_id:eventId} : {}) });
     if (saved.error || !['run', 'already_succeeded', 'already_blocked'].includes(saved.data)) {
       throw new Error('Full Takeoff pass requires reconciliation. No repeat provider call was started.');
     }
@@ -290,37 +349,62 @@ export class DurableFullTakeoffV2Processor {
       }
     };
     const timer = setInterval(() => { void heartbeat(); }, this.options.heartbeatMs ?? 5_000);
+    let boundary = 'source_unavailable';
     try {
       await assertActive();
       assertPlanStoragePath(context.storage_path, context.workspace_id, context.project_id, context.file_id);
       const signed = await this.storage.presign('GET', context.storage_path, { expiresIn: 300 });
       const fileBytes = await downloadPlan(signed.url, this.fetcher);
       const manifest = await createPlanSetManifest(fileBytes);
+      boundary = 'source_changed';
       if (manifest.fileSha256 !== context.manifest?.fileSha256 || manifest.physicalPageCount !== context.manifest?.physicalPageCount) {
         throw new Error('Full Takeoff plan identity changed after authorization.');
       }
-      if (context.manifest?.spendApproval?.approvedBy !== context.requested_by) {
-        throw new Error('Full Takeoff user spending approval is missing or belongs to another requester.');
+      // The complete file hash proves the exact original bytes. Existing runs
+      // retain their persisted page identities, including older PDF serializers.
+      if (context.manifest.sheets?.length !== manifest.sheets.length || manifest.sheets.some((sheet,index) => {
+        const saved = context.manifest.sheets[index];
+        return saved?.physicalPageNumber !== sheet.physicalPageNumber || saved.widthPoints !== sheet.widthPoints
+          || saved.heightPoints !== sheet.heightPoints || saved.rotationDegrees !== sheet.rotationDegrees;
+      })) throw new Error('Full Takeoff physical page identity changed.');
+      manifest.sheets = manifest.sheets.map((sheet,index) => ({...sheet,pageSha256:context.manifest.sheets[index].pageSha256}));
+      boundary = 'consent_changed';
+      if (context.manifest?.paidAuthorization) {
+        if (context.manifest.paidAuthorization.approvedBy !== context.requested_by) throw new Error('Paid Full consent belongs to another requester.');
+        manifest.paidAuthorization = context.manifest.paidAuthorization;
+        paidFullRunLimits(manifest, process.env);
+      } else {
+        if (context.manifest?.spendApproval?.approvedBy !== context.requested_by) {
+          throw new Error('Full Takeoff user spending approval is missing or belongs to another requester.');
+        }
+        manifest.spendApproval = context.manifest.spendApproval;
       }
-      manifest.spendApproval = context.manifest.spendApproval;
       const checkpoints = new LeasedDeepCheckpointRepository(rpc, job.data.runId, leaseId, assertActive,
         async value => { await job.updateProgress?.(value).catch(() => {}); });
       const summary = await withUsageMeter({ writer: this.writer, userId: context.requested_by,
         workspaceId: context.workspace_id, projectId: context.project_id, jobId: job.data.runId, billing: 'paid' }, async () => {
+        boundary = 'reading_configuration_unavailable';
         const provider = await this.factory.create({ fileBytes, manifest, runId: job.data.runId,
           workspaceId: context.workspace_id, projectId: context.project_id, fileId: context.file_id, leaseId,signal:controller.signal });
         await assertActive();
+        boundary = 'provider_result_uncertain';
         return runDeepTakeoff(job.data.runId, manifest, provider, checkpoints);
       });
       await assertActive();
       const finished = await rpc('finish_full_takeoff_v2', { p_run_id: job.data.runId, p_lease_id: leaseId, p_summary: summary });
       if (finished.error || !finished.data) throw new Error('Full Takeoff V2 could not finalize its saved checkpoints.');
       return finished.data;
-    } catch {
+    } catch (error) {
+      if (error instanceof FullTakeoffBudgetWait && !stopped) {
+        clearInterval(timer);
+        const waiting = await rpc('wait_full_takeoff_budget', {p_run_id:job.data.runId,p_lease_id:leaseId,
+          p_event_id:error.eventId,p_page_number:error.request.sheet.physicalPageNumber,p_pass_type:error.request.passType,
+          p_idempotency_key:error.request.idempotencyKey});
+        if (!waiting.error && waiting.data?.status === 'waiting_budget') return waiting.data;
+      }
       // Never persist provider exceptions, signed URLs, source plans or keys.
-      const finalAttempt = job.attemptsMade + 1 >= Number(job.opts.attempts ?? 1);
-      await rpc('release_full_takeoff_v2', { p_run_id: job.data.runId, p_lease_id: leaseId,
-        p_allow_retry: !finalAttempt && !stopped }).catch(() => {});
+      await rpc('fail_full_takeoff_boundary', { p_run_id:job.data.runId,p_lease_id:leaseId,
+        p_error_code:stopped ? 'reading_authorization_ended' : error instanceof FullTakeoffRunBudgetExhausted ? 'run_budget_exhausted' : boundary }).catch(() => {});
       throw new Error('Full Takeoff V2 execution stopped. Inspect saved progress; uncertain provider passes are never retried automatically.');
     } finally { clearInterval(timer); }
   }

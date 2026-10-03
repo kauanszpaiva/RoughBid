@@ -6,6 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import type { StageRuntimeSources, StageSourceImage } from './stage-provider.ts';
 import type { StageFactoryInput, StageRegion } from './stage-regions.ts';
 import type { DeepPassRequest } from './types.ts';
+import { normalizedPdfRotation } from './pdf-orientation.ts';
 
 const MAX_REGION_PDF_BYTES = 10 * 1024 * 1024;
 const MAX_REGION_JPEG_BYTES = 12 * 1024 * 1024;
@@ -61,7 +62,7 @@ async function validateRegion(input: StageFactoryInput, request: DeepPassRequest
   const sheet = input.manifest.sheets.find(item => item.physicalPageNumber === request.sheet.physicalPageNumber);
   const region = stage.region;
   if (input.runId !== request.runId || !sheet || sheet.pageSha256 !== request.sheet.pageSha256
-    || request.sheet.rotationDegrees !== 0 || sheet.rotationDegrees !== 0
+    || request.sheet.rotationDegrees !== sheet.rotationDegrees || stage.rotationDegrees !== sheet.rotationDegrees
     || !Number.isSafeInteger(request.sheet.physicalPageNumber) || request.sheet.physicalPageNumber < 1
     || ![2, 3].includes(region.rows) || region.rows !== region.columns
     || !Number.isSafeInteger(region.row) || region.row < 1 || region.row > region.rows
@@ -81,7 +82,8 @@ async function validateRegion(input: StageFactoryInput, request: DeepPassRequest
     const page = document.getPage(0);
     const crop = page.getCropBox();
     const media = page.getMediaBox();
-    if (page.getRotation().angle % 360 !== 0 || !samePoint(crop.width, region.width) || !samePoint(crop.height, region.height)
+    if (normalizedPdfRotation(page.getRotation().angle) !== sheet.rotationDegrees || !samePoint(crop.width, region.width) || !samePoint(crop.height, region.height)
+      || !samePoint(crop.x,stage.sourceFrame.x+region.x) || !samePoint(crop.y,stage.sourceFrame.y+region.y)
       || ![crop.x, crop.y, crop.width, crop.height, media.x, media.y, media.width, media.height].every(Number.isFinite)
       || crop.x < media.x - 0.01 || crop.y < media.y - 0.01
       || crop.x + crop.width > media.x + media.width + 0.01 || crop.y + crop.height > media.y + media.height + 0.01) {
@@ -157,14 +159,16 @@ export function createLocalRegionRenderer(
       if (bytes.byteLength !== metadata.size || bytes.byteLength > MAX_REGION_JPEG_BYTES) fail('region_render_output_invalid');
       const dimensions = readRegionJpegDimensions(bytes);
       if (Math.max(dimensions.widthPixels, dimensions.heightPixels) > maxEdge) fail('region_render_output_invalid');
-      // Rotation was rejected; the raster must preserve this crop's aspect ratio.
+      // Poppler honors the original /Rotate: quarter turns swap displayed axes.
       const pointEdge = Math.max(stage.region.width, stage.region.height);
       const pixelEdge = Math.max(dimensions.widthPixels, dimensions.heightPixels);
-      if (Math.abs(dimensions.widthPixels - stage.region.width / pointEdge * pixelEdge) > 1.5
-        || Math.abs(dimensions.heightPixels - stage.region.height / pointEdge * pixelEdge) > 1.5) fail('region_render_output_invalid');
+      const quarter=stage.rotationDegrees===90||stage.rotationDegrees===270;
+      const displayWidth=quarter?stage.region.height:stage.region.width,displayHeight=quarter?stage.region.width:stage.region.height;
+      if (Math.abs(dimensions.widthPixels - displayWidth / pointEdge * pixelEdge) > 1.5
+        || Math.abs(dimensions.heightPixels - displayHeight / pointEdge * pixelEdge) > 1.5) fail('region_render_output_invalid');
       return { dataUrl: `data:image/jpeg;base64,${bytes.toString('base64')}`, ...dimensions,
         label: `Physical page ${request.sheet.physicalPageNumber}, verified local crop ${stage.id}`,
-        pageNumber: request.sheet.physicalPageNumber, region: { ...stage.region } };
+        pageNumber: request.sheet.physicalPageNumber, region: { ...stage.region },rotationDegrees:stage.rotationDegrees,displayRegion:stage.displayRegion };
     } catch (error) {
       if (error instanceof LocalRegionRenderError) throw error;
       fail('region_render_failed');

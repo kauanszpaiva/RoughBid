@@ -68,6 +68,9 @@ export function createBillingEndpointHandler(deps: BillingEndpointDependencies) 
         console.warn('Stripe webhook validation failed', { stage: validationStage });
         return json(400, { error: 'Invalid Stripe webhook.' });
       }
+      // A shared Stripe account may deliver Connect events to a broad endpoint.
+      // They belong to another account and cannot affect this product's records.
+      if (event.account) return json(200, { received: true, ignored: true });
       try {
         await deps.reconcileProjectPayment?.(event);
         let subscriptionId = subscriptionIdFromEvent(event);

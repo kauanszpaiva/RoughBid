@@ -5,11 +5,12 @@ import { handleProjectPayment, ProjectPayments } from '../src/billing/project-pa
 import type { SupabaseLike } from '../src/projects/service.ts';
 
 const paid = { id: 'paid-quote', user_id: 'user-1', workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1',
+  mode: 'quick',
   status: 'paid', created_at: '2026-09-01T12:00:00Z', expires_at: '2026-09-01T13:00:00Z', amount_cents: 500,
   currency: 'usd', page_count: 10, trades: ['Framing'], scope: 'Original paid scope', attempts: 0, job_id: null,
   membership: 'standard', livemode: false, payment_intent_id: 'private-intent', stripe_session_id: 'private-session', file_sha256: 'private-hash' };
 
-function fixture(quotes: Record<string, unknown>[] = [paid], role: string | null = 'estimator') {
+function fixture(quotes: Record<string, unknown>[] = [paid], role: string | null = 'estimator', env: Record<string, string | undefined> = {}) {
   const calls: { table: string; url: URL; method: string }[] = [];
   const rows: Record<string, Record<string, unknown>[]> = {
     workspace_members: role ? [{ workspace_id: 'workspace-1', user_id: 'user-1', role }] : [],
@@ -36,7 +37,7 @@ function fixture(quotes: Record<string, unknown>[] = [paid], role: string | null
     return Response.json(data);
   };
   const db = createClient('https://database.test', 'unit-test-key', { auth: { persistSession: false }, global: { fetch: fetcher } });
-  const payments = new ProjectPayments(db, {}, fetcher);
+  const payments = new ProjectPayments(db, env, fetcher);
   const auth = { auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) } } as unknown as SupabaseLike;
   return { payments, calls, auth };
 }
@@ -52,7 +53,7 @@ test('reload recovers the original paid subset before a newer abandoned quote, w
   assert.equal(result.job_id, null);
   assert.doesNotMatch(JSON.stringify(result), /private-|file_sha256|payment_intent|stripe_session|user_id/);
   const query = f.calls.find(call => call.table === 'project_reading_quotes')!.url.searchParams;
-  for (const [key, value] of Object.entries({ workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1', livemode: 'false' })) assert.equal(query.get(key), `eq.${value}`);
+  for (const [key, value] of Object.entries({ workspace_id: 'workspace-1', project_id: 'project-1', file_id: 'file-1', livemode: 'false', mode: 'quick' })) assert.equal(query.get(key), `eq.${value}`);
   assert.equal(query.get('order'), 'created_at.desc');
   assert.equal(query.get('limit'), '1');
 });
@@ -79,8 +80,8 @@ test('unpaid recovery only selects an unexpired quote and never grants paid stat
 });
 
 test('recovery scopes quote identity to the workspace, project, file and current payment mode', async () => {
-  for (const field of ['workspace_id', 'project_id', 'file_id', 'livemode']) {
-    const f = fixture([{ ...paid, [field]: field === 'livemode' ? true : 'someone-else' }]);
+  for (const field of ['workspace_id', 'project_id', 'file_id', 'livemode', 'mode']) {
+    const f = fixture([{ ...paid, [field]: field === 'livemode' ? true : field === 'mode' ? 'full_v2' : 'someone-else' }]);
     assert.equal(await f.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1'), null);
     assert.equal(await f.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1', paid.id), null);
   }
@@ -95,6 +96,22 @@ test('authorized estimators recover colleague-created workspace quotes just as t
   const f = fixture([{ ...paid, user_id: 'colleague' }]);
   assert.equal((await f.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1')).id, paid.id);
   assert.equal(f.calls[0]!.url.searchParams.get('user_id'), 'eq.user-1');
+});
+test('a newer explicit Full quote supersedes a revoked checkout without a run, preserving exact-id and existing-run recovery', async () => {
+  const full = { ...paid, mode: 'full_v2', livemode: true, status: 'revoked', full_run_id: null,
+    full_contract_hash: 'a'.repeat(64), full_consent: null,
+    full_contract: { manifest: { physicalPageCount: 10 }, regionGrid: 2, stages: ['classification'],
+      providers: [{ provider: 'gemini', models: ['gemini-3.8-flash'], maximumCalls: 160 }], maximumCalls: 160,
+      executionPolicy: 'one-durable-run-no-uncertain-replay', pricing: { version: 'unit' } } };
+  const pending = { ...full, id: 'new-full-quote', status: 'quoted', created_at: '2026-10-03T12:00:00Z', expires_at: '2099-01-01T12:00:00Z' };
+  const f = fixture([full, pending], 'estimator', { STRIPE_MODE: 'live' });
+  assert.equal((await f.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1', undefined, 'full_v2')).id, pending.id);
+  assert.equal((await f.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1', full.id, 'full_v2')).status, 'revoked');
+  const withRun = fixture([{ ...full, full_run_id: 'saved-run' }, pending], 'estimator', { STRIPE_MODE: 'live' });
+  assert.equal((await withRun.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1', undefined, 'full_v2')).full_run_id, 'saved-run');
+  const paidRun = fixture([{ ...full, status: 'paid' }, pending], 'estimator', { STRIPE_MODE: 'live' });
+  assert.equal((await paidRun.payments.savedQuote('user-1', 'workspace-1', 'project-1', 'file-1', undefined, 'full_v2')).status, 'paid');
+  assert.ok(f.calls.every(call => call.method === 'GET'));
 });
 
 test('missing membership, viewer role and unauthenticated requests cannot recover payment state', async () => {

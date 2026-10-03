@@ -25,7 +25,7 @@ export interface PlanRevision {
   processingStatus?: "uploading" | "queued" | "processing" | "ready" | "failed";
   aiPlanJobId?: string;
   aiPlanMode?: "quick" | "detailed" | "full_v2";
-  aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed" | "cancelled";
+  aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed" | "cancelled" | "waiting_budget";
   annotations?: PlanAnnotation[];
 }
 

@@ -5,6 +5,7 @@ import { ProjectPayments } from '../src/billing/project-payments.ts';
 test('Stripe checkout reconciliation normalizes currency before the database RPC', async () => {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const db = {
+    from: () => { const q: any = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { id: 'quote-1', mode: 'quick' }, error: null }) }; return q; },
     rpc: async (fn: string, args: Record<string, unknown>) => {
       calls.push({ fn, args });
       return { data: true, error: null };

@@ -1,8 +1,9 @@
 import type { FullTakeoffRun, FullTakeoffRegionRectangle } from '../services/api.ts';
 
-export type AiPlanPresentationStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
+export type AiPlanPresentationStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed' | 'cancelled' | 'waiting_budget';
 
 export function presentAiPlanStatus(status: AiPlanPresentationStatus) {
+  if (status === 'waiting_budget') return { finished: false, notice: 'Waiting for processing capacity. Your reading will continue automatically with saved progress.', revisionNote: undefined };
   if (status === 'cancelled') {
     return { finished: false, notice: 'AI plan reading was cancelled. Saved evidence remains available.', revisionNote: undefined };
   }
@@ -35,41 +36,45 @@ export function presentAiPlanStatus(status: AiPlanPresentationStatus) {
 }
 
 export function isAiPlanInFlight(status: string): boolean {
-  return status === 'queued' || status === 'processing';
+  return status === 'queued' || status === 'processing' || status === 'waiting_budget';
 }
 
 /** Checkpoints include blocked passes; a saved count is never quantity/price certification. */
-export function presentFullTakeoffStatus(run: Pick<FullTakeoffRun, 'status' | 'progress' | 'output_summary' | 'cancel_requested_at' | 'sheets'>) {
+export function presentFullTakeoffStatus(run: Pick<FullTakeoffRun, 'status' | 'progress' | 'output_summary' | 'cancel_requested_at' | 'sheets' | 'not_before'>) {
   const completed = run.progress?.completed;
   const total = run.progress?.total;
   const savedProgress = Number.isSafeInteger(completed) && completed! >= 0
     && Number.isSafeInteger(total) && total! > 0 && completed! <= total!
-    ? `${completed}/${total} checkpoints saved` : 'Checkpoint totals are not available yet';
+    ? `${completed}/${total} reading steps saved` : 'Reading progress is not available yet';
   const savedSheets = run.sheets;
   const uncertainPass = savedSheets?.some(sheet => sheet.passes.some(pass => pass.status === 'processing' || pass.status === 'failed')) ?? true;
   const canRestart = ['queued', 'failed', 'cancelled'].includes(run.status) && !uncertainPass;
   let notice: string;
   if (run.cancel_requested_at && isAiPlanInFlight(run.status)) {
     notice = 'Cancellation requested. The current provider attempt may still finish; no new stage will start.';
+  } else if (run.status === 'waiting_budget') {
+    notice = 'Waiting for processing capacity. Your reading will continue automatically with saved progress and no extra charge.';
   } else if (run.status === 'queued') {
-    notice = 'Full Takeoff V2 is queued. You can leave this page; saved progress remains recoverable.';
+    notice = 'Your reading is queued. You can leave this page; saved progress remains recoverable.';
   } else if (run.status === 'processing') {
-    notice = `Full Takeoff V2 is reading the plan. ${savedProgress}. You can leave this page; reading continues in the background.`;
+    notice = `Reading your PDF. ${savedProgress}. You can leave this page; reading continues in the background.`;
   } else if (run.status === 'cancelled') {
-    notice = 'Full Takeoff V2 was cancelled. Saved evidence remains available; an in-flight provider attempt may still finish.';
+    notice = 'Reading canceled. Saved results remain available; work already in progress may still finish.';
   } else if (run.status === 'failed') {
-    notice = 'Full Takeoff V2 stopped. Inspect saved evidence and reconcile uncertain attempts before resuming.';
+    notice = 'Reading stopped. Review saved results and pending work before resuming.';
   } else if (run.output_summary?.takeoff_v2?.releaseStatus === 'review_ready') {
-    notice = 'Full Takeoff V2 evidence is saved for human review. Measured quantities and sourced prices still require verification.';
+    notice = 'Results are saved for human review. Measured quantities and sourced prices still require verification.';
   } else {
-    notice = 'Full Takeoff V2 evidence is saved with unresolved blockers. Review each sheet and stage; quantities and prices are not verified.';
+    notice = 'Results have unresolved items. Review the page results and missing information; quantities and prices are not verified.';
   }
   return {
     notice, savedProgress, canRestart,
+    statusLabel: ({ queued: 'Waiting to read', processing: 'Reading', waiting_budget: 'Waiting for processing capacity', needs_review: 'Results need review', ready: 'Results need review', failed: 'Reading stopped', cancelled: 'Reading canceled' })[run.status],
+    resumeEstimate: run.status === 'waiting_budget' && run.not_before && Number.isFinite(Date.parse(run.not_before)) ? new Date(run.not_before).toLocaleString() : null,
     canCancel: isAiPlanInFlight(run.status) && !run.cancel_requested_at,
     finished: run.status === 'needs_review' || run.status === 'ready',
     revisionNote: run.status === 'needs_review' || run.status === 'ready'
-      ? 'Full Takeoff V2 checkpoints saved for review. Quantities, prices and release require evidence verification.' : undefined,
+      ? 'Results saved for review. Quantities and prices require verification.' : undefined,
   };
 }
 

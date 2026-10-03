@@ -18,10 +18,11 @@ function jpeg(width: number, height: number): Uint8Array {
     0xff, 0xc2, 0x00, 0x11, 8, height >> 8, height & 255, width >> 8, width & 255, 3,
     1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]);
 }
-async function fixture(cropWidth = 800, cropHeight = 540) {
+async function fixture(cropWidth = 800, cropHeight = 540,rotation:0|90|180|270=0) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([cropWidth + 40, cropHeight + 60]);
   page.setCropBox(20, 30, cropWidth, cropHeight);
+  page.setRotation(degrees(rotation));
   const fileBytes = new Uint8Array(await pdf.save());
   const manifest = await createPlanSetManifest(fileBytes);
   const input = { fileBytes, manifest, runId: 'run-1', workspaceId: 'workspace-1', projectId: 'project-1', fileId: 'file-1', leaseId: 'lease-1' };
@@ -99,7 +100,7 @@ test('each simultaneous crop receives independent temporary paths and both are c
   } finally { await temp.remove(); }
 });
 
-test('no subprocess runs for cross-run, changed sheet, invalid region or rotated sheet', async () => {
+test('no subprocess runs for cross-run, changed sheet, invalid region or mismatched rotation', async () => {
   const { input, request, region } = await fixture(); const mock = processMock(region);
   const renderer = createLocalRegionRenderer(enabled, mock.dependencies)!;
   for (const [candidateRequest, candidateRegion] of [
@@ -168,14 +169,16 @@ test('installed Poppler locally renders the actual CropBox with verified bounded
   const temp = await temporaryRoot();
   try {
     const renderer = createLocalRegionRenderer(enabled, { tempRoot: temp.root })!;
-    for (const [width, height] of [[800, 540], [800, 83], [83, 800]]) {
-      const { input, request, region } = await fixture(width, height);
+    for (const [width, height,rotation] of [[800,540,0],[800,83,0],[83,800,0],[800,540,90],[800,540,180],[800,540,270]] as const) {
+      const { input, request, region } = await fixture(width, height,rotation);
       const image = await renderer(input, request, region);
       assert.ok((image.widthPixels ?? 0) > 0); assert.ok((image.heightPixels ?? 0) > 0);
       assert.equal(Math.max(image.widthPixels!, image.heightPixels!), 1300);
       assert.deepEqual(readRegionJpegDimensions(Buffer.from(image.dataUrl.split(',')[1]!, 'base64')),
         { widthPixels: image.widthPixels, heightPixels: image.heightPixels });
       assert.equal(image.pageNumber, request.sheet.physicalPageNumber);
+      assert.equal(image.rotationDegrees,rotation);
+      assert.ok(Math.abs(image.widthPixels!/image.heightPixels!-region.displayRegion.width/region.displayRegion.height)<0.01);
     }
   } finally { await temp.remove(); }
 });

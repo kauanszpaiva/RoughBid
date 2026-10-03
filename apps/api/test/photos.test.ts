@@ -199,6 +199,9 @@ test('mocked authenticated photo flow uploads, durably reads, recovers saved evi
     await processor.process({data:jobs[1]});assert.equal(paidDispatches,1);
     const recovered=await request(`runs/${saved.run.id}`);assert.equal(recovered.status,200);
     const result=await recovered.json();assert.equal(result.run.status,'needs_review');assert.deepEqual(result.run.progress.completed,1);
+    assert.equal(result.coverage.processingComplete,true);assert.equal(result.coverage.completeTakeoffVerified,false);
+    assert.deepEqual(result.coverage.referenceRequiredObservationIds,[`${upload.asset.id}:wall`]);
+    assert.deepEqual(result.coverage.additionalViewAssetIds,[upload.asset.id]);
     assert.equal(result.run.result.estimate,null);assert.equal(result.run.result.pricingStatus,'missing_price');assert.equal(result.run.result.independentReview,'pending');
     assert.equal(result.run.result.approvedMeasurements.length,0);assert.equal(Object.hasOwn(result.run,'lease_id'),false);assert.equal(Object.hasOwn(result.steps[0],'result'),false);
     const history=await request('runs');const summaries=await history.json();assert.equal(summaries.runs[0].request_key,REQUEST_KEY);assert.equal(Object.hasOwn(summaries.runs[0],'result'),false);
@@ -217,6 +220,7 @@ test('mocked authenticated photo flow uploads, durably reads, recovers saved evi
     assert.equal(review.status,200);const reviewed=await review.json();assert.equal(reviewed.review.approvedMeasurements[0].quantity,120);
     assert.equal(reviewed.reviewRevision,1);assert.equal(reviewed.reused,false);
     assert.deepEqual(reviewed.review.approvedMeasurements[0].reviewerIds,[USER]);assert.equal(reviewed.review.releaseStatus,'blocked');assert.equal(reviewed.review.estimate,null);
+    assert.ok(reviewed.review.blockers.includes(`${upload.asset.id}:additional_photo_views_required`));
     const competing=(quantity:number)=>({...reviewBody,expectedReviewRevision:1,reviewRequestKey:crypto.randomUUID(),
       references:[{...reviewBody.references[0]!,value:quantity}],decisions:[{...reviewBody.decisions[0]!,quantity}]});
     const concurrent=await Promise.all([request(`runs/${saved.run.id}/review`,'POST',competing(126)),request(`runs/${saved.run.id}/review`,'POST',competing(127))]);
@@ -229,6 +233,9 @@ test('mocked authenticated photo flow uploads, durably reads, recovers saved evi
     assert.equal((await request(`runs/${saved.run.id}/review`,'POST',{...reviewBody,decisions:[{...reviewBody.decisions[0]!,quantity:119}]})).status,409);
     const afterReviews=await (await request(`runs/${saved.run.id}`)).json();assert.equal(afterReviews.run.review_revision,2);
     assert.equal(afterReviews.run.result.approvedMeasurements[0].quantity,winner.review.approvedMeasurements[0].quantity);
+    assert.deepEqual(afterReviews.coverage.referenceRequiredObservationIds,[]);
+    assert.deepEqual(afterReviews.coverage.additionalViewAssetIds,[upload.asset.id]);
+    assert.equal(afterReviews.coverage.completeTakeoffVerified,false);
     assert.equal((await fixture.sql.query('select count(*)::int count from photo_takeoff_reviews')).rows[0].count,2);
     const before=signed.length;assert.equal((await request(`uploads/${upload.asset.id}/download-url`,'POST',undefined,crypto.randomUUID())).status,403);assert.equal(signed.length,before);
     fixture.setAuthenticatedUser(null);assert.equal((await request('runs')).status,401);fixture.setAuthenticatedUser(USER);
