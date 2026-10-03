@@ -204,17 +204,21 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       const fullEnabled = process.env.TAKEOFF_V2_ENABLED === 'true';
       if (fullEnabled && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         let fullTakeoffV2Available = false;
+        let fullTakeoffUnavailableReason: 'worker_unavailable' | 'availability_check_failed' | 'processing_configuration_missing' | undefined = 'processing_configuration_missing';
         let fullTakeoffApproval: FullTakeoffApprovalProfile | undefined;
         if (process.env.REDIS_URL && deps.findingsWriter.rpc) {
           try {
             const live = await deps.findingsWriter.rpc('full_takeoff_v2_worker_available', { p_version: 'takeoff-v2.2-durable' });
+            fullTakeoffUnavailableReason = live.error ? 'availability_check_failed' : 'worker_unavailable';
             if (!live.error && live.data === true) {
+              fullTakeoffUnavailableReason = 'processing_configuration_missing';
               fullTakeoffApproval = fullTakeoffApprovalProfile(process.env);
               fullTakeoffV2Available = true;
+              fullTakeoffUnavailableReason = undefined;
             }
-          } catch { /* Capability remains false until a verified worker heartbeat succeeds. */ }
+          } catch { /* Retain the last verified reason; capability stays closed. */ }
         }
-        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval, ...purchaseCapability });
+        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval, ...(fullTakeoffUnavailableReason ? { fullTakeoffUnavailableReason } : {}), ...purchaseCapability });
       }
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,

@@ -202,3 +202,16 @@ test('individual persisted regions are readable without provider dispatch and re
   for(const filter of [['workspace_id','workspace'],['project_id','project'],['plan_sheet_id','sheet'],['physical_page_number',2],['region_key','r2c1g2']])assert.ok(filters.some(value=>JSON.stringify(value)===JSON.stringify(filter)));
   await assert.rejects(service.checkpoint('run',2,'geometry','r2c1g2'),(error:any)=>error.status===400);
 });
+
+
+test('founder entitlement explains an offline worker without granting processing or replacing it with a legacy reader',async()=>{
+  const previous=process.env.TAKEOFF_V2_ENABLED,redis=process.env.REDIS_URL;
+  process.env.TAKEOFF_V2_ENABLED='true';process.env.REDIS_URL='redis://localhost';
+  try {
+    const response=await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-entitlement',{headers:{'x-workspace-id':'workspace'}}),db() as never,{
+      storage:{presign:async()=>({url:'https://test'})},reader:{read:async()=>{throw new Error('No reader may run');}},paidReaderAvailable:false,
+      findingsWriter:{from:()=>{},rpc:async(fn)=>{assert.equal(fn,'full_takeoff_v2_worker_available');return{data:false,error:null};}},
+    });
+    assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:false,fullTakeoffUnavailableReason:'worker_unavailable'});
+  }finally {if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(redis===undefined)delete process.env.REDIS_URL;else process.env.REDIS_URL=redis;}
+});
