@@ -80,7 +80,7 @@ RPCs existentes relevantes:
 
 ## Pacote SQL a revisar para ativação
 
-Ordem de dependências do código local: **16 arquivos SQL a revisar**, além da base comercial já existente. **Nenhum item foi aplicado por esta execução.** Confira histórico, nomes/assinaturas/constraints e diferenças de schema antes de criar um lote consolidado para o ambiente escolhido. Os objetos geométricos SQL18/19 foram pesquisados na consulta complementar acima; não se atribui essa evidência à conferência anterior.
+Ordem de dependências do código local: **17 arquivos SQL a revisar**, além da base comercial já existente. **Nenhum item foi aplicado por esta execução.** Confira histórico, nomes/assinaturas/constraints e diferenças de schema antes de criar um lote consolidado para o ambiente escolhido. Os objetos geométricos SQL18/19 foram pesquisados na consulta complementar acima; não se atribui essa evidência à conferência anterior.
 
 | Ordem | Arquivo local / dependência | Estado remoto relevante |
 | --- | --- | --- |
@@ -140,3 +140,10 @@ O binding APS deve documentar projeto/objeto/versão/hash e referência revisada
 Rollback: desligar intake novo e os flags de fornecedor, cancelar/drenar jobs compatíveis e conservar resultados/checkpoints/receipts/ledger. O contrato SQL18 cancela filhos ativos junto do pai Full, mesmo com o perfil desligado. Não remover tabelas de auditoria, liberar custo incerto ou reexecutar chamadas pagas desconhecidas. Reverter API/worker juntos para uma versão compatível; o worker antigo não satisfaz os novos contratos de schema/orçamento. O impacto revisável é a extensão de tabelas/RLS/grants/FKs e de RPCs de reserva/cancelamento/snapshot, com consumidor de fila adicional; não há novo checkout ou cobrança.
 
 A restrição de merge/deploy/migrations decorre do limite operacional do handoff recebido, na delegação inicial — “Não mergear, publicar/deployar ou aplicar migrations de produção” — reiterada no handoff, além da proibição de testes pagos e uploads a terceiros. Não foi identificada regra AGENTS/SKILL que acrescente uma aprovação. O pacote concreto torna revisáveis código, DDL, alterações de acesso/ledger e rollback antes da decisão externa; trabalho local autorizado não foi interrompido para confirmações redundantes.
+
+
+## Lote final de ativação, 03/10 às 01:31 UTC
+
+O [plano exato](schema-activation-plan-2026-10-03.md) substitui a reconciliação genérica: inclui 17 SQLs com hashes UTF-8/LF, preflight somente leitura e condições de parada. O primeiro, `20261002110000_durable_owner_workspace_dependency.sql`, cria a dependência privada ausente vazia e protegida, sem allowlist, alteração de CHECK ou novas cobranças. A base comercial 0039 não é reaplicada. Os 16 arquivos anteriormente enumerados seguem depois desse pré-requisito.
+
+O preflight final foi executado contra o Supabase somente por SELECT: **162 verificações READY, zero BLOCKER** (163 linhas incluindo resumo), às 01:31 UTC. Isso confirma compatibilidade do lote proposto com a base observada, não instala o schema. Sequência local equivalente: **17/17 SQLs, 2/2 testes aprovados**, incluindo recusa de hash alterado. Schema, deploy e worker não foram ativados. Uma alteração posterior do histórico/objetos/contratos faz o gate parar; não é trabalho de reconciliação transferido ao usuário.
