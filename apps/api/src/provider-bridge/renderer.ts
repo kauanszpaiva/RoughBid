@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { dirname, join, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { isolateStageRegions, type StageRegion } from '../takeoff-v2/stage-regions.ts';
 import { splitPhysicalPages } from '../takeoff-v2/claude-provider.ts';
@@ -17,8 +18,11 @@ function packageDirectory():string{
 export async function renderBridgeRegion(region:StageRegion,pageNumber:number,signal?:AbortSignal):Promise<StageSourceImage>{
   signal?.throwIfAborted();
   if(region.pdfBytes.byteLength>10*1024*1024||!Number.isSafeInteger(pageNumber)||pageNumber<1)throw new BridgeError('bridge_identity_conflict',409);
-  const [{getDocument},{createCanvas}]=await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'),import('@napi-rs/canvas')]);
+  const [{getDocument,GlobalWorkerOptions},{createCanvas}]=await Promise.all([import('pdfjs-dist/legacy/build/pdf.mjs'),import('@napi-rs/canvas')]);
   const directory=packageDirectory(),resource=(name:string)=>join(directory,name).split(sep).join('/')+'/';
+  // Vercel bundles this module away from PDF.js. Resolve the explicitly bundled
+  // Node worker from its package, never relative to the serverless entrypoint.
+  GlobalWorkerOptions.workerSrc=pathToFileURL(join(directory,'legacy/build/pdf.worker.mjs')).href;
   const task=getDocument({data:region.pdfBytes.slice(),standardFontDataUrl:resource('standard_fonts'),cMapUrl:resource('cmaps'),cMapPacked:true,
     wasmUrl:resource('wasm'),useWorkerFetch:false,useSystemFonts:false,disableFontFace:true,
     disableAutoFetch:true,disableRange:true,disableStream:true,isOffscreenCanvasSupported:false,isImageDecoderSupported:false,
@@ -68,5 +72,10 @@ export function verifyBridgeRenderer():Promise<void>{
     const {loadImage,createCanvas}=await import('@napi-rs/canvas'),image=await loadImage(Buffer.from(rendered.dataUrl.split(',')[1]!,'base64'));
     const canvas=createCanvas(1,1),context=canvas.getContext('2d');context.drawImage(image,0,0,1,1);
     const pixel=context.getImageData(0,0,1,1).data;if(pixel[0]!>20||pixel[1]!>20||pixel[2]!>20)throw new BridgeError('bridge_adapter_unavailable',503);
-  })().catch(error=>{smoke=undefined;throw error;});
+  })().catch(error=>{smoke=undefined;
+    // Fixed diagnostics only: native/module exceptions can include local paths.
+    const message=error instanceof Error?error.message:'';
+    const code=/worker/i.test(message)?'pdf_worker_unavailable':/canvas|native|binding|\.node/i.test(message)?'native_canvas_unavailable'
+      :/module|package|ENOENT/i.test(message)?'renderer_resource_unavailable':'renderer_smoke_failed';
+    console.error('[provider-bridge] renderer smoke unavailable',{code});throw error;});
 }
