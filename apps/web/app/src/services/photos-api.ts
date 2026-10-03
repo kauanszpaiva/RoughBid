@@ -3,10 +3,19 @@ import type { PhotoDimensionReference, PhotoEvidenceReview, PhotoObservation, Ph
 export type { PhotoEvidenceReview, PhotoObservation, PhotoSourceAsset };
 export type PhotoReferenceInput = Omit<PhotoDimensionReference, 'reviewerId'>;
 export type PhotoReviewInput = Omit<PhotoReviewDecision, 'reviewerId'>;
-export type PhotoRunStatus = 'queued' | 'processing' | 'needs_review' | 'blocked' | 'cancelled';
-export type PhotoCapability = { enabled: boolean; ownerAccess: boolean; workerReady: boolean; provider?: string; model?: string; stages?: Array<{ stage: string; provider?: string; model?: string; state: string }> };
+export type PhotoRunStatus = 'queued' | 'processing' | 'waiting_budget' | 'needs_review' | 'blocked' | 'cancelled';
+export type PhotoCapability = { enabled: boolean; ownerAccess: boolean; workerReady: boolean; purchaseAvailable?: boolean; includedAvailable?: boolean; provider?: string; model?: string; stages?: Array<{ stage: string; provider?: string; model?: string; state: string }> };
+export type PhotoQuote = {
+  id: string; mode: 'photo_batch'; workspace_id: string; project_id: string; amount_cents: number; currency: 'usd';
+  status: 'quoted' | 'paid' | 'processing' | 'complete' | 'failed' | 'revoked'; expires_at: string; contract_hash: string; run_id: string | null;
+  consent_confirmed: boolean; assets: PhotoSourceAsset[];
+  summary: { assetIds: string[]; assetCount: number; stages: Array<'observation' | 'reconciliation' | 'risk_review'>;
+    providers: Array<{ provider: string; models: string[] }>; maximumCalls: number; pricingExpiresAt: string;
+    executionPolicy: 'one-durable-photo-run-budget-wait-no-uncertain-replay' };
+};
 export type PhotoRun = {
-  id: string; status: PhotoRunStatus; progress: { completed: number; total: number } | null;
+  id: string; status: PhotoRunStatus; progress: { completed: number; total: number; completedStages?: number; totalStages?: number } | null;
+  not_before?: string | null;
   error_code?: string | null; reconciliation_required?: boolean; cancel_requested?: boolean;
   request_key?: string; asset_ids?: string[]; created_at?: string; updated_at?: string;
   review_revision?: number;
@@ -14,6 +23,8 @@ export type PhotoRun = {
 };
 export type PhotoRunDetail = {
   run: PhotoRun; assets: PhotoSourceAsset[]; references: PhotoReferenceInput[];
+  stageCheckpoints?: Array<{ operation_key: string; stage: 'observation' | 'reconciliation' | 'risk_review'; asset_ids: string[];
+    status: 'pending' | 'admitted' | 'processing' | 'completed'; completed_at: string | null }>;
   coverage?: { version: 'photo-evidence-v1'; totalAssets: number; processedAssetIds: string[]; pendingAssetIds: string[];
     unassessedAssetIds: string[]; unusableAssetIds: string[]; additionalViewAssetIds: string[];
     unresolvedObservationIds: string[]; referenceRequiredObservationIds: string[];
@@ -27,6 +38,17 @@ export type PhotoCheckpoint = { runId: string; photo_asset_id: string; status: '
   checkpoint: NonNullable<PhotoRunDetail['steps'][number]['result']> | null; asset: PhotoSourceAsset };
 
 const base = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/photos`;
+export const createPhotoQuote = (workspaceId: string, projectId: string, assetIds: string[]) =>
+  request<{ quote: PhotoQuote }>(`${base(projectId)}/quote`, { method: 'POST', workspaceId, body: { assetIds } });
+export const getPhotoQuote = (workspaceId: string, projectId: string, input: { quoteId?: string; assetIds?: string[] } = {}) => {
+  const query = new URLSearchParams(input.quoteId ? { quote_id: input.quoteId } : input.assetIds ? { asset_ids: input.assetIds.join(',') } : {});
+  return request<{ quote: PhotoQuote | null }>(`${base(projectId)}/quote?${query}`, { workspaceId });
+};
+export const payForPhotoQuote = (workspaceId: string, projectId: string, quote: PhotoQuote) =>
+  request<{ url: string }>(`${base(projectId)}/checkout`, { method: 'POST', workspaceId,
+    body: { quoteId: quote.id, consent: { confirmed: true, contract_hash: quote.contract_hash } } });
+export const startPurchasedPhotoRun = (workspaceId: string, projectId: string, quoteId: string) =>
+  request<{ run: PhotoRun; enqueued: boolean }>(`${base(projectId)}/runs`, { method: 'POST', workspaceId, body: { quoteId } });
 export const getPhotoCapability = (workspaceId: string, projectId: string) => request<PhotoCapability>(`${base(projectId)}/capability`, { workspaceId });
 export const listPhotoRuns = (workspaceId: string, projectId: string) => request<{ runs: Array<Omit<PhotoRun, 'result'>> }>(`${base(projectId)}/runs`, { workspaceId });
 export const getPhotoRun = (workspaceId: string, projectId: string, runId: string) => request<PhotoRunDetail>(`${base(projectId)}/runs/${encodeURIComponent(runId)}`, { workspaceId });
@@ -38,7 +60,7 @@ export const beginPhotoUpload = (workspaceId: string, projectId: string, file: P
   });
 export const completePhotoUpload = (workspaceId: string, projectId: string, assetId: string) =>
   request<{ asset: PhotoSourceAsset }>(`${base(projectId)}/uploads/${encodeURIComponent(assetId)}/complete`, { method: 'POST', workspaceId });
-export const createPhotoRun = (workspaceId: string, projectId: string, input: { assetIds: string[]; requestKey: string; references?: PhotoReferenceInput[] }) =>
+export const createPhotoRun = (workspaceId: string, projectId: string, input: { assetIds: string[]; requestKey: string; consentConfirmed?: boolean; references?: PhotoReferenceInput[] }) =>
   request<{ run: PhotoRun; enqueued: boolean }>(`${base(projectId)}/runs`, { method: 'POST', workspaceId, body: input });
 export const cancelPhotoRun = (workspaceId: string, projectId: string, runId: string) =>
   request<{ id: string; status: PhotoRunStatus }>(`${base(projectId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST', workspaceId });

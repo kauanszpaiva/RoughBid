@@ -47,7 +47,9 @@ export interface StageModelAttestation {
 export interface ConfiguredEvidenceStage {
   provider: StageProviderName;
   model: StageModelId;
-  apiKey: string;
+  apiKey?: string;
+  /** Explicitly reviewed v2 OpenAI tariff policy; absent preserves legacy payloads. */
+  requestPolicy?: 'explicit-cache-default-v1';
   baseUrl?: string;
   reasoningEffort: StageReasoningEffort;
   maxOutputTokens: number;
@@ -83,7 +85,10 @@ function attestationFor(input: Record<string, unknown>, model: StageModelId): St
     priceVersion: value.priceVersion, maximumCallCostUsd: value.maximumCallCostUsd });
 }
 /** No filesystem/env reads and no implicit provider/model selection. */
-export function requireStageDeepPassConfig(env: Record<string, string | undefined>): StageDeepPassConfig {
+export function requireStageDeepPassConfig(env: Record<string, string | undefined>, credentials: 'required' | 'optional' =
+  env.TAKEOFF_V2_TRANSPORT === 'bridge' ? 'optional' : 'required'): StageDeepPassConfig {
+  if (env.TAKEOFF_V2_TRANSPORT !== undefined && !['direct', 'bridge'].includes(env.TAKEOFF_V2_TRANSPORT)) unavailable('select direct or bridge transport explicitly.');
+  if (credentials === 'optional' && (env.TAKEOFF_V2_TRANSPORT !== 'bridge' || env.PROVIDER_BRIDGE_ENABLED !== 'true')) unavailable('remote credentials require the explicitly enabled bridge transport.');
   if (env.TAKEOFF_V2_ENABLED !== 'true' || env.TAKEOFF_V2_WORKER_ENABLED !== 'true'
     || env.TAKEOFF_V2_STAGE_PROVIDER_ENABLED !== 'true'
     || env.TAKEOFF_V2_SCHEMA_VERSION !== 'takeoff-v2-foundation-v1') {
@@ -99,6 +104,8 @@ export function requireStageDeepPassConfig(env: Record<string, string | undefine
     }
   }
   const stages: Partial<Record<DeepPassType, ConfiguredEvidenceStage>> = {};
+  const openAiPolicy=env.TAKEOFF_V2_OPENAI_REQUEST_POLICY;
+  if(openAiPolicy!==undefined&&openAiPolicy!==''&&openAiPolicy!=='explicit-cache-default-v1')unavailable('OpenAI request policy is not reviewed.');
   let attestations: Record<string, unknown> | undefined;
   for (const pass of AI_EVIDENCE_PASSES) {
     const prefix = `TAKEOFF_V2_STAGE_${pass.toUpperCase()}`;
@@ -122,7 +129,7 @@ export function requireStageDeepPassConfig(env: Record<string, string | undefine
     }
     const apiKey = (provider === 'openai' ? env.OPENAI_API_KEY : provider === 'claude' ? env.ANTHROPIC_API_KEY
       : provider === 'gemini' ? env.GEMINI_API_KEY : provider === 'kimi' ? env.KIMI_API_KEY : env.DEEPSEEK_API_KEY)?.trim();
-    if (!isConfiguredValue(apiKey)) unavailable(`${pass} requires the manually configured ${provider} credential.`);
+    if (credentials === 'required' && !isConfiguredValue(apiKey)) unavailable(`${pass} requires the manually configured ${provider} credential.`);
     let baseUrl: string | undefined;
     if (provider === 'kimi' || provider === 'deepseek') {
       if (env[`${provider.toUpperCase()}_PRIVATE_PLAN_DATA_APPROVED`] !== 'true') unavailable(`${provider} private-plan data processing must be approved explicitly.`);
@@ -130,7 +137,8 @@ export function requireStageDeepPassConfig(env: Record<string, string | undefine
       baseUrl = requireImageProviderBaseUrl(provider, configuredUrl?.trim() || (provider === 'kimi' ? 'https://api.moonshot.ai/v1' : 'https://api.deepseek.com'));
     }
     attestations ??= readAttestations(env.TAKEOFF_V2_MODEL_ATTESTATIONS_JSON);
-    stages[pass] = Object.freeze({ provider, model: model as StageModelId, apiKey, ...(baseUrl ? { baseUrl } : {}),
+    stages[pass] = Object.freeze({ provider, model: model as StageModelId, ...(isConfiguredValue(apiKey) ? {apiKey} : {}), ...(baseUrl ? { baseUrl } : {}),
+      ...(provider==='openai'&&openAiPolicy==='explicit-cache-default-v1'?{requestPolicy:openAiPolicy}:{}),
       reasoningEffort: effort as StageReasoningEffort, maxOutputTokens,
       attestation: attestationFor(attestations, model as StageModelId) });
   }

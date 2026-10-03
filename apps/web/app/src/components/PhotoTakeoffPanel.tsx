@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Loader2 } from 'lucide-react';
-import { ApiError } from '../services/api';
+import { ApiError, grantWorkspaceAiConsent } from '../services/api';
 import { beginPhotoUpload, cancelPhotoRun, completePhotoUpload, createPhotoPreview, createPhotoRun, getPhotoCapability,
   getPhotoRun, getPhotoCheckpoint, listPhotoRuns, resumePhotoRun, savePhotoReview, type PhotoCapability, type PhotoRun, type PhotoRunDetail, type PhotoSourceAsset, type PhotoReviewRequest, type PhotoCheckpoint } from '../services/photos-api';
 import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, emptyPhotoPlanarDraft, restorePhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
-  validatePhotoSelection, type PhotoReviewDraft } from '../utils/photoReview';
+  photoReadingSteps, photoCapacityWait, validatePhotoSelection, type PhotoReviewDraft } from '../utils/photoReview';
 import { PhotoPlanarReview } from './PhotoPlanarReview';
+import { PhotoPurchasePanel } from './PhotoPurchasePanel';
 import { reviewIssueMessage, reviewIssueMessages } from '../utils/reviewMessages';
 
 type UploadSelection = { file: File; asset?: PhotoSourceAsset; status: 'selected' | 'uploading' | 'ready' | 'failed'; error?: string };
@@ -22,6 +23,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
   const [readError, setReadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [needsConsent, setNeedsConsent] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
@@ -49,7 +51,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
   useEffect(() => {
     context.current = contextKey;
     setCapability(null); setHistory([]); setSelection([]); setRunId(null); setDetail(null);
-    setNotice(null); setReadError(null); setActionError(null); setBusy(null); setDrafts({});
+    setNotice(null); setReadError(null); setActionError(null); setBusy(null); setDrafts({}); setNeedsConsent(false);
     setPreviews({}); setPreviewErrors({}); setPreviewLoading({});
     requestKey.current = null; acknowledgedRun.current = null; loadedDraftRun.current = null; needsRead.current = false;
     pendingReview.current = null; reviewNeedsRead.current = false;
@@ -79,6 +81,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
 
   useEffect(() => {
     if (!workspaceId || !projectId || !runId) { setDetail(null); return; }
+    if (busy) return;
     let active = true, timer: ReturnType<typeof setTimeout> | undefined;
     setDetail(previous => previous?.run.id === runId ? previous : null);
     const poll = async () => {
@@ -108,10 +111,10 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
     };
     void poll();
     return () => { active = false; if (timer) clearTimeout(timer); };
-  }, [workspaceId, projectId, runId, refresh]);
+  }, [workspaceId, projectId, runId, refresh, busy]);
 
   const handleSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (actionLock.current) return;
+    if (actionLock.current || needsRead.current) return;
     const files = Array.from(event.target.files ?? []);
     event.currentTarget.value = '';
     if (!files.length) return;
@@ -119,21 +122,23 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
     if (error) { setActionError(error); return; }
     setSelection(files.map(file => ({ file, status: 'selected' })));
     requestKey.current = null; acknowledgedRun.current = null;
-    setActionError(null); setNotice('Photos selected. Upload them privately before starting an analysis.');
+    setActionError(null); setNotice(null); setRunId(null); setDetail(null);
+    void handleUpload(files.map(file => ({ file, status: 'selected' })));
   };
 
-  const handleUpload = async () => {
-    if (!canWrite || !capability?.enabled || !capability.ownerAccess || !workspaceId || !projectId || actionLock.current || needsRead.current) return;
-    const validation = validatePhotoSelection(selection.map(item => item.file));
+  const handleUpload = async (items: UploadSelection[] = selection) => {
+    if (!canWrite || !capability?.enabled || (!capability.includedAvailable && !capability.purchaseAvailable) || !workspaceId || !projectId || actionLock.current || needsRead.current) return;
+    const validation = validatePhotoSelection(items.map(item => item.file));
     if (validation) { setActionError(validation); return; }
     actionLock.current = true; setBusy('upload'); setActionError(null);
     const update = (index: number, patch: Partial<UploadSelection>) => setSelection(current => current.map((item, position) => position === index ? { ...item, ...patch } : item));
     try {
-      for (let index = 0; index < selection.length; index++) {
-        if (selection[index]!.asset) continue;
+      let failed = false;
+      for (let index = 0; index < items.length; index++) {
+        if (items[index]!.asset) continue;
         update(index, { status: 'uploading', error: '' });
         try {
-          const selected = selection[index]!.file;
+          const selected = items[index]!.file;
           const reserved = await beginPhotoUpload(workspaceId, projectId, selected);
           if (context.current !== contextKey) return;
           const uploaded = await fetch(reserved.upload.url, { method: reserved.upload.method, headers: reserved.upload.headers,
@@ -145,30 +150,45 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
         } catch (error) {
           if (context.current !== contextKey) return;
           update(index, { status: 'failed', error: message(error) });
-          setActionError('Some photo uploads were not confirmed. Retry the failed uploads before starting an analysis.');
-          return;
+          if (error instanceof ApiError && error.status === 403 && /consent/i.test(message(error))) setNeedsConsent(true);
+          failed = true;
+          setActionError('Some photos could not be saved. Retry their uploads; the other photos are already saved.');
         }
       }
-      if (context.current === contextKey) setNotice('The photos are verified in private storage. Analysis starts only when you choose Start photo reading.');
+      if (context.current === contextKey && !failed) setNotice('Your photos are saved. Confirm the reading below to continue.');
     } finally { actionLock.current = false; if (context.current === contextKey) setBusy(null); }
   };
 
-  const handleStart = async () => {
-    if (!canWrite || !capability?.enabled || !capability.ownerAccess || !capability.workerReady || !workspaceId || !projectId || actionLock.current || needsRead.current) return;
+  const handleConsent = async () => {
+    if (!canWrite || !workspaceId || actionLock.current) return;
+    actionLock.current = true; setBusy('consent'); setActionError(null);
+    let approved = false;
+    try {
+      await grantWorkspaceAiConsent(workspaceId);
+      if (context.current !== contextKey) return;
+      approved = true; setNeedsConsent(false); setNotice('Workspace AI processing approved. Your reading still requires confirmation.');
+    } catch (error) { if (context.current === contextKey) setActionError(message(error)); }
+    finally { actionLock.current = false; if (context.current === contextKey) setBusy(null); }
+    if (approved && selection.some(item => !item.asset)) await handleUpload();
+    else if (approved) setRefresh(value => value + 1);
+  };
+
+  const handleStart = async (consentConfirmed = false) => {
+    if (!consentConfirmed || !canWrite || !capability?.enabled || !capability.includedAvailable || !capability.workerReady || !workspaceId || !projectId || actionLock.current || needsRead.current) return;
     if (acknowledgedRun.current) { setRunId(acknowledgedRun.current); setRefresh(value => value + 1); return; }
     const assets = selection.map(item => item.asset);
     if (!assets.length || assets.some(asset => !asset)) { setActionError('Complete every private photo upload first.'); return; }
     if (!requestKey.current) requestKey.current = crypto.randomUUID();
     actionLock.current = true; setBusy('start'); setActionError(null);
     try {
-      const saved = await createPhotoRun(workspaceId, projectId, { assetIds: assets.map(asset => asset!.id), requestKey: requestKey.current });
+      const saved = await createPhotoRun(workspaceId, projectId, { assetIds: assets.map(asset => asset!.id), requestKey: requestKey.current, consentConfirmed: true });
       if (context.current !== contextKey) return;
       acknowledgedRun.current = saved.run.id; setRunId(saved.run.id); setDetail(null); loadedDraftRun.current = null; setDrafts({});
       setHistory(current => [saved.run, ...current.filter(run => run.id !== saved.run.id)]);
       setNotice(saved.enqueued ? 'Photo reading saved and queued. You can leave this page and recover the job later.' : 'The run is saved, but queue acknowledgement was not confirmed. Reload saved progress and explicitly resume this run.');
       setRefresh(value => value + 1);
     } catch (error) {
-      if (context.current === contextKey) { needsRead.current = true; setActionError(`${message(error)} Reload saved runs before another start; the original request identity will be reused.`); }
+      if (context.current === contextKey) { needsRead.current = true; if (error instanceof ApiError && error.status === 403 && /consent/i.test(message(error))) setNeedsConsent(true); setActionError(`${message(error)} Reload saved runs before another start; the original request identity will be reused.`); }
     } finally { actionLock.current = false; if (context.current === contextKey) setBusy(null); }
   };
 
@@ -251,21 +271,30 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
       </div>}
       {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p>}
       {(readError || actionError) && <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{readError && <p>Saved state could not be refreshed: {readError}. An existing worker may still be running.</p>}{actionError && <p>{actionError}</p>}</div>}
+      {needsConsent && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm space-y-2"><p>This workspace must approve AI processing before photo readings can be prepared.</p><button type="button" disabled={!canWrite || Boolean(busy)} onClick={() => void handleConsent()} className="underline disabled:opacity-50">Approve AI processing for this workspace</button></div>}
       <div className="flex flex-wrap items-center gap-3">
         <label className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold">Select photos
-          <input aria-label="Select construction photos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={!canWrite || !capability?.enabled || !capability.ownerAccess || Boolean(busy)} onChange={handleSelection} className="block mt-1 text-xs max-w-56 disabled:opacity-50" /></label>
-        <button onClick={handleUpload} disabled={!canWrite || !capability?.enabled || !selection.length || Boolean(busy) || needsRead.current || selection.every(item => item.asset)} className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">{busy === 'upload' ? 'Uploading privately…' : 'Upload photos privately'}</button>
-        <button onClick={handleStart} disabled={!canWrite || !capability?.workerReady || !selection.length || selection.some(item => !item.asset) || Boolean(busy) || needsRead.current} className="rounded-md bg-slate-900 text-white px-3 py-2 text-xs disabled:opacity-50">{busy === 'start' ? 'Saving photo job…' : acknowledgedRun.current ? 'Open saved photo reading' : 'Start photo reading'}</button>
+          <input aria-label="Select construction photos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={!canWrite || !capability?.enabled || (!capability.includedAvailable && !capability.purchaseAvailable) || Boolean(busy) || needsRead.current} onChange={handleSelection} className="block mt-1 text-xs max-w-56 disabled:opacity-50" /></label>
+        {selection.some(item => item.status === 'failed') && <button onClick={() => void handleUpload()} disabled={Boolean(busy) || needsRead.current} className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">Retry unsaved photos</button>}
         <button onClick={() => { setActionError(null); setRefresh(value => value + 1); }} disabled={Boolean(busy)} className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">Reload saved runs</button>
       </div>
-      <p className="text-xs text-slate-500">JPEG, PNG or WebP. Up to 8 photos, 20 MB each and 40 MB total. Photos need a known physical reference to measure length or area.</p>
+      <p className="text-sm text-slate-600">1. Add photos · 2. Confirm the reading · 3. Review results</p>
+      <details className="text-xs text-slate-500"><summary>Photo formats and measurement references</summary><p>JPEG, PNG or WebP. Up to 8 photos, 20 MB each and 40 MB total. Photos need a known physical reference to measure length or area.</p></details>
       {selection.length > 0 && <ul className="space-y-1 text-xs">{selection.map((item, index) => <li key={index}><strong>{item.file.name}</strong> — {item.status}{item.error ? `: ${item.error}` : ''}</li>)}</ul>}
+      {capability && (!selection.length || selection.every(item => item.asset)) && <PhotoPurchasePanel key={`${contextKey}:${selection.map(item => item.asset?.id).sort().join(',')}`}
+        workspaceId={workspaceId} projectId={projectId} assets={selection.flatMap(item => item.asset ? [item.asset] : [])} newSelection={selection.length > 0}
+        canWrite={canWrite} purchaseAvailable={capability.purchaseAvailable === true} includedAvailable={capability.includedAvailable === true} workerReady={capability.workerReady}
+        busy={Boolean(busy)} actionLock={actionLock} onBusy={value => setBusy(value ? 'purchase' : null)} onIncludedStart={() => handleStart(true)}
+        onConsentRequired={() => setNeedsConsent(true)}
+        onRunId={id => { if (selectedRun.current === id) return; acknowledgedRun.current = id; setRunId(id); loadedDraftRun.current = null; setDrafts({}); setRefresh(value => value + 1); }} />}
       {history.length > 0 && <label className="block text-xs font-medium">Saved photo runs<select aria-label="Saved photo runs" value={runId ?? ''} onChange={event => { setRunId(event.target.value); loadedDraftRun.current = null; setDrafts({}); setActionError(null); }} disabled={Boolean(busy)} className="block mt-1 w-full rounded-md border border-slate-300 p-2">{history.map(run => <option key={run.id} value={run.id}>{run.created_at ? new Date(run.created_at).toLocaleString() : run.id} — {run.status.replaceAll('_', ' ')}</option>)}</select></label>}
       {detail && <>
         <div role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
-          <h4 className="font-semibold flex items-center gap-2">{isPhotoRunInFlight(detail.run.status) && <Loader2 className="h-4 w-4 animate-spin" />}Photo reading: {detail.run.status.replaceAll('_', ' ')}</h4>
+          <h4 className="font-semibold flex items-center gap-2">{isPhotoRunInFlight(detail.run.status) && <Loader2 className="h-4 w-4 animate-spin" />}{detail.run.status === 'waiting_budget' ? 'Waiting for processing capacity' : `Photo reading: ${detail.run.status.replaceAll('_', ' ')}`}</h4>
           <p>{photoCheckpointProgress(detail)}</p><p>Your progress is saved. You can leave this page and return later.</p>
-          {detail.run.error_code && <><p className="text-amber-900">Unresolved state: {reviewIssueMessage(detail.run.error_code)}</p><details><summary>Advanced run diagnostic</summary><code>{detail.run.error_code}</code></details></>}
+          {photoCapacityWait(detail) && <p>{photoCapacityWait(detail)!.message}{photoCapacityWait(detail)!.estimate ? ` Estimated next window: ${photoCapacityWait(detail)!.estimate}. This time may change.` : ''}</p>}
+          <ol aria-label="Photo reading steps" className="grid gap-2 pt-2 sm:grid-cols-3">{photoReadingSteps(detail).map((step, index) => <li key={step.stage} className="rounded border border-slate-200 bg-white p-2 text-xs"><strong>{index + 1}. {step.label}</strong><p>{step.status}</p></li>)}</ol>
+          {detail.run.error_code && <><p className="text-amber-900">{detail.run.error_code === 'processing_review_required' ? 'This reading needs a processing review before it can continue. Your saved results are preserved.' : reviewIssueMessage(detail.run.error_code)}</p><details><summary>Advanced run diagnostic</summary><code>{detail.run.error_code}</code></details></>}
           <div className="flex flex-wrap gap-2 pt-1">
             {canWrite && isPhotoRunInFlight(detail.run.status) && !detail.run.cancel_requested && <button onClick={() => handleRunAction('cancel')} disabled={Boolean(busy) || needsRead.current} className="rounded-md border border-rose-300 px-3 py-1.5 text-xs text-rose-800 disabled:opacity-50">Cancel photo reading</button>}
             {canWrite && canResumePhotoRun(detail) && <button onClick={() => handleRunAction('resume')} disabled={!capability?.workerReady || Boolean(busy) || needsRead.current} className="rounded-md border px-3 py-1.5 text-xs disabled:opacity-50">Resume saved photo reading</button>}

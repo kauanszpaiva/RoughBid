@@ -7,6 +7,8 @@ import { appendAcceptedAiQuantity } from "./utils/aiFindingReview";
 import { canWriteWorkspace } from "./utils/workspaceAccess";
 import { patchProjectRevision, type RevisionPatch } from "./utils/projectRevisions";
 import { persistFullPurchaseRevision, persistReadingOrderFiles, readFullPurchaseReturn, readReadingOrderReturn, restoreFullPurchaseRevision } from "./utils/fullPurchaseReturn";
+import { readPhotoPurchaseReturn } from "./utils/photoPurchaseReturn";
+import { getPhotoQuote } from "./services/photos-api";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { Header, ProjectStep } from "./components/Header";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -255,9 +257,10 @@ export default function App() {
         const sortedWorkspaces = [...workspaces].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         const purchaseReturn = readFullPurchaseReturn(window.location.search);
         const orderReturn = readReadingOrderReturn(window.location.search);
+        const photoReturn = readPhotoPurchaseReturn(window.location.search);
         // Return parameters only select records already granted by the server.
         // They never establish payment, consent or permission to start a run.
-        const selectedWorkspaceId = invitedWorkspaceId ?? purchaseReturn?.workspaceId ?? orderReturn?.workspaceId ?? readSelectedWorkspaceId(userId);
+        const selectedWorkspaceId = invitedWorkspaceId ?? purchaseReturn?.workspaceId ?? orderReturn?.workspaceId ?? photoReturn?.workspaceId ?? readSelectedWorkspaceId(userId);
         const savedWorkspace = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId);
         const newestRealWorkspace = sortedWorkspaces.find((candidate) => !/\b(?:validation|qa|test|synthetic)\b/i.test(candidate.name));
         const resolved = savedWorkspace ?? newestRealWorkspace;
@@ -273,6 +276,8 @@ export default function App() {
           if (order?.items[0]) orderTarget = { ...orderReturn, fileId: order.items[0].file_id, quoteId: order.id };
         }
         const returnTarget = purchaseReturn ?? orderTarget;
+        const photoTarget = photoReturn?.workspaceId === activeWorkspace.id
+          ? (await getPhotoQuote(activeWorkspace.id, photoReturn.projectId, { quoteId: photoReturn.quoteId })).quote : null;
         if (active) {
           const scope = { userId, workspaceId: activeWorkspace.id };
           scopeRef.current = scope;
@@ -294,6 +299,11 @@ export default function App() {
               recovered = recovered.map(project => project.remoteId === restored.remoteId ? restored : project);
               setActiveProject(restored); setActiveTab('projects'); setActiveStep('plans');
             } else setOperationNotice('The purchased PDF revision could not be found in this workspace. Open its original project to recover the saved purchase.');
+          } else if (photoReturn) {
+            const restored = photoTarget?.workspace_id === activeWorkspace.id && photoTarget.project_id === photoReturn.projectId
+              ? recovered.find(project => project.remoteId === photoTarget.project_id) : null;
+            if (restored) { setActiveProject(restored); setActiveTab('projects'); setActiveStep('plans'); }
+            else setOperationNotice('The photo purchase could not be restored. Open its original project or sign in with the account used for checkout.');
           } else if (purchaseReturn || orderReturn) setOperationNotice('The purchase could not be restored in this workspace. Open its original project or sign in with the account used for checkout.');
           queue = new ProjectSaveQueue<Project>(
             (updated) => {

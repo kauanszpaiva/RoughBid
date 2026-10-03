@@ -13,7 +13,8 @@ export interface ReadingOrderContract {
   version: 'paid-full-order-v1'; workspace_id: string; project_id: string; user_id: string;
   items: OrderItem[]; executionPolicy: typeof PAID_FULL_EXECUTION_POLICY;
   pricing: { currency: 'usd'; costCents: number; amountCents: number; membership: ProjectMembership;
-    marginBps: number; paymentFixedCents: number; paymentFeeBps: number; version: string };
+    marginBps: number; paymentFixedCents: number; paymentFeeBps: number; version: string;
+    overheadBaseCents?: number; overheadPageCents?: number; overheadBasePolicy?: 'purchase' };
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -36,26 +37,58 @@ export function buildReadingOrderContract(quotes: any[], scope: {workspace_id:st
   if (!quotes.length || quotes.length > 20) throw new ProjectApiError(400, 'Select 1 to 20 PDFs.');
   const sorted = [...quotes].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
   const p = sorted[0].full_contract.pricing as PaidFullContract['pricing'];
+  const first = sorted[0].full_contract as PaidFullContract;
   const same = ['membership','marginBps','paymentFixedCents','paymentFeeBps','version'] as const;
   if (new Set(sorted.map(q=>q.file_sha256)).size !== sorted.length || new Set(sorted.map(q=>q.file_id)).size !== sorted.length) {
     throw new ProjectApiError(409, 'The selection contains the same PDF more than once. Remove its duplicate before paying.');
   }
   if (sorted.some(q=>q.workspace_id!==scope.workspace_id || q.project_id!==scope.project_id || q.user_id!==scope.user_id
     || q.mode!=='full_v2' || q.livemode!==true || q.currency!=='usd' || !Number.isSafeInteger(q.cost_cents) || q.cost_cents<=0
-    || q.full_contract.executionPolicy!==PAID_FULL_EXECUTION_POLICY || same.some(key=>q.full_contract.pricing[key]!==p[key]))) {
+    || !['paid-full-v1','paid-full-v2'].includes(q.full_contract.version) || q.full_contract.version!==first.version
+    || q.full_contract.executionPolicy!==PAID_FULL_EXECUTION_POLICY || same.some(key=>q.full_contract.pricing[key]!==p[key])
+    || q.full_contract_hash!==hashPaidFullContract(q.full_contract) || q.cost_cents!==q.full_contract.pricing.costCents
+    || q.amount_cents!==q.full_contract.pricing.amountCents || q.file_sha256!==q.full_contract.manifest.fileSha256
+    || q.page_count!==q.full_contract.manifest.physicalPageCount
+    || first.version==='paid-full-v2' && (q.full_contract.policyId!==first.policyId
+      || q.full_contract.profile?.profileHash!==first.profile.profileHash || q.full_contract.pricing.callReservationUsd!==first.pricing.callReservationUsd
+      || q.full_contract.pricing.overheadBasePolicy!=='purchase'
+      || !Number.isSafeInteger(q.full_contract.pricing.overheadBaseCents) || q.full_contract.pricing.overheadBaseCents<0
+      || !Number.isSafeInteger(q.full_contract.pricing.overheadPageCents) || q.full_contract.pricing.overheadPageCents<0
+      || q.full_contract.pricing.overheadBaseCents!==first.pricing.overheadBaseCents
+      || q.full_contract.pricing.overheadPageCents!==first.pricing.overheadPageCents))) {
     throw new ProjectApiError(409, 'The selected PDF prices do not share the current purchase policy. Refresh all prices.');
   }
-  const costCents=sorted.reduce((sum,q)=>sum+q.cost_cents,0);
+  const allocationWeightCents=sorted.reduce((sum,q)=>sum+q.cost_cents,0);
+  // Each standalone quote includes its base overhead. A v2 purchase applies
+  // that frozen base once while retaining the original child allocation weights.
+  const costCents=allocationWeightCents-(first.version==='paid-full-v2'?(sorted.length-1)*first.pricing.overheadBaseCents:0);
+  if(!Number.isSafeInteger(allocationWeightCents) || !Number.isSafeInteger(costCents) || costCents<=0) {
+    throw new ProjectApiError(409, 'The selected PDF prices do not share a valid purchase policy. Refresh all prices.');
+  }
   const amountCents=projectChargeCents(costCents,p.paymentFixedCents,p.paymentFeeBps,p.membership);
   const allocation=sorted.map(q=>{const numerator=BigInt(amountCents)*BigInt(q.cost_cents);return {
-    q, amount:Number(numerator/BigInt(costCents)), remainder:numerator%BigInt(costCents)};});
+    q, amount:Number(numerator/BigInt(allocationWeightCents)), remainder:numerator%BigInt(allocationWeightCents)};});
   const remainderOrder=[...allocation].sort((a,b)=>a.remainder>b.remainder?-1:a.remainder<b.remainder?1:a.q.id<b.q.id?-1:1);
   const remaining=amountCents-allocation.reduce((sum,row)=>sum+row.amount,0);
   for(let index=0;index<remaining;index++) remainderOrder[index]!.amount++;
   return {version:'paid-full-order-v1',...scope,executionPolicy:PAID_FULL_EXECUTION_POLICY,
     items:allocation.map(({q,amount})=>({quote_id:q.id,file_id:q.file_id,file_sha256:q.file_sha256,full_contract_hash:q.full_contract_hash,amount_cents:amount})),
     pricing:{currency:'usd',costCents,amountCents,membership:p.membership,marginBps:p.marginBps,
-      paymentFixedCents:p.paymentFixedCents,paymentFeeBps:p.paymentFeeBps,version:p.version}};
+      paymentFixedCents:p.paymentFixedCents,paymentFeeBps:p.paymentFeeBps,version:p.version,
+      ...(first.version==='paid-full-v2'?{overheadBaseCents:first.pricing.overheadBaseCents,
+        overheadPageCents:first.pricing.overheadPageCents,overheadBasePolicy:'purchase' as const}:{})}};
+}
+/** Database row order is not execution order. Use the immutable quote-id order
+ * for indivisible capacity scheduling and recoverable webhook fanout. */
+function quotesInOrder(quotes:any[], contract:ReadingOrderContract):any[] {
+  if (!Array.isArray(contract?.items) || contract.items.length!==quotes.length
+    || new Set(contract.items.map(item=>item.quote_id)).size!==quotes.length
+    || new Set(quotes.map(quote=>quote.id)).size!==quotes.length) throw new ProjectApiError(503,'The saved purchase scope is unavailable.');
+  return contract.items.map(item=>{
+    const quote=quotes.find(q=>q.id===item.quote_id);
+    if(!quote)throw new ProjectApiError(503,'The saved purchase scope is unavailable.');
+    return quote;
+  });
 }
 export function readingOrderStatus(order: any, quotes: any[], runs: any[]): string {
   if (order.status==='revoked' || quotes.some(q=>q.status==='revoked')) return 'revoked';
@@ -78,7 +111,7 @@ async function loadOrder(db:ServerDatabase, id:string, workspaceId?:string, proj
   if(!Array.isArray(items)||!items.length)throw new ProjectApiError(503,'The saved purchase scope is unavailable.');
   const quotes=databaseValue(await db.from('project_reading_quotes').select('*').in('id',items.map((item:any)=>item.quote_id)));
   if(!Array.isArray(quotes)||quotes.length!==items.length)throw new ProjectApiError(503,'The saved purchase scope is unavailable.');
-  return {order,items,quotes};
+  return {order,items,quotes:quotesInOrder(quotes,order.contract)};
 }
 async function presentOrder(db:ServerDatabase, loaded:NonNullable<Awaited<ReturnType<typeof loadOrder>>>) {
   const {order,items,quotes}=loaded;
@@ -114,7 +147,7 @@ export async function prepareReadingOrder(input:Context&{userId:string;workspace
   const quotes=[];
   for(const fileId of files) quotes.push(await preparePaidFullQuote({...input,fileId,newOrderChild:true}));
   const contract=buildReadingOrderContract(quotes,{workspace_id:input.workspaceId,project_id:input.projectId,user_id:input.userId});
-  await requirePaidFullBatchScheduling(input.db,quotes.map(q=>q.full_contract));
+  await requirePaidFullBatchScheduling(input.db,quotesInOrder(quotes,contract).map(q=>q.full_contract));
   const order=databaseValue(await input.db.rpc('create_full_reading_order',{p_input:{workspace_id:input.workspaceId,
     project_id:input.projectId,user_id:input.userId,contract,contract_hash:hashReadingOrder(contract)}}));
   const loaded=await loadOrder(input.db,order.id,input.workspaceId,input.projectId,input.userId);

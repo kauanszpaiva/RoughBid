@@ -36,6 +36,7 @@ export function fullTakeoffApprovalProfile(env: Record<string, string | undefine
   }
   const stages = Object.entries(config.stages).sort(([a], [b]) => a.localeCompare(b)).map(([name, stage]) => ({
     name, provider: stage.provider, model: stage.model, baseUrl: stage.baseUrl, reasoningEffort: stage.reasoningEffort,
+    requestPolicy: stage.requestPolicy,
     maxOutputTokens: stage.maxOutputTokens, attestation: stage.attestation,
   }));
   const policyId = createHash('sha256').update(JSON.stringify({ providers, stages, regionalReview: config.regionalReview })).digest('hex');

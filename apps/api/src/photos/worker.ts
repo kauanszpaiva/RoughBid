@@ -6,6 +6,7 @@ import { PHOTO_TAKEOFF_VERSION, type PhotoTakeoffProfile } from './config.ts';
 import type { PhotoReader, PhotoReadingResult } from './provider.ts';
 import type { PhotoTakeoffJob } from './queue.ts';
 import { photoSourceBlockers } from './coverage.ts';
+import { processCompletePhoto } from './complete-worker.ts';
 
 export interface PhotoWorkerJob { data: PhotoTakeoffJob }
 /** Durable image checkpoints. No overall reading deadline and no automatic paid retry. */
@@ -32,6 +33,7 @@ export class PhotoTakeoffProcessor {
   }
   async process(job:PhotoWorkerJob):Promise<unknown> {
     if (job.data.version!==PHOTO_TAKEOFF_VERSION) throw new Error('photo_job_version_invalid');
+    if(this.profile.complete)return processCompletePhoto({db:this.db,storage:this.storage,reader:this.reader,profile:this.profile,workerId:this.workerId,runId:job.data.runId,fetcher:this.fetcher});
     const claim=await this.rpc('claim_photo_takeoff',{p_run_id:job.data.runId,p_worker_id:this.workerId,p_profile_hash:this.profile.profileHash});
     if (claim.skip) return claim;
     const runId=job.data.runId,leaseId=claim.lease_id;
@@ -69,7 +71,9 @@ export class PhotoTakeoffProcessor {
         const writer={from:(table:string)=>this.db.from(table),rpc:async(name:string,args:Record<string,unknown>):Promise<{data:unknown;error:{message?:string}|null}>=>{
           if (!this.db.rpc) throw new Error('photo_accounting_unavailable');
           if (name==='reserve_provider_spend') {
-            const {p_job_id,...identity}=args;
+            // The legacy photo RPC still admits the fixed company reservation.
+            // The meter verifies that receipt covers the caller's requirement.
+            const {p_job_id,p_required_reservation_usd,...identity}=args;
             if (p_job_id!==runId) throw new Error('photo_accounting_identity_mismatch');
             const result=await this.db.rpc('reserve_photo_provider_spend',{...identity,p_run_id:runId,p_lease_id:leaseId,p_asset_id:asset.id});
             const message=result.error && typeof result.error==='object' && 'message' in result.error ? String(result.error.message) : '';

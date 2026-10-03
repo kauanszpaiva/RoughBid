@@ -20,6 +20,14 @@ test('stage factory configuration requires explicit worker/schema gates and cred
   assert.throws(() => requireStageDeepPassConfig({ ...config(), OPENAI_API_KEY: '<placeholder>' }), /credential/);
   assert.throws(() => requireStageDeepPassConfig(gates), /at least one/);
 });
+test('bridge worker may omit keys only under explicit transport, and reviewed request policy remains part of configuration',()=>{
+  const optional={...config(),OPENAI_API_KEY:'[SENSITIVE]',TAKEOFF_V2_TRANSPORT:'bridge',PROVIDER_BRIDGE_ENABLED:'true'};
+  assert.equal(requireStageDeepPassConfig(optional).stages.classification?.apiKey,undefined);
+  assert.throws(()=>requireStageDeepPassConfig({...optional,PROVIDER_BRIDGE_ENABLED:'false'}));
+  assert.throws(()=>requireStageDeepPassConfig(optional,'required'));
+  assert.equal(requireStageDeepPassConfig({...optional,TAKEOFF_V2_OPENAI_REQUEST_POLICY:'explicit-cache-default-v1'}).stages.classification?.requestPolicy,'explicit-cache-default-v1');
+  assert.throws(()=>requireStageDeepPassConfig({...config(),TAKEOFF_V2_OPENAI_REQUEST_POLICY:'automatic'}));
+});
 test('only documented exact IDs can be used with their corresponding provider', () => {
   for (const [model, capability] of Object.entries(STAGE_MODEL_REGISTRY)) {
     const selected = requireStageDeepPassConfig(config(capability.provider, model)).stages.classification;

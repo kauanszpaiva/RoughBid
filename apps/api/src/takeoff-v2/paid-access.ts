@@ -41,5 +41,5 @@ export function paidFullRunLimits(manifest: PlanSetManifest, env: Record<string,
     throw new Error('Paid Full purchase does not match the saved plan revision.');
   }
   return contract.providers.map(provider => ({ ...provider, models: [...provider.models],
-    approvalRef: `paid-full-v1:${saved.quoteId}:${saved.paymentRevision}` }));
+    approvalRef: `${contract.version}:${saved.quoteId}:${saved.paymentRevision}` }));
 }

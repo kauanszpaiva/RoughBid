@@ -48,7 +48,7 @@
   ],
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "{api/_bridge.ts,apps/api/src/**,packages/domain/src/**,packages/domain/data/**}",
+      "includeFiles": "{api/_bridge.ts,apps/api/src/**,packages/domain/src/**,packages/domain/data/**,node_modules/pdfjs-dist/standard_fonts/**,node_modules/pdfjs-dist/cmaps/**,node_modules/pdfjs-dist/wasm/**}",
       "maxDuration": 300
     }
   }

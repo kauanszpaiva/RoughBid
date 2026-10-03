@@ -18,6 +18,9 @@ export async function handlePhotoRequest(request:Request,db:SupabaseLike,deps:Ph
     const service=new PhotoTakeoffService(db,deps,data.user.id,workspaceId),projectId=parts[1];
     let result:unknown,status=200;
     if (request.method==='GET'&&parts[3]==='capability'&&parts.length===4) result=await service.capability(projectId);
+    else if(parts[3]==='quote'&&parts.length===4&&request.method==='GET')result=await service.savedQuote(projectId,url.searchParams.get('quote_id')??undefined,url.searchParams.has('asset_ids')?url.searchParams.get('asset_ids')!.split(','):undefined);
+    else if(parts[3]==='quote'&&parts.length===4&&request.method==='POST'){result=await service.quote(projectId,await body(request));status=201;}
+    else if(parts[3]==='checkout'&&parts.length===4&&request.method==='POST')result=await service.checkout(projectId,await body(request));
     else if (parts[3]==='uploads'&&request.method==='POST'&&parts.length===4) {result=await service.beginUpload(projectId,await body(request));status=201;}
     else if (parts[3]==='uploads'&&parts[4]&&parts[5]==='complete'&&request.method==='POST'&&parts.length===6) result=await service.completeUpload(projectId,parts[4]);
     else if (parts[3]==='uploads'&&parts[4]&&parts[5]==='download-url'&&request.method==='POST'&&parts.length===6) result=await service.download(projectId,parts[4]);

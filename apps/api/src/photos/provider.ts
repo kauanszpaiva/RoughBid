@@ -1,6 +1,9 @@
 import { assertUsageMeterContext, meterAnthropicCall, meterGeminiCall, meterOpenAiCompatibleCall } from '../owner-usage/meter.ts';
 import { reviewPhotoEvidence, type PhotoDimensionReference, type PhotoObservation, type PhotoSourceAsset } from '../photo-evidence.ts';
 import type { PhotoTakeoffConfig } from './config.ts';
+import type { PhotoOperation } from './complete-profile.ts';
+import { parsePhotoStageReview, photoStageInstructions, photoStageSchema, type PhotoStageContext, type PhotoStageResult } from './stages.ts';
+import { bridgeUsage,reviewedBridgePayload } from '../provider-bridge/usage.ts';
 
 export interface PhotoReadingResult {
   observations: readonly PhotoObservation[];
@@ -11,7 +14,9 @@ export interface PhotoReadingResult {
 }
 export interface PhotoReader {
   assertCompatibleAsset?(asset: PhotoSourceAsset): void;
-  read(input: { asset: PhotoSourceAsset; bytes: Uint8Array; references: readonly PhotoDimensionReference[]; signal: AbortSignal }): Promise<PhotoReadingResult>;
+  read(input: { asset: PhotoSourceAsset; bytes: Uint8Array; references: readonly PhotoDimensionReference[]; signal: AbortSignal; beforeDispatch?:(eventId:string)=>Promise<void> }): Promise<PhotoReadingResult>;
+  readStage?(input:{operation:PhotoOperation;sources:Array<{asset:PhotoSourceAsset;bytes:Uint8Array}>;references:readonly PhotoDimensionReference[];
+    context:PhotoStageContext;signal:AbortSignal;execution?:{runId:string;leaseId:string};beforeDispatch:(eventId:string)=>Promise<void>}):Promise<PhotoStageResult>;
 }
 const record = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const boundedStrings = (value: unknown, max = 20): value is string[] => Array.isArray(value) && value.length <= max
@@ -93,58 +98,84 @@ export class HttpPhotoReader implements PhotoReader {
     }
   }
   async read(input: Parameters<PhotoReader['read']>[0]): Promise<PhotoReadingResult> {
+    return parsePhotoReading(await this.generate({sources:[{asset:input.asset,bytes:input.bytes}],schema:photoReadingSchema(input.asset.id),
+      system:instructions(input.asset,input.references),signal:input.signal,...(input.beforeDispatch?{beforeDispatch:input.beforeDispatch}:{})}),input.asset,input.references);
+  }
+  async readStage(input:Parameters<NonNullable<PhotoReader['readStage']>>[0]):Promise<PhotoStageResult>{
+    const config=this.config.stageConfigs?.[input.operation.stage];
+    if(!config||!this.config.complete)throw new Error('complete_photo_stage_unconfigured');
+    const reader=new HttpPhotoReader(config,this.fetcher);
+    if(input.operation.stage==='observation'){
+      if(Buffer.byteLength(instructions(input.sources[0]!.asset,input.references))>this.config.complete.maximumContextBytes)throw new Error('photo_stage_context_exceeds_reviewed_bound');
+      return reader.read({...input.sources[0]!,references:input.references,signal:input.signal,beforeDispatch:input.beforeDispatch});
+    }
+    const system=photoStageInstructions(input.operation,input.sources.map(s=>s.asset),input.context);
+    if(Buffer.byteLength(system)>this.config.complete.maximumContextBytes)throw new Error('photo_stage_context_exceeds_reviewed_bound');
+    return parsePhotoStageReview(await reader.generate({sources:input.sources,system,schema:photoStageSchema(input.operation,input.context),signal:input.signal,beforeDispatch:input.beforeDispatch}),input.operation,input.context);
+  }
+  private async generate(input:{sources:Array<{asset:PhotoSourceAsset;bytes:Uint8Array}>;system:string;schema:unknown;signal:AbortSignal;beforeDispatch?:(eventId:string)=>Promise<void>}):Promise<unknown>{
     assertUsageMeterContext();
     const { config } = this;
-    this.assertCompatibleAsset(input.asset);
+    input.sources.forEach(source=>this.assertCompatibleAsset(source.asset));
     const signal = AbortSignal.any([input.signal, AbortSignal.timeout(config.timeoutMs)]);
-    const schema = photoReadingSchema(input.asset.id), system = instructions(input.asset, input.references);
-    const data = Buffer.from(input.bytes).toString('base64');
-    const requirement = { minimumReservationUsd: config.maximumCallCostUsd };
+    const {schema,system}=input;
+    const sources=input.sources.map(source=>({...source,data:Buffer.from(source.bytes).toString('base64')}));
+    let payload:unknown,dispatchedAt=0;
+    const reviewedPayload=(value:unknown)=>{payload=value;if(config.tariff&&!reviewedBridgePayload(config,value))throw new Error('photo_tariff_payload_unverified');return value;};
+    const requirement = { minimumReservationUsd: config.maximumCallCostUsd,...(input.beforeDispatch?{beforeDispatch:input.beforeDispatch}:{}),
+      ...(config.tariff?{reviewedTelemetry:(response:unknown)=>{const usage=bridgeUsage(response,config,payload,dispatchedAt);
+        const inputTokens=safeInteger(usage.input_tokens),outputTokens=safeInteger(usage.output_tokens);if(inputTokens===undefined||outputTokens===undefined)return null;
+        return {inputTokens,outputTokens,estimatedCostUsd:typeof usage.estimated_cost_usd==='number'?usage.estimated_cost_usd:null,
+          ...(typeof usage.provider_request_id==='string'?{providerRequestId:usage.provider_request_id}:{})};}}:{}) };
     let raw: Record<string,any>;
     if (config.provider === 'openai') {
-      const response = await meterOpenAiCompatibleCall('openai',config.model,async () => {
-        const raw = await post(this.fetcher,'https://api.openai.com/v1/responses',{authorization:`Bearer ${config.apiKey}`},{
+      const body=reviewedPayload({
           model:config.model,instructions:system,reasoning:{effort:config.reasoningEffort},max_output_tokens:config.maxOutputTokens,store:false,
+          ...(config.requestPolicy?{service_tier:config.requestPolicy.serviceTier,prompt_cache_options:{mode:config.requestPolicy.promptCacheMode}}:{}),
           text:{format:{type:'json_schema',name:'roughbid_photo_evidence',strict:true,schema}},input:[{role:'user',content:[
-            {type:'input_image',image_url:`data:${input.asset.mimeType};base64,${data}`,detail:'original'},
+            ...sources.map(source=>({type:'input_image',image_url:`data:${source.asset.mimeType};base64,${source.data}`,detail:'original'})),
             {type:'input_text',text:'Inspect this image and return the bounded evidence checkpoint.'},
           ]}],
-        },signal);
+        });
+      const response = await meterOpenAiCompatibleCall('openai',config.model,async () => {
+        dispatchedAt=Date.now();const raw = await post(this.fetcher,'https://api.openai.com/v1/responses',{authorization:`Bearer ${config.apiKey}`},body,signal);
         const inputTokens=safeInteger(raw.usage?.input_tokens),outputTokens=safeInteger(raw.usage?.output_tokens);
         return {raw,...(typeof raw.id==='string'?{id:raw.id}:{}),usage:{...(inputTokens===undefined?{}:{prompt_tokens:inputTokens}),...(outputTokens===undefined?{}:{completion_tokens:outputTokens})}};
       },requirement); raw = response.raw;
       if (raw.status !== 'completed' || !Array.isArray(raw.output)) throw new Error('photo_provider_output_incomplete');
       const text = raw.output.flatMap((item:any) => record(item) && item.type === 'message' && Array.isArray(item.content)
         ? item.content.filter((part:any) => part?.type === 'output_text' && typeof part.text === 'string').map((part:any) => part.text) : []).join('');
-      return parsePhotoReading(JSON.parse(text),input.asset,input.references);
+      return JSON.parse(text);
     }
     if (config.provider === 'claude') {
-      const response = await meterAnthropicCall('claude',config.model,async () => {
-        const raw = await post(this.fetcher,'https://api.anthropic.com/v1/messages',{'x-api-key':config.apiKey,'anthropic-version':'2023-06-01'},{
+      const body=reviewedPayload({
           model:config.model,system,max_tokens:config.maxOutputTokens,thinking:{type:'adaptive'},
           output_config:{effort:config.reasoningEffort,format:{type:'json_schema',schema}},messages:[{role:'user',content:[
-            {type:'image',source:{type:'base64',media_type:input.asset.mimeType,data}},
+            ...sources.map(source=>({type:'image',source:{type:'base64',media_type:source.asset.mimeType,data:source.data}})),
             {type:'text',text:'Inspect this image and return the bounded evidence checkpoint.'},
           ]}],
-        },signal);
+        });
+      const response = await meterAnthropicCall('claude',config.model,async () => {
+        dispatchedAt=Date.now();const raw = await post(this.fetcher,'https://api.anthropic.com/v1/messages',{'x-api-key':config.apiKey,'anthropic-version':'2023-06-01'},body,signal);
         const inputTokens=safeInteger(raw.usage?.input_tokens),outputTokens=safeInteger(raw.usage?.output_tokens);
         return {raw,...(typeof raw.id==='string'?{id:raw.id}:{}),usage:{...(inputTokens===undefined?{}:{inputTokens}),...(outputTokens===undefined?{}:{outputTokens})}};
       },requirement); raw=response.raw;
       if (raw.stop_reason !== 'end_turn' || !Array.isArray(raw.content)) throw new Error('photo_provider_output_incomplete');
       const text=raw.content.filter((part:any)=>part?.type==='text'&&typeof part.text==='string').map((part:any)=>part.text).join('');
-      return parsePhotoReading(JSON.parse(text),input.asset,input.references);
+      return JSON.parse(text);
     }
     const geminiBody={
         // generateContent uses REST enums for resolution, reasoning and output MIME.
-        systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{inlineData:{mimeType:input.asset.mimeType,data},mediaResolution:{level:'MEDIA_RESOLUTION_HIGH'}},{text:'Inspect this image and return the bounded evidence checkpoint.'}]}],
+        systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[...sources.map(source=>({inlineData:{mimeType:source.asset.mimeType,data:source.data},mediaResolution:{level:'MEDIA_RESOLUTION_HIGH'}})),{text:'Inspect these images and return the bounded evidence checkpoint.'}]}],
         generationConfig:{maxOutputTokens:config.maxOutputTokens,thinkingConfig:{thinkingLevel:config.reasoningEffort.toUpperCase()},responseFormat:{text:{mimeType:'APPLICATION_JSON',schema}}},
     };
     if (Buffer.byteLength(JSON.stringify(geminiBody))>20_000_000) throw new Error('photo_provider_image_limits_require_crop');
-    raw = await meterGeminiCall(config.model,'generate',() => post(this.fetcher,
-      `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent`,{'x-goog-api-key':config.apiKey},geminiBody,signal),requirement);
+    reviewedPayload(geminiBody);
+    raw = await meterGeminiCall(config.model,'generate',() => {dispatchedAt=Date.now();return post(this.fetcher,
+      `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent`,{'x-goog-api-key':config.apiKey},geminiBody,signal);},requirement);
     if (!Array.isArray(raw.candidates) || raw.candidates.length!==1 || raw.candidates[0]?.finishReason!=='STOP'
       || !Array.isArray(raw.candidates[0]?.content?.parts)) throw new Error('photo_provider_output_incomplete');
     const text=raw.candidates[0].content.parts.filter((part:any)=>part?.thought!==true&&typeof part.text==='string').map((part:any)=>part.text).join('');
-    return parsePhotoReading(JSON.parse(text),input.asset,input.references);
+    return JSON.parse(text);
   }
 }

@@ -7,6 +7,7 @@ import type { ProjectMembership } from '../../../../packages/domain/src/project-
 import type { StripeEvent } from './stripe.ts';
 import { openPaidFullCheckout, preparePaidFullQuote, requirePaidFullReadiness, startPaidFullAfterPayment } from './full-takeoff-payments.ts';
 import { prepareReadingOrder, savedReadingOrder, openReadingOrderCheckout, reconcileReadingOrder } from './full-reading-orders.ts';
+import { reconcilePhotoPayment, startPaidPhotoAfterPayment } from './photo-payments.ts';
 export interface ServerDatabase { from(table: string): any; rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: any }> }
 export function databaseValue(result: { data: any; error: any }) {
   if (result.error?.message === 'PDF already belongs to an accepted or paid purchase') {
@@ -31,10 +32,12 @@ export class ProjectPayments {
   private fetcher: typeof fetch;
   private fullReadiness: () => Promise<void>;
   private startPaidFull: (quoteId: string) => Promise<void>;
-  constructor(db: ServerDatabase, env: Record<string,string|undefined>, fetcher: typeof fetch = fetch, fullReadiness?: () => Promise<void>, startPaidFull?: (quoteId: string) => Promise<void>) {
+  private startPaidPhoto: (quoteId: string) => Promise<void>;
+  constructor(db: ServerDatabase, env: Record<string,string|undefined>, fetcher: typeof fetch = fetch, fullReadiness?: () => Promise<void>, startPaidFull?: (quoteId: string) => Promise<void>, startPaidPhoto?: (quoteId: string) => Promise<void>) {
     this.db=db; this.env=env; this.fetcher=fetcher;
     this.fullReadiness = fullReadiness ?? (() => requirePaidFullReadiness(db, env));
     this.startPaidFull = startPaidFull ?? (quoteId => startPaidFullAfterPayment(db, env, quoteId));
+    this.startPaidPhoto = startPaidPhoto ?? (quoteId => startPaidPhotoAfterPayment(db, env, quoteId));
   }
   async assertNoActivePilot(userId: string) {
     const pilot = databaseValue(await this.db.rpc('get_pilot_access', { p_user_id: userId }));
@@ -197,6 +200,7 @@ export class ProjectPayments {
   async reconcile(event: StripeEvent): Promise<void> {
     // This endpoint belongs to the platform's account, never a Connect account.
     if (event.account) return;
+    if (await reconcilePhotoPayment(this.db,event,this.startPaidPhoto,{env:this.env,fetcher:this.fetcher})) return;
     if (await reconcileReadingOrder(this.db,event,this.startPaidFull,{env:this.env,fetcher:this.fetcher})) return;
     const obj = event.data.object as any;
     let paidFullQuoteId: string | undefined;

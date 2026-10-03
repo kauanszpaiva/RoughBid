@@ -45,6 +45,8 @@ import { handleGeometryRequest } from '../geometry/routes.ts';
 import { loadGeometryProfile } from '../geometry/config.ts';
 import { createGeometryQueue, type GeometryQueue } from '../geometry/queue.ts';
 import { createAutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
+import { BRIDGE_PATH } from '../provider-bridge/protocol.ts';
+import { routeProviderBridge } from '../provider-bridge/router.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -84,6 +86,18 @@ function loadSupabaseServiceRoleKey() {
  */
 export async function handleApiRequest(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
+
+  if (pathname === BRIDGE_PATH) {
+    try {
+      const serviceKey = loadSupabaseServiceRoleKey(), url = process.env.SUPABASE_URL;
+      if (!serviceKey || !url) return json({ error: 'bridge_auth_unconfigured' }, 503);
+      const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      return routeProviderBridge(request, { db, storage, env: process.env });
+    } catch { return json({ error: 'bridge_adapter_unavailable' }, 503); }
+  }
 
   if (pathname === '/api/health') {
     return json({ status: 'ok', service: 'RoughBid API' });
@@ -238,7 +252,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }catch{return json({error:'Geometric evidence is unavailable. No provider request was started on HTTP.'},503);}
     finally{await geometryQueue?.close?.().catch(()=>{});}
   }
-  if (/^\/api\/projects\/[^/]+\/photos\/(?:capability|uploads|runs)(?:\/[^/]+(?:\/(?:complete|download-url|cancel|resume|review))?)?$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/photos\/(?:capability|uploads|runs|quote|checkout)(?:\/[^/]+(?:\/(?:complete|download-url|cancel|resume|review))?)?$/.test(pathname)) {
     const writerKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!writerKey || !supabaseUrl) return json({ error: 'Private photo processing is not configured.' }, 503);
@@ -259,7 +273,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
       const writer = createClient(supabaseUrl, writerKey, { auth: { persistSession: false, autoRefreshToken: false } }) as unknown as DocumentDb;
       return await handlePhotoRequest(request, client as unknown as SupabaseLike, {
-        writer, storage, ...(config ? { config } : {}), ...(photoQueue ? { queue: photoQueue } : {}),
+        writer, storage, env:process.env, ...(config ? { config } : {}), ...(photoQueue ? { queue: photoQueue } : {}),
       });
     } catch { return json({ error: 'Private photo processing is not configured.' }, 503); }
     finally { await photoQueue?.close?.().catch(() => {}); }

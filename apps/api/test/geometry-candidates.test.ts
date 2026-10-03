@@ -16,6 +16,13 @@ test('Room areas and object surfaces/counts are separate; nonunique tags never d
   assert.equal(result.filter(x=>x.aggregationGroup==='individual_object').reduce((n,x)=>n+(x.quantity??0),0),2);assert.equal(result.filter(x=>x.aggregationGroup==='object_surface'&&x.measurementKind==='area').length,2);
 });
 test('Null measurements remain pending; explicit zero remains zero and is never guessed',()=>{const result=kamaiCandidates(checkpoint([feature('r','area',polygon,{area_m2:null,perimeter_m:0})]),scope);assert.equal(result[0]?.quantity,null);assert.equal(result[0]?.status,'blocked');assert.equal(result[1]?.quantity,0);});
+
+test('an arbitrary area polygon is not classified as room floor area and perimeter stays linear',()=>{
+ const roof=feature('roof','area',polygon,{area_m2:96,perimeter_m:48});roof.properties.class='roof';
+ const result=kamaiCandidates(checkpoint([roof]),scope);
+ assert.equal(result[0]?.quantity,96);assert.equal(result[0]?.aggregationGroup,'area_surface');
+ assert.equal(result[1]?.aggregationGroup,'linear_element');assert.equal(result[1]?.unit,'m');
+});
 test('Scale absent/manual cannot be approved; folder/text are evidence only',()=>{const result=kamaiCandidates(checkpoint([feature('r','area',polygon,{area_m2:96}),feature('folder','folder',null,{})],{manual_scaling_needed:true}),scope);assert.equal(result.length,2);assert.ok(result.every(x=>x.status==='blocked'&&x.reviewReasons.includes('manual_scaling_required')));});
 test('Candidate identity pins source hash, physical page and provider snapshot revision',()=>{const c=area(),a=kamaiCandidates(c,scope)[0]!;assert.notEqual(a.id,kamaiCandidates(c,{...scope,physicalPageNumber:2})[0]?.id);
   assert.notEqual(a.id,kamaiCandidates(c,{...scope,fileSha256:'c'.repeat(64)})[0]?.id);c.evidence!.revision='rev-2';assert.notEqual(a.id,kamaiCandidates(c,scope)[0]?.id);});

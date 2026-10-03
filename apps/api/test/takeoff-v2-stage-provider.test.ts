@@ -96,6 +96,19 @@ test('stage transports send documented JSON contracts and one physical PDF only,
     assert.doesNotMatch(JSON.stringify(meter.rows), /A101 PLAN|unit-openai-credential|private/);
   }
 });
+test('reviewed Astra v2 explicit-cache policy changes only opted-in payloads and preserves 64K output quality',async()=>{
+  const {input,request}=await fixture();
+  for(const reviewed of [false,true]){
+    const meter=accounting();let body:any;
+    const settings={...env('openai','gpt-6-astra'),...(reviewed?{TAKEOFF_V2_OPENAI_REQUEST_POLICY:'explicit-cache-default-v1'}:{})};
+    const provider=await createStageDeepPassProviderFactory(settings,(async(_url,init)=>{body=JSON.parse(String(init?.body));return Response.json(success('openai'));}) as typeof fetch).create(input);
+    await meter.run(()=>provider.runPass(request()));
+    assert.equal(body.max_output_tokens,64000);assert.equal(body.reasoning.effort,'max');
+    assert.deepEqual(body.prompt_cache_options,reviewed?{mode:'explicit'}:undefined);assert.equal(body.service_tier,reviewed?'default':undefined);
+    assert.equal(body.tools,undefined);assert.equal(body.compaction,undefined);assert.equal(body.previous_response_id,undefined);
+    assert.equal(meter.rpcCalls[0].args.p_required_reservation_usd,25);
+  }
+});
 test('Kimi/DeepSeek image stages route only validated, identified cropped regions and disclose partial coverage', async () => {
   const { input, request } = await fixture();
   const regions = planPageRegions({ width: request().sheet.widthPoints, height: request().sheet.heightPoints }, 2);

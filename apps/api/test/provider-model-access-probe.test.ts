@@ -19,3 +19,13 @@ test('absent credentials never make a metadata request',async()=>{
   const result=await probeProviderModelAccess({},async()=>{throw new Error('unexpected network');});
   assert.ok(result.providers.every((p:any)=>p.status==='not_configured'&&p.httpStatus===null));
 });
+
+test('photo Gemini3.1 capability is verified by exact metadata independently of Flash',async()=>{
+ const result=await probeProviderModelAccess({GEMINI_API_KEY:'unit_private_secret'},async(url:any,init:any)=>{
+  assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview');
+  assert.equal(init.method,'GET');assert.equal(init.body,undefined);
+  return Response.json({name:'models/gemini-3.1-pro-preview',supportedGenerationMethods:['generateContent']});
+ });
+ assert.equal(result.providers.find((p:any)=>p.provider==='gemini')?.modelAvailable,true);
+ assert.equal(result.inferenceCalls,0);
+});
