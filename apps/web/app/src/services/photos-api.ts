@@ -14,6 +14,10 @@ export type PhotoRun = {
 };
 export type PhotoRunDetail = {
   run: PhotoRun; assets: PhotoSourceAsset[]; references: PhotoReferenceInput[];
+  coverage?: { version: 'photo-evidence-v1'; totalAssets: number; processedAssetIds: string[]; pendingAssetIds: string[];
+    unassessedAssetIds: string[]; unusableAssetIds: string[]; additionalViewAssetIds: string[];
+    unresolvedObservationIds: string[]; referenceRequiredObservationIds: string[];
+    processingComplete: boolean; completeTakeoffVerified: false; estimateStatus: 'pending' };
   steps: Array<{ photo_asset_id: string; status: 'pending' | 'processing' | 'completed'; result?: {
     observations: PhotoObservation[]; quality: { usable: boolean; limitations: string[]; additionalViewsNeeded: boolean };
     blockers: string[]; independentReview: string;

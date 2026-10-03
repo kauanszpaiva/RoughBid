@@ -113,7 +113,7 @@ export function getHealth() {
 }
 
 export function getCapabilities() {
-  return request<{ aiReadingAvailable: boolean; fullTakeoffV2: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
+  return request<{ aiReadingAvailable: boolean; fullTakeoffV2: boolean; fullTakeoffBilling?: boolean; billing: boolean; membershipStarter: boolean; membershipPro: boolean; membershipTeam: boolean; billingPortal: boolean; marketplaceSupplierImport: boolean }>("/api/capabilities");
 }
 
 export type AuthBootstrap = {
@@ -378,7 +378,7 @@ export type PlanReadingJob = {
  * receives false, and the POST route re-checks the allowlist server-side.
  */
 export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
-  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean; fullTakeoffApproval?: FullTakeoffApprovalProfile }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean; fullTakeoffPurchaseAvailable?: boolean; fullTakeoffApproval?: FullTakeoffApprovalProfile }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
 export interface FullTakeoffApprovalProfile {
@@ -401,7 +401,7 @@ export function getAiPlanReading(workspaceId: string, jobId: string) {
   return request<PlanReadingJob>(`/api/ai-plan-readings/${jobId}`, { workspaceId });
 }
 
-export type FullTakeoffRunStatus = PlanReadingJobStatus | "cancelled";
+export type FullTakeoffRunStatus = PlanReadingJobStatus | "cancelled" | "waiting_budget";
 export type FullTakeoffPass = {
   plan_sheet_id: string;
   pass_type: string;
@@ -430,6 +430,8 @@ export type FullTakeoffRun = {
   status: FullTakeoffRunStatus;
   processing_error?: string | null;
   cancel_requested_at?: string | null;
+  not_before?: string | null;
+  waiting_reason?: 'company_budget' | null;
   resumed?: boolean;
   progress?: { completed?: number; total?: number; currentPage?: number | null; currentPass?: string | null } | null;
   output_summary?: {
@@ -649,6 +651,67 @@ export function getSavedReadingQuote(workspaceId: string, projectId: string, fil
 }
 export function payForReading(workspaceId: string, projectId: string, quoteId: string) {
   return request<{url:string}>(`/api/projects/${projectId}/reading-checkout`,{method:'POST',workspaceId,body:{quote_id:quoteId}});
+}
+
+export type FullReadingQuote = ReadingQuote & {
+  mode: 'full_v2';
+  full_run_id: string | null;
+  full_contract_hash: string;
+  full_consent_confirmed: boolean;
+  full_summary: {
+    physicalPageCount: number;
+    regionGrid: number;
+    stages: string[];
+    providers: Array<{ provider: string; models: string[]; maximumCalls: number }>;
+    maximumCalls: number;
+    executionPolicy: 'one-durable-run-budget-wait-no-uncertain-replay';
+    pricingExpiresAt?: string;
+    pricingVersion: string;
+  };
+};
+
+export type ReadingOrder = {
+  id: string; amount_cents: number; currency: string; expires_at: string; contract_hash: string;
+  status: 'quoted' | 'starting' | 'processing' | 'waiting' | 'ready_for_review' | 'needs_attention' | 'revoked';
+  items: Array<Pick<FullReadingQuote, 'file_id' | 'page_count' | 'amount_cents' | 'status' | 'full_run_id' | 'full_contract_hash' | 'full_summary'> & { quote_id: string }>;
+};
+export function getReadingOrder(workspaceId: string, projectId: string, input: { orderId?: string | undefined; fileIds?: string[]; containsFileId?: string }) {
+  const query = new URLSearchParams(input.orderId ? { order_id: input.orderId } : input.containsFileId ? { contains_file_id: input.containsFileId } : { file_ids: (input.fileIds ?? []).join(',') });
+  return request<ReadingOrder | null>(`/api/projects/${projectId}/reading-order?${query}`, { workspaceId });
+}
+export function createReadingOrder(workspaceId: string, projectId: string, fileIds: string[]) {
+  return request<ReadingOrder>(`/api/projects/${projectId}/reading-order`, { method: 'POST', workspaceId, body: { file_ids: fileIds } });
+}
+export function payForReadingOrder(workspaceId: string, projectId: string, order: ReadingOrder) {
+  return request<{ url: string }>(`/api/projects/${projectId}/reading-order-checkout`, { method: 'POST', workspaceId,
+    body: { order_id: order.id, consent: { confirmed: true, contract_hash: order.contract_hash } } });
+}
+
+/** Full purchases have a distinct scope and immutable server-calculated budget. */
+export function getFullReadingQuote(workspaceId: string, projectId: string, fileId: string) {
+  return request<FullReadingQuote>(`/api/projects/${projectId}/reading-quote`, {
+    method: 'POST', workspaceId, body: { mode: 'full_v2', file_id: fileId },
+  });
+}
+
+/** Recovery is read-only, including when returning from Stripe or a worker is offline. */
+export function getSavedFullReadingQuote(workspaceId: string, projectId: string, fileId: string, quoteId?: string) {
+  const query = new URLSearchParams({ mode: 'full_v2', file_id: fileId, ...(quoteId ? { quote_id: quoteId } : {}) });
+  return request<FullReadingQuote | null>(`/api/projects/${projectId}/reading-quote?${query}`, { workspaceId });
+}
+
+export function payForFullReading(workspaceId: string, projectId: string, quote: FullReadingQuote) {
+  return request<{ url: string }>(`/api/projects/${projectId}/reading-checkout`, {
+    method: 'POST', workspaceId,
+    body: { mode: 'full_v2', quote_id: quote.id, consent: { confirmed: true, contract_hash: quote.full_contract_hash } },
+  });
+}
+
+/** Explicit user action after backend payment confirmation; retries reuse the purchased run. */
+export function startPurchasedFullReading(workspaceId: string, projectId: string, fileId: string, quoteId: string) {
+  return request<FullTakeoffRun>(`/api/projects/${projectId}/ai-plan-readings`, {
+    method: 'POST', workspaceId, body: { mode: 'full_v2', file_id: fileId, quote_id: quoteId },
+  });
 }
 
 export type PageReviewInventory = {

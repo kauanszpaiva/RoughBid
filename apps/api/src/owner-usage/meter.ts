@@ -9,12 +9,17 @@ export class UsageAccountingError extends Error {
 }
 export class ProviderSpendLimitError extends UsageAccountingError {
   readonly scope: 'company' | 'run';
-  constructor(scope: 'company' | 'run' = 'company') { super(); this.scope = scope;
+  readonly eventId: string | undefined;
+  constructor(scope: 'company' | 'run' = 'company', eventId?: string) { super(); this.scope = scope; this.eventId = eventId;
     this.message = scope === 'run' ? 'RoughBid reached this run/provider spending authorization. No provider request was sent; review its budget before continuing.'
       : 'RoughBid reached its company AI spend limit. No provider request was sent; contact support to continue.'; this.name = 'ProviderSpendLimitError'; }
 }
 export function withUsageMeter<T>(context: Context, run: () => Promise<T>): Promise<T> { return storage.run(context, run); }
-export interface ProviderSpendRequirement { minimumReservationUsd: number }
+export interface ProviderSpendRequirement {
+  minimumReservationUsd: number;
+  /** Runs after the SAME financial reservation, immediately before transport. */
+  beforeDispatch?: (eventId: string) => Promise<void>;
+}
 /** New durable providers must never inherit the legacy no-context test shortcut. */
 export function assertUsageMeterContext(expected?: { jobId: string; workspaceId: string; projectId: string }): void {
   const context = storage.getStore();
@@ -72,11 +77,12 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
     if (reservation.error) {
       if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
         await settle({ operation: `${prefix}blocked_spend_limit` });
-        throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
+        throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company', id);
       }
       throw new UsageAccountingError();
     }
     requireReservation(reservation.data, requirement);
+    await requirement?.beforeDispatch?.(id);
   }
   let response: T;
   try { response = await call(); }
@@ -163,11 +169,12 @@ async function meterProviderCall<T>(provider: string, model: string, call: () =>
   if (reservation.error) {
     if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
       await settle({ operation: `${prefix}blocked_spend_limit` });
-      throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
+      throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company', id);
     }
     throw new UsageAccountingError();
   }
   requireReservation(reservation.data, requirement);
+  await requirement?.beforeDispatch?.(id);
 
   let response: T;
   try { response = await call(); }

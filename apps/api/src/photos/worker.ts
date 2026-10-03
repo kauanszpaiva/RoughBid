@@ -5,6 +5,7 @@ import { loadVerifiedPhoto, toPhotoSourceAsset, type PhotoAssetRow } from './ass
 import { PHOTO_TAKEOFF_VERSION, type PhotoTakeoffProfile } from './config.ts';
 import type { PhotoReader, PhotoReadingResult } from './provider.ts';
 import type { PhotoTakeoffJob } from './queue.ts';
+import { photoSourceBlockers } from './coverage.ts';
 
 export interface PhotoWorkerJob { data: PhotoTakeoffJob }
 /** Durable image checkpoints. No overall reading deadline and no automatic paid retry. */
@@ -90,7 +91,7 @@ export class PhotoTakeoffProcessor {
       const review=reviewPhotoEvidence({...scope,assets,observations:readings.flatMap(result=>result.observations),references,decisions:[]});
       const result={...review,independentReview:'pending',stageStatus:{observation:'completed',reconciliation:'pending',risk_review:'pending'},
         photoQuality:assets.map((asset,index)=>({sourceAssetId:asset.id,...readings[index]!.quality})),
-        blockers:[...new Set([...review.blockers,...readings.flatMap(reading=>reading.blockers),'independent_photo_review_pending'])]};
+        blockers:[...new Set([...review.blockers,...photoSourceBlockers(assets,assets.map((asset,index)=>({photo_asset_id:asset.id,status:'completed',result:readings[index]}))),'independent_photo_review_pending'])]};
       return await this.rpc('finish_photo_takeoff',{p_run_id:runId,p_lease_id:leaseId,p_result:result});
     } catch (error) {
       // The source/provider body, credential and signed URL never enter errors.

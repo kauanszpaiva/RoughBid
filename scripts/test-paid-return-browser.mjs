@@ -38,6 +38,13 @@ export async function createAiPlanReading(workspace, project, input) { window.pa
 export async function getAiPlanReading() { window.paidReturnHarness.jobReads++; await new Promise(resolve => setTimeout(resolve, 250)); return job(); }
 export async function getFullTakeoffRun() { window.paidReturnHarness.unexpected.push('full-read'); throw new Error('Unexpected Full Takeoff read in legacy paid-return check'); }
 export async function createFullTakeoffRun() { window.paidReturnHarness.unexpected.push('full-mutation'); throw new Error('Unexpected Full Takeoff mutation in legacy paid-return check'); }
+export async function getSavedFullReadingQuote() { return null; }
+export async function getReadingOrder() { return null; }
+export async function createReadingOrder() { window.paidReturnHarness.unexpected.push('order-quote'); throw new Error('Unexpected combined quote'); }
+export async function payForReadingOrder() { window.paidReturnHarness.unexpected.push('order-checkout'); throw new Error('Unexpected combined checkout'); }
+export async function getFullReadingQuote() { window.paidReturnHarness.unexpected.push('full-quote'); throw new Error('Unexpected Full quote'); }
+export async function payForFullReading() { window.paidReturnHarness.unexpected.push('full-checkout'); throw new Error('Unexpected Full checkout'); }
+export async function startPurchasedFullReading() { window.paidReturnHarness.unexpected.push('paid-full-start'); throw new Error('Unexpected paid Full start'); }
 export async function payForReading() { window.paidReturnHarness.payments++; throw new Error('Unexpected payment'); }
 export async function createDocumentPreviewObjectUrl() { return URL.createObjectURL(new Blob(['synthetic fixture'])); }
 export async function beginDocumentUpload() { throw new Error('Unexpected upload'); }
@@ -51,6 +58,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
     configFile: false, root, base: '/', plugins: [react(), {
       name: 'isolated-paid-return-api', enforce: 'pre',
       resolveId(source, importer) {
+        if (source === '../services/api') return '\0paid-return-fixture-api';
         if (!importer?.replaceAll('\\', '/').endsWith('/pages/PlansPageContent.tsx')) return;
         if (source === '../services/api') return '\0paid-return-fixture-api';
         if (source === '../components/BlueprintViewer') return '\0paid-return-fixture-viewer';
@@ -101,8 +109,10 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       await navigate('http://127.0.0.1:4182/?payment=returned');
       await page.getByText('Payment confirmed', { exact: true }).waitFor();
       await assertPassive();
-      assert.equal(await page.getByRole('checkbox', { name: 'Framing', exact: true }).isChecked(), true);
-      assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 1);
+      await page.getByText('Optional reading settings', { exact: true }).click();
+      const analysisScope = page.getByRole('group', { name: 'Analysis scope', exact: true });
+      assert.equal(await analysisScope.getByRole('checkbox', { name: 'Framing', exact: true }).isChecked(), true);
+      assert.equal(await analysisScope.getByRole('checkbox', { checked: true }).count(), 1);
       assert.equal(await page.getByText('Saved scope: Original paid scope').isVisible(), true);
       await page.getByRole('button', { name: 'Start paid analysis', exact: true }).evaluate(button => { button.click(); button.click(); });
       await page.waitForFunction(() => window.paidReturnHarness.jobs.length === 1);
@@ -147,6 +157,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       await navigate('http://127.0.0.1:4182/?fail=1');
       const retry = page.getByRole('button', { name: 'Payment status could not be loaded. Retry.', exact: true });
       await retry.waitFor();
+      await page.getByText('Optional reading settings', { exact: true }).click();
       assert.equal(await page.getByRole('button', { name: 'Calculate project price', exact: true }).isDisabled(), true);
       assert.equal(await page.getByRole('checkbox', { name: 'Framing', exact: true }).isDisabled(), true);
       await assertPassive();

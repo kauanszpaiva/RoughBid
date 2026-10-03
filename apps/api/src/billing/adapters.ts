@@ -14,8 +14,8 @@ export class StripeHttpGateway implements StripeGateway {
   private readonly fetcher: typeof fetch;
 
   constructor(secretKey: string, fetcher: typeof fetch = fetch, expectedMode?: StripeMode) {
-    if (!secretKey.startsWith('sk_')) throw new Error('A server-side Stripe secret key is required.');
-    if (expectedMode && !secretKey.startsWith(`sk_${expectedMode}_`)) throw new Error('Stripe secret key mode does not match billing configuration.');
+    if (!/^(?:sk|rk)_(?:live|test)_/.test(secretKey)) throw new Error('A server-side Stripe secret key is required.');
+    if (expectedMode && !new RegExp(`^(?:sk|rk)_${expectedMode}_`).test(secretKey)) throw new Error('Stripe secret key mode does not match billing configuration.');
     this.secretKey = secretKey;
     this.fetcher = fetcher;
   }

@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { resolvePublicBuildConfig } from './build-public-config.mjs';
 import { probeAiRuntime } from './probe-ai-runtime.mjs';
 import { probeReadingSchema } from './probe-reading-schema.mjs';
+import { probeStripeRuntime } from './probe-stripe-runtime.mjs';
+import { probeProviderInventory } from './probe-provider-inventory.mjs';
+import { probeProviderModelAccess } from './probe-provider-model-access.mjs';
 
 const publicConfig = resolvePublicBuildConfig(process.env);
 process.env.VITE_SUPABASE_URL = publicConfig.url;
@@ -11,9 +14,12 @@ process.env.VITE_SUPABASE_PUBLISHABLE_KEY = publicConfig.publishableKey;
 
 // Read-only probes: no inference, plan contents, new sessions, or public endpoint.
 if (process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview') {
-  const [provider, schema] = await Promise.all([probeAiRuntime(), probeReadingSchema()]);
+  const [provider, schema, stripe, models] = await Promise.all([probeAiRuntime(), probeReadingSchema(), probeStripeRuntime(), probeProviderModelAccess()]);
   console.log('ai_runtime_preflight', JSON.stringify(provider));
   console.log('ai_reading_schema_preflight', JSON.stringify(schema));
+  console.log('stripe_runtime_preflight', JSON.stringify(stripe));
+  console.log('provider_configuration_inventory', JSON.stringify(probeProviderInventory()));
+  console.log('provider_model_metadata_preflight', JSON.stringify(models));
 }
 
 await rm(new URL('../dist', import.meta.url), { recursive: true, force: true });

@@ -1,6 +1,7 @@
 import { AiProviderError, runProviderOperation } from '../ai-plan/provider-errors.ts';
 import { assertUsageMeterContext, meterAnthropicCall, meterGeminiCall, meterOpenAiCompatibleCall,
   UsageAccountingError, ProviderSpendLimitError } from '../owner-usage/meter.ts';
+import { FullTakeoffBudgetWait, FullTakeoffRunBudgetExhausted } from './budget-wait.ts';
 import { ProjectApiError } from '../projects/service.ts';
 import { extractSheetText } from '../ai-plan/sheet-text.ts';
 import { assertRenderedVisionRequestSize, renderedVisionGenerationOptions } from '../ai-plan/vision-capabilities.ts';
@@ -25,6 +26,8 @@ export interface StageSourceImage {
   widthPixels?: number;
   heightPixels?: number;
   region?: PageRegion;
+  rotationDegrees?: number;
+  displayRegion?: StageRegion['displayRegion'];
 }
 export interface StageRuntimeSources {
   prepareRun?(input: FactoryInput, config: StageDeepPassConfig): Promise<void>;
@@ -110,15 +113,19 @@ function outputText(response: ProviderResponse, stage: ConfiguredEvidenceStage):
 }
 /** Call cost stays unknown unless the existing meter has a verified calculator. */
 async function requestEvidence(fetcher: typeof fetch, config: StageDeepPassConfig, stage: ConfiguredEvidenceStage,
-  request: DeepPassRequest, input: StageEvidenceInput, context = '', signal?: AbortSignal): Promise<ProviderResponse> {
+  request: DeepPassRequest, input: StageEvidenceInput, context = '', signal?: AbortSignal,
+  beforeDispatch?: (eventId: string) => Promise<void>): Promise<ProviderResponse> {
   signal?.throwIfAborted();
   const schema = deepPassOutputSchema(request);
   const system = deepPassSystemPrompt(request);
   const regionNotice = input.kind === 'pdf' && input.region
-    ? ` This PDF displays ONLY region ${input.region.id}: ${JSON.stringify(input.region.region)}. Do not claim that the entire sheet was read. The region is in PDF points relative to the displayed sheet; overlaps are not additional objects.` : '';
+    ? ` This PDF displays ONLY region ${input.region.id}: ${JSON.stringify(input.region.region)}. These are UNROTATED PDF points relative to the original CropBox ${JSON.stringify(input.region.sourceFrame)}. The original clockwise page rotation of ${input.region.rotationDegrees} degrees is preserved in the attached crop. Its displayed top-left bounds are ${JSON.stringify(input.region.displayRegion)}. Do not claim that the entire sheet was read. Region indices describe the unrotated source grid, not the visual reading order. Overlaps are not additional objects; source bounds are not measurement geometry.` : '';
   const instruction = `Run only ${request.passType} for physical page ${request.sheet.physicalPageNumber}.${regionNotice} Return the bounded JSON checkpoint.${context ? `\nUNTRUSTED PREVIOUS CHECKPOINTS WITH PHYSICAL SOURCE PAGES (cross-references, not new visual evidence):\n${context}` : ''}`;
   const data = input.kind === 'pdf' ? Buffer.from(input.page).toString('base64') : '';
-  const requirement = { minimumReservationUsd: stage.attestation.maximumCallCostUsd };
+  const requirement = { minimumReservationUsd: stage.attestation.maximumCallCostUsd,
+    ...(beforeDispatch ? { beforeDispatch: async (eventId: string) => {
+      signal?.throwIfAborted(); await beforeDispatch(eventId); signal?.throwIfAborted();
+    } } : {}) };
   const send = (url: string, headers: Record<string, string>, body: Json) =>
     runProviderOperation(stage.provider, stage.model, 'generate', () => postJson(fetcher, url, headers, body, config.requestTimeoutMs,signal));
   if (stage.provider === 'kimi' || stage.provider === 'deepseek') {
@@ -129,7 +136,7 @@ async function requestEvidence(fetcher: typeof fetch, config: StageDeepPassConfi
       : input.kind === 'images' ? [
         { type: 'text', text: instruction },
         ...input.images.flatMap(image => [
-          { type: 'text', text: `${image.label ?? 'Cropped region'}; physical page ${request.sheet.physicalPageNumber}; region ${JSON.stringify(image.region)}` },
+          { type: 'text', text: `${image.label ?? 'Cropped region'}; physical page ${request.sheet.physicalPageNumber}; unrotated source region ${JSON.stringify(image.region)}; clockwise page rotation ${image.rotationDegrees ?? request.sheet.rotationDegrees}; displayed bounds ${JSON.stringify(image.displayRegion ?? null)}` },
           { type: 'image_url', image_url: { url: image.dataUrl, ...(stage.provider === 'deepseek' ? { detail: 'original' } : {}) } },
         ]),
       ] : [];
@@ -284,9 +291,10 @@ class StageDeepPassProvider implements DeepPassProvider {
       source_pages: entries.map(value => value.checkpoint.physical_page_number),
       blocker: 'Full cross-sheet context exceeds this request. Directed reference review remains required.' });
   }
-  private async dispatch(stage: ConfiguredEvidenceStage, request: DeepPassRequest, evidence: StageEvidenceInput, context: string): Promise<DeepPassResult> {
+  private async dispatch(stage: ConfiguredEvidenceStage, request: DeepPassRequest, evidence: StageEvidenceInput, context: string,
+    beforeDispatch?: (eventId: string) => Promise<void>): Promise<DeepPassResult> {
     this.input.signal?.throwIfAborted();
-    const response = await requestEvidence(this.fetcher, this.config, stage, request, evidence, context,this.input.signal);
+    const response = await requestEvidence(this.fetcher, this.config, stage, request, evidence, context,this.input.signal,beforeDispatch);
     const parsed = await runProviderOperation(stage.provider, stage.model, 'parse', async () =>
       parseDeepPassCheckpoint(outputText(response, stage), request));
     const observations = parsed.checkpoint.observations as unknown[];
@@ -302,26 +310,31 @@ class StageDeepPassProvider implements DeepPassProvider {
         capacity: { max_observations: MAX_OBSERVATIONS, max_blockers: MAX_BLOCKERS, max_checkpoint_bytes: 250_000,
           output_token_budget: stage.maxOutputTokens, reached_observation_limit: observations.length === MAX_OBSERVATIONS },
         source_coverage: { input_kind: evidence.kind, physical_page_number: request.sheet.physicalPageNumber,
+          rotation_degrees:request.sheet.rotationDegrees,
           ...(evidence.kind === 'pdf' && evidence.region ? { visual_coverage: 'selected_region', region_key: evidence.region.id,
-            region: evidence.region.region } : {}),
+            region: evidence.region.region,coordinate_space:'unrotated_cropbox_bottom_left_points',
+            source_frame:evidence.region.sourceFrame,rotation_degrees:evidence.region.rotationDegrees,display_region:evidence.region.displayRegion } : {}),
           ...(evidence.kind === 'images' ? { visual_coverage: 'selected_regions', regions: evidence.images.map(image => ({
-            region: image.region, width_pixels: image.widthPixels, height_pixels: image.heightPixels })) } : {}),
+            region: image.region,rotation_degrees:image.rotationDegrees??request.sheet.rotationDegrees,display_region:image.displayRegion??null,
+            width_pixels: image.widthPixels, height_pixels: image.heightPixels })) } : {}),
           ...(evidence.kind === 'text' ? { visual_coverage: 'not_observed', truncated: evidence.truncated } : {}) },
         reasoning_effort: stage.reasoningEffort }, provider: stage.provider, model: stage.model,
       ...(response.usage?.inputTokens === undefined ? {} : { inputTokens: response.usage.inputTokens }),
       ...(response.usage?.outputTokens === undefined ? {} : { outputTokens: response.usage.outputTokens }) };
   }
-  private async regionalPass(stage: ConfiguredEvidenceStage, request: DeepPassRequest, page: Uint8Array, context: string): Promise<DeepPassResult> {
+  private async regionalPass(stage: ConfiguredEvidenceStage, request: DeepPassRequest, page: Uint8Array, context: string,
+    beforeDispatch?: (eventId?: string) => Promise<void>): Promise<DeepPassResult> {
     const store = this.sources.regionCheckpoints;
     if (!store || !this.input.leaseId) return blockedSource(request, 'Detailed regional review requires its durable checkpoint store and active lease. No provider request was sent.');
     const kind = STAGE_MODEL_REGISTRY[stage.model].inputKind;
     if (kind === 'text') return blockedSource(request, 'A text-only model cannot inspect visual regions. Select an explicitly verified visual stage.');
-    if (request.sheet.rotationDegrees !== 0) return blockedSource(request, 'Rotated-page regional coordinates require a reviewed transform before regional dispatch.');
     const regions = await isolateStageRegions(page, this.config.regionalReview.grid);
+    if(regions.some(region=>region.rotationDegrees!==request.sheet.rotationDegrees))throw new Error('Regional source orientation changed.');
     const results: Array<{ region: StageRegion; result: DeepPassResult }> = [];
     for (const region of regions) {
       const identity = await stageRegionIdentity(request, region, stage.provider, stage.model);
-      const prior = await store.begin(this.input, request, region, identity);
+      if (beforeDispatch && !store.inspect) throw new Error('Regional review requires admission-aware checkpoints.');
+      const prior = await (beforeDispatch ? store.inspect!(this.input, request, region, identity) : store.begin(this.input, request, region, identity));
       let result: DeepPassResult;
       if (prior.disposition === 'saved') result = prior.result;
       else {
@@ -331,14 +344,21 @@ class StageDeepPassProvider implements DeepPassProvider {
           const image = await this.sources.renderRegion?.(this.input, request, region);
           if (!image || !validRegionImage(image, request, stage.provider as 'kimi' | 'deepseek')) {
             result = blockedSource(request, 'A measured local image crop was unavailable; this region was not sent to a provider.');
+            if (beforeDispatch) { await beforeDispatch(); await store.begin(this.input, request, region, identity); }
             await store.save(this.input, request, region, identity, result);
             results.push({ region, result }); continue;
           }
           evidence = { kind: 'images', images: [image] };
         }
-        try { result = await this.dispatch(stage, request, evidence, context); }
+        try { result = await this.dispatch(stage, request, evidence, context, beforeDispatch ? async eventId => {
+          await beforeDispatch(eventId);
+          const claimed = await store.begin(this.input, request, region, identity, eventId);
+          if (claimed.disposition !== 'run') throw new Error('Regional checkpoint changed before dispatch.');
+        } : undefined); }
         catch (error) {
           if (!(error instanceof ProviderSpendLimitError)) throw error;
+          if (beforeDispatch && error.scope === 'company' && error.eventId) throw new FullTakeoffBudgetWait(request,error.eventId);
+          if (beforeDispatch) throw new FullTakeoffRunBudgetExhausted();
           this.spendingPaused = true;
           result = blockedSource(request, `The ${error.scope} spending authorization is exhausted. This region was not sent; remaining regions are pending.`);
           await store.save(this.input, request, region, identity, result);
@@ -354,7 +374,9 @@ class StageDeepPassProvider implements DeepPassProvider {
     const checkpoint: Record<string, unknown> = { version: 'roughbid-regional-v1', physical_page_number: request.sheet.physicalPageNumber,
       pass_type: request.passType, observations, blockers: blockedRegions.length || results.length < regions.length ? ['One or more regions require further review; unvisited regions remain pending.'] : [],
       source_coverage: { visual_coverage: 'grid_regions_visited', completed_regions: results.length, total_regions: regions.length,
-        regions: results.map(({ region, result }) => ({ region_key: region.id, region: region.region, status: result.status })),
+        coordinate_space:'unrotated_cropbox_bottom_left_points',rotation_degrees:request.sheet.rotationDegrees,
+        regions: results.map(({ region, result }) => ({ region_key: region.id, region: region.region,
+          source_frame:region.sourceFrame,display_region:region.displayRegion,status:result.status })),
         blocked_regions: blockedRegions, completeness_verified: false, overlap_deduplication: 'human_review_required' },
       human_review_required: true, reasoning_effort: stage.reasoningEffort };
     if (Buffer.byteLength(JSON.stringify(checkpoint)) > 750_000) {
@@ -398,7 +420,8 @@ class StageDeepPassProvider implements DeepPassProvider {
     return { kind: 'text', text: `NATIVE TRANSCRIPT:\n${transcript.text}\nPRIOR UNTRUSTED SHEET EVIDENCE:\n${previousText.slice(0, 20_000)}`,
       truncated: transcript.truncated || previousText.length > 20_000 };
   }
-  async runPass(request: DeepPassRequest): Promise<DeepPassResult> {
+  readonly defersCheckpointClaim = true;
+  async runPass(request: DeepPassRequest, beforeDispatch?: (eventId?: string) => Promise<void>): Promise<DeepPassResult> {
     this.input.signal?.throwIfAborted();
     if (this.terminalFailure) throw this.terminalFailure;
     if (this.spendingPaused) return blockedSource(request, 'Further provider stages are paused because spending authorization was exhausted. No provider request was sent.');
@@ -422,17 +445,20 @@ class StageDeepPassProvider implements DeepPassProvider {
       assertUsageMeterContext({ jobId: this.input.runId, workspaceId: this.input.workspaceId, projectId: this.input.projectId });
       const context = await this.previousContext(request);
       if (this.config.regionalReview.enabled && ['discipline', 'conflict_detection', 'completeness'].includes(request.passType)) {
-        const regional = await this.regionalPass(stage, request, page, context);
+        const regional = await this.regionalPass(stage, request, page, context,beforeDispatch);
         this.priorEvidence.set(`${request.sheet.physicalPageNumber}:${request.passType}`, regional);
         return regional;
       }
       const evidence = await this.evidenceInput(stage, request, page);
       if ('status' in evidence) return evidence;
-      const result = await this.dispatch(stage, request, evidence, context);
+      const result = await this.dispatch(stage, request, evidence, context,beforeDispatch);
       this.priorEvidence.set(`${request.sheet.physicalPageNumber}:${request.passType}`, result);
       return result;
     } catch (error) {
+      if (error instanceof FullTakeoffBudgetWait || error instanceof FullTakeoffRunBudgetExhausted) throw error;
       if (error instanceof ProviderSpendLimitError) {
+        if (beforeDispatch && error.scope === 'company' && error.eventId) throw new FullTakeoffBudgetWait(request,error.eventId);
+        if (beforeDispatch) throw new FullTakeoffRunBudgetExhausted();
         this.spendingPaused = true;
         return blockedSource(request, `The ${error.scope} spending authorization is exhausted. The stage was not dispatched; review is required.`);
       }

@@ -4,6 +4,12 @@ import { createHmac } from 'node:crypto';
 import { createBillingEndpointHandler, type BillingEndpointDependencies } from '../src/billing/endpoints.ts';
 import { StripeHttpGateway } from '../src/billing/adapters.ts';
 import { verifiedSubscriptionUpdate } from '../src/billing/stripe.ts';
+test('server Stripe gateway accepts restricted live keys without weakening mode or public-key checks', () => {
+  const forbidden = (async () => { throw new Error('No Stripe request expected'); }) as typeof fetch;
+  assert.doesNotThrow(() => new StripeHttpGateway('rk_live_unit', forbidden, 'live'));
+  assert.throws(() => new StripeHttpGateway('rk_test_unit', forbidden, 'live'), /mode does not match/);
+  assert.throws(() => new StripeHttpGateway('pk_live_unit', forbidden, 'live'), /server-side/);
+});
 
 function fixture() {
   const sessions: any[] = []; const updates: any[] = [];
@@ -101,6 +107,24 @@ test('active state with unpaid invoice does not manufacture payment and unrelate
   const sub={id:'sub_1',customer:'cus_1',status:'active',metadata:{user_id:'user_1'},items:{data:[{price:{id:'price_Pro123'},current_period_end:2_000_000_000}]},latest_invoice:{status:'open',amount_paid:0,amount_due:2900}};
   assert.equal(verifiedSubscriptionUpdate(sub,['price_Pro123'],1)?.invoicePaid,false);
   assert.equal(verifiedSubscriptionUpdate(sub,['price_other'],1),null);
+});
+test('a signed event for another product never updates a RoughBid billing customer', async () => {
+  const f = fixture();
+  f.deps.stripe.retrieveSubscription = async () => ({ id: 'sub_other', customer: 'cus_other', status: 'active',
+    metadata: { user_id: 'user_1' }, items: { data: [{ price: { id: 'price_OtherProduct' } }] },
+    latest_invoice: { status: 'paid', amount_paid: 10000, amount_due: 10000 } });
+  f.deps.repository.saveCustomer = async () => { throw new Error('A foreign product must not save a customer'); };
+  const response = await createBillingEndpointHandler(f.deps)(webhook({ id: 'evt_other', type: 'customer.subscription.updated',
+    livemode: false, data: { object: { id: 'sub_other' } } }));
+  assert.equal(response.status, 200); assert.equal(f.updates.length, 1); assert.equal(f.updates[0].update, null);
+});
+test('a signed connected-account event is acknowledged without any reconciliation', async () => {
+  const f = fixture(); let touched = false;
+  f.deps.reconcileProjectPayment = async () => { touched = true; };
+  f.deps.stripe.retrieveSubscription = async () => { touched = true; throw new Error('Foreign account'); };
+  const response = await createBillingEndpointHandler(f.deps)(webhook({ id: 'evt_other_account', type: 'customer.subscription.updated',
+    account: 'acct_other', livemode: false, data: { object: { id: 'sub_other' } } }));
+  assert.equal(response.status, 200); assert.equal(touched, false); assert.equal(f.updates.length, 0);
 });
 
 test('webhook diagnostics identify validation stage without exposing request data or changing payment state', async (t) => {

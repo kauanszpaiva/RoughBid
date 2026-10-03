@@ -14,8 +14,12 @@ import { isAiPlanInFlight, presentAiPlanStatus, presentFullTakeoffStatus } from 
 import { BlueprintViewer } from "../components/BlueprintViewer";
 import { PhotoTakeoffPanel } from "../components/PhotoTakeoffPanel";
 import { ConstructionBudgetPanel } from "../components/ConstructionBudgetPanel";
+import { FullPurchasePanel } from "../components/FullPurchasePanel";
+import { PlanFilesPanel } from "../components/PlanFilesPanel";
+import { ReadingOrderPanel } from "../components/ReadingOrderPanel";
+import { readFullPurchaseReturn, readReadingOrderReturn } from "../utils/fullPurchaseReturn";
 import { fullTakeoffSpendInput } from "../utils/fullTakeoffApproval";
-import type { FullTakeoffApprovalProfile } from "../services/api";
+import type { FullTakeoffApprovalProfile, ReadingOrder } from "../services/api";
 import { getAiPlanEntitlement, getAiPlanReading, getFullTakeoffRun, createFullTakeoffRun, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
@@ -27,6 +31,8 @@ interface PlansPageProps {
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onOpenAIAssistant: () => void;
+  onBeforeFullCheckout?: (fileId: string) => Promise<void>;
+  onBeforeOrderCheckout?: (fileIds: string[]) => Promise<void>;
 }
 
 const PLAN_TRADES = ['Framing', 'Concrete', 'Drywall', 'Electrical', 'Plumbing', 'HVAC', 'Finishes'];
@@ -40,6 +46,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   onUpdateProject,
   onContinue,
   onOpenAIAssistant,
+  onBeforeFullCheckout,
+  onBeforeOrderCheckout,
 }) => {
   const [readingQuote, setReadingQuote] = useState<ReadingQuote | null>(null);
   const [quoteRecoveryContext, setQuoteRecoveryContext] = useState<string | null>(null);
@@ -53,11 +61,25 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [fullTakeoffV2, setFullTakeoffV2] = useState(false);
   const [fullTakeoffV2Available, setFullTakeoffV2Available] = useState(false);
+  const [fullTakeoffPurchaseAvailable, setFullTakeoffPurchaseAvailable] = useState(false);
   const [fullApprovalProfile, setFullApprovalProfile] = useState<FullTakeoffApprovalProfile | null>(null);
   const [fullBudgetAmounts, setFullBudgetAmounts] = useState<Record<string, string>>({});
   const [fullSpendConfirmed, setFullSpendConfirmed] = useState(false);
   const [fullSpendContext, setFullSpendContext] = useState('');
   const [billingAvailable, setBillingAvailable] = useState(false);
+  const [fullBillingAvailable, setFullBillingAvailable] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const [returnOrderId, setReturnOrderId] = useState<string | null>(null);
+  const [recoverLatestOrder, setRecoverLatestOrder] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<ReadingOrder | null>(null);
+  const orderReturn = readReadingOrderReturn(window.location.search);
+  useEffect(() => {
+    const target = readReadingOrderReturn(window.location.search);
+    setReturnOrderId(target?.workspaceId === workspaceId && target.projectId === project.remoteId ? target.orderId : null);
+    const ids = project.revisions.filter(revision => revision.remoteFileId && revision.isCurrent).map(revision => revision.remoteFileId!);
+    setSelectedFileIds(ids);
+    setRecoverLatestOrder(true);
+  }, [workspaceId, project.remoteId]);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
   // Per-workspace entitlement. Never derived from a global flag: a customer
   // workspace must not be shown a free-analysis action it cannot use.
@@ -67,7 +89,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [entitlementError, setEntitlementError] = useState(false);
   const [entitlementRetry, setEntitlementRetry] = useState(0);
   const entitlementReady = entitlementContext === `${workspaceId}:${project.remoteId}`;
-  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); } }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; getCapabilities().then(value => { if (active) { setAiReadingAvailable(value.aiReadingAvailable); setBillingAvailable(value.billing); setFullBillingAvailable(value.fullTakeoffBilling === true); } }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => {
     let active = true;
     const remoteId = project.remoteId;
@@ -75,6 +97,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setEntitlementError(false);
     setFreeReadingAvailable(false);
     setFullTakeoffV2Available(false);
+    setFullTakeoffPurchaseAvailable(false);
     setFullTakeoffV2(false);
     setFullApprovalProfile(null);
     setFullBudgetAmounts({});
@@ -82,13 +105,16 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setFullApprovalProfile(value.fullTakeoffApproval ?? null); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setFullTakeoffPurchaseAvailable(value.fullTakeoffPurchaseAvailable === true); setFullApprovalProfile(value.fullTakeoffApproval ?? null); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
       .catch(() => { if (active) setEntitlementError(true); });
     return () => { active = false; };
   }, [workspaceId, project.remoteId, entitlementRetry]);
   const [isPaying, setIsPaying] = useState(false);
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadBatch, setUploadBatch] = useState<Array<{ file: File; status: 'pending' | 'uploading' | 'saved' | 'failed'; error?: string | undefined }>>([]);
+  const uploadScope = useRef(''); uploadScope.current = `${workspaceId}:${project.remoteId}`;
+  useEffect(() => { uploadScope.current = `${workspaceId}:${project.remoteId}`; setUploadBatch([]); setIsUploading(false); return () => { uploadScope.current = ''; }; }, [workspaceId, project.remoteId]);
   const [isStartingAi, setIsStartingAi] = useState<boolean>(false);
   const [needsAiConsent, setNeedsAiConsent] = useState<boolean>(false);
   const [isGrantingAiConsent, setIsGrantingAiConsent] = useState<boolean>(false);
@@ -272,83 +298,60 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     onAppendRevision(newRev);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadFiles = async (files: File[], retry = false) => {
     if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
-    const input = e.currentTarget;
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if ((file.type && file.type !== "application/pdf") || !file.name.toLowerCase().endsWith(".pdf")) {
-      setPlanNotice("Upload a PDF plan file. Images can be attached later as support files.");
-      e.target.value = "";
-      return;
-    }
+    if (!files.length) return;
     if (!workspaceId || !project.remoteId) {
-      setPlanNotice("Wait for the project to finish saving, then upload your PDF.");
-      input.value = "";
+      setPlanNotice("Wait for the project to finish saving, then upload your PDFs.");
       return;
     }
-    if (file.size > 50 * 1024 * 1024) {
-      setPlanNotice("Choose a PDF no larger than 50 MB.");
-      input.value = "";
-      return;
-    }
-
+    const scope = `${workspaceId}:${project.remoteId}`;
+    const current = () => uploadScope.current === scope;
+    if (!retry) { setUploadBatch(files.map(file => ({ file, status: 'pending' }))); setSelectedFileIds([]); setReturnOrderId(null); setRecoverLatestOrder(false); }
+    const update = (file: File, status: 'pending' | 'uploading' | 'saved' | 'failed', error?: string) => {
+      if (current()) setUploadBatch(items => items.map(item => item.file === file ? { ...item, status, error } : item));
+    };
     paidActionInFlight.current = true;
     setIsUploading(true);
     setPlanNotice(null);
+    let savedCount = 0;
     try {
-      const nextRevNum = String(project.revisions.length + 1).padStart(2, "0");
-      const canUseBackend = Boolean(workspaceId && project.remoteId);
-      let remoteFileId: string | undefined;
-      let pageCount = 0;
-      let processingStatus: PlanRevision["processingStatus"] = canUseBackend ? "uploading" : undefined;
-      let notes = canUseBackend
-        ? `Revision ${nextRevNum} uploading to private storage.`
-        : `Revision ${nextRevNum} stored locally. Sign in and create a synced project for server AI processing.`;
-
-      if (canUseBackend && workspaceId && project.remoteId) {
-        const remote = await beginDocumentUpload(workspaceId, project.remoteId, {
-          name: file.name,
-          contentType: "application/pdf",
-          byteSize: file.size,
-        });
-        const uploaded = await fetch(remote.upload.url, {
-          signal: AbortSignal.timeout(120_000),
-          method: remote.upload.method,
-          headers: remote.upload.headers,
-          body: file,
-        });
-        if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
-        const completed = await completeDocumentUpload(workspaceId, remote.file.id);
-        remoteFileId = completed.id;
-        pageCount = completed.page_count ?? 0;
-        processingStatus = completed.processing_status;
-        notes = `Revision ${nextRevNum} saved privately. Open the PDF and add your quantities and prices.`;
+      for (const file of files) {
+        if (!current()) break;
+        update(file, 'uploading');
+        try {
+          if ((file.type && file.type !== 'application/pdf') || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Choose a PDF. Use the Photos section for images.');
+          if (file.size > 50 * 1024 * 1024) throw new Error('Choose a PDF no larger than 50 MB.');
+          const remote = await beginDocumentUpload(workspaceId, project.remoteId, { name: file.name, contentType: 'application/pdf', byteSize: file.size });
+          if (!current()) break;
+          const uploaded = await fetch(remote.upload.url, { signal: AbortSignal.timeout(120_000), method: remote.upload.method, headers: remote.upload.headers, body: file });
+          if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
+          const completed = await completeDocumentUpload(workspaceId, remote.file.id);
+          if (!current()) break;
+          const nextRevNum = String(project.revisions.length + savedCount + 1).padStart(2, '0');
+          applyNewRevision({ id: `rev-${completed.id}`, revisionNumber: nextRevNum, fileName: file.name,
+            fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`, pages: completed.page_count ?? 0,
+            uploadDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            uploadedBy: 'Estimator', isCurrent: true, remoteFileId: completed.id, processingStatus: completed.processing_status,
+            notes: 'PDF saved privately. Select this file to see its reading price or add measurements manually.' });
+          savedCount++;
+          setSelectedFileIds(previous => [...previous, completed.id].slice(0, 20));
+          update(file, 'saved');
+        } catch (error) {
+          update(file, 'failed', error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)
+            ? 'The upload timed out. Retry this file.' : readableApiError(error));
+        }
       }
-
-      const newRev: PlanRevision = {
-        id: `rev-${Date.now()}`,
-        revisionNumber: nextRevNum,
-        fileName: file.name,
-        fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        pages: pageCount,
-        uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        uploadedBy: "Estimator",
-        isCurrent: true,
-        notes,
-        ...(remoteFileId ? { remoteFileId } : {}),
-        ...(processingStatus ? { processingStatus } : {}),
-      };
-
-      applyNewRevision(newRev);
-      setPlanNotice(notes);
-    } catch (error) {
-      setPlanNotice(error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError") ? "The upload timed out. Check your connection and try again." : readableApiError(error));
+      if (current()) setPlanNotice(`${savedCount} of ${files.length} PDFs saved. Review your selected files below for one reading price. Photos can be added in the Photos section.`);
     } finally {
       paidActionInFlight.current = false;
-      setIsUploading(false);
-      input.value = "";
+      if (current()) setIsUploading(false);
     }
+  };
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = '';
+    void uploadFiles(files);
   };
 
   /**
@@ -510,6 +513,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       await grantWorkspaceAiConsent(workspaceId);
       setNeedsAiConsent(false);
       setPlanNotice("AI processing approved. Refresh payment & analysis to continue.");
+      setEntitlementRetry(value => value + 1);
     } catch (error) {
       setPlanNotice(readableApiError(error));
     } finally {
@@ -532,7 +536,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   };
 
   const handleSetCurrentRevision = (revisionId: string) => {
-    if (!canWrite) return;
+    if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
     const updatedRevisions = project.revisions.map((r) => ({
       ...r,
       isCurrent: r.id === revisionId,
@@ -552,14 +556,59 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   };
 
   const handleDeletePlan = () => {
-    if (!canWrite) return;
-    if (confirm("Are you sure you want to remove this plan set from the project?")) {
-      onUpdateProject({ ...project, revisions: [] });
+    if (!canWrite || !currentRevision || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
+    if (confirm(`Remove ${currentRevision.fileName} from this project's file list? Saved purchases and server evidence are retained.`)) {
+      const remaining = project.revisions.filter(revision => revision.id !== currentRevision.id);
+      onUpdateProject({ ...project, revisions: remaining.map((revision, index) => ({ ...revision, isCurrent: index === remaining.length - 1 })) });
     }
   };
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-xl font-bold text-slate-900">Plans and photos</h2><p className="mt-1 text-sm text-slate-600">Add files → Review one price → See results and pending items.</p></div>
+        <div className="flex flex-wrap gap-2"><label className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white cursor-pointer">Add PDF files
+          <input type="file" accept=".pdf,application/pdf" multiple onChange={handleFileUpload} className="hidden" disabled={!canWrite || isUploading || isStartingAi || isPaying || !workspaceId || !project.remoteId} />
+        </label><a href="#project-photos" className="rounded-lg border px-4 py-2 text-sm">Add or review photos</a></div>
+      </div>
+      <PlanFilesPanel workspaceId={workspaceId} projectId={project.remoteId} revisions={project.revisions} selectedId={currentRevision?.id}
+        selectedOrder={selectedOrder}
+        selectedFileIds={selectedFileIds} onToggle={(fileId, selected) => { setReturnOrderId(null); setRecoverLatestOrder(false); setSelectedFileIds(previous => selected ? [...new Set([...previous, fileId])].slice(0, 20) : previous.filter(id => id !== fileId)); }}
+        disabled={!canWrite || isUploading || isStartingAi || isPaying} onSelect={(revision, run, open) => {
+          onUpdateProject({ ...project, revisions: project.revisions.map(item => ({ ...item, isCurrent: item.id === revision.id,
+            ...(run && item.id === revision.id ? { aiPlanJobId: run.id, aiPlanMode: 'full_v2' as const, aiPlanStatus: run.status } : {}) })) });
+          if (open) onOpenAIAssistant();
+        }} />
+      {uploadBatch.length > 0 && <section aria-label="PDF upload progress" className="rounded-xl border border-slate-200 bg-white p-4 text-sm space-y-2">
+        <h3 className="font-semibold">PDF uploads</h3><ul className="space-y-1">{uploadBatch.map((item, index) => <li key={index} className="break-words"><strong>{item.file.name}</strong> — {item.status === 'saved' ? 'Saved' : item.status === 'failed' ? 'Upload pending' : item.status}{item.error ? `: ${item.error}` : ''}</li>)}</ul>
+        {uploadBatch.some(item => item.status === 'failed') && <button type="button" disabled={isUploading || isStartingAi || isPaying} onClick={() => void uploadFiles(uploadBatch.filter(item => item.status === 'failed').map(item => item.file), true)} className="underline disabled:opacity-50">Retry failed uploads</button>}
+      </section>}
+      {entitlementReady && workspaceId && project.remoteId && (selectedFileIds.length > 0 || returnOrderId) && <ReadingOrderPanel key={`order:${workspaceId}:${project.remoteId}:${[...selectedFileIds].sort().join(',')}:${returnOrderId ?? ''}`}
+        workspaceId={workspaceId} projectId={project.remoteId} fileIds={selectedFileIds} revisions={project.revisions} returnOrderId={returnOrderId}
+        recoverLatest={recoverLatestOrder}
+        returned={returnOrderId ? orderReturn?.payment : undefined} available={fullTakeoffPurchaseAvailable} billingAvailable={fullBillingAvailable}
+        canWrite={canWrite} externallyBusy={isUploading || isStartingAi || isPaying} actionLock={paidActionInFlight} onBusy={setIsPaying}
+        onConsentRequired={() => setNeedsAiConsent(true)} onRestoreSelection={setSelectedFileIds}
+        onOrderLoaded={setSelectedOrder}
+        beforeCheckout={onBeforeOrderCheckout ?? (async () => { throw new Error('Save this project before opening checkout.'); })}
+        onOpen={(fileId, run) => {
+          onUpdateProject({ ...project, revisions: project.revisions.map(item => ({ ...item, isCurrent: item.remoteFileId === fileId,
+            ...(item.remoteFileId === fileId ? { aiPlanJobId: run.id, aiPlanMode: 'full_v2' as const, aiPlanStatus: run.status } : {}) })) });
+          onOpenAIAssistant();
+        }} />}
+      {entitlementReady && readFullPurchaseReturn(window.location.search) && workspaceId && project.remoteId && currentRevision?.remoteFileId && <FullPurchasePanel
+        key={`full-purchase:${fileContextKey}`} workspaceId={workspaceId} projectId={project.remoteId} fileId={currentRevision.remoteFileId}
+        fileName={currentRevision.fileName} revisionName={currentRevision.revisionNumber}
+        canWrite={canWrite} available={fullTakeoffPurchaseAvailable && currentRevision.processingStatus === 'ready'} billingAvailable={fullBillingAvailable}
+        complimentaryAvailable={freeReadingAvailable || fullTakeoffV2Available || pilotActive}
+        externallyBusy={isUploading || isStartingAi || isPaying} actionLock={paidActionInFlight} onBusyChange={setIsPaying}
+        onConsentRequired={() => setNeedsAiConsent(true)}
+        beforeCheckout={onBeforeFullCheckout ?? (async () => { throw new Error('Save this project before opening checkout.'); })}
+        onRun={(run, open) => {
+          onPatchRevision(currentRevision.id, { aiPlanJobId: run.id, aiPlanStatus: run.status, aiPlanMode: 'full_v2' });
+          if (open) onOpenAIAssistant();
+        }}
+      />}
       {paidReading && canWrite && currentRevision?.remoteFileId && !quoteRecoveryReady && <p role="status" className="text-sm text-slate-600">{quoteRecoveryError ? <button onClick={refreshSavedQuote}>Payment status could not be loaded. Retry.</button> : 'Loading saved payment status…'}</p>}
       {paidReading && quoteRecoveryReady && readingQuote && readingQuote.file_id === currentRevision?.remoteFileId && <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="Project payment">
         <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-bold">Project processing fee</h3><p className="text-sm text-slate-600">{readingQuote.page_count} pages · {readingQuote.trades.join(', ')}</p></div>
@@ -577,10 +626,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
-            Plans
+            Selected PDF
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Upload and manage construction drawings and plan revisions.
+            Preview the source file or use the manual measurement tools.
           </p>
           {planNotice && (
             <p className="text-xs text-brand-500 mt-2 max-w-2xl">
@@ -596,7 +645,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 border border-blue-200 text-brand-500 hover:bg-blue-100 rounded-md text-xs font-semibold transition cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5 text-brand-500" />
-          <span>AI Plan Assistant</span>
+          <span>View selected PDF results</span>
         </button>
       </div>
 
@@ -623,10 +672,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
                 Upload your construction drawing set (PDF) to start taking off quantities.
               </p>
               <label className="px-4 py-2 bg-brand-500 text-white rounded-md font-semibold text-xs cursor-pointer hover:bg-brand-700 transition">
-                <span>Upload PDF Plan</span>
+                <span>Add PDF files</span>
                 <input
                   type="file"
                   accept=".pdf,application/pdf"
+                  multiple
                   onChange={handleFileUpload}
                   className="hidden"
                   disabled={!canWrite || isUploading || isStartingAi || isPaying || !workspaceId || !project.remoteId}
@@ -720,14 +770,15 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <h3 className="text-xs font-bold text-slate-900 mb-3 uppercase tracking-wider">
               Actions
             </h3>
-            <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying || isUploading} className="pb-3 border-b border-slate-200">
+            {(!fullTakeoffPurchaseAvailable || freeReadingAvailable || fullTakeoffV2Available || pilotActive || readingQuote) && <details className="space-y-2 text-xs"><summary className="cursor-pointer font-semibold">Optional reading settings</summary>
+            {(!fullTakeoffPurchaseAvailable || freeReadingAvailable || fullTakeoffV2Available || pilotActive || readingQuote) && <fieldset disabled={!canWrite || !entitlementReady || (paidReading && !quoteRecoveryReady) || isStartingAi || isPaying || isUploading} className="pb-3 border-b border-slate-200">
               <legend className="text-xs font-semibold mb-2">Analysis scope</legend>
               <div className="grid grid-cols-2 gap-2">{PLAN_TRADES.map(trade => <label key={trade} className="text-xs flex items-center gap-2"><input type="checkbox" checked={selectedTrades.includes(trade)} onChange={e => { setSelectedTrades(previous => e.target.checked ? [...previous, trade] : previous.filter(value => value !== trade)); setReadingQuote(null); }} />{trade}</label>)}</div>
               {fullTakeoffV2Available && !pilotActive && <label className="flex items-start gap-2 mt-3 text-xs text-slate-700">
                 <input type="checkbox" checked={fullTakeoffV2} onChange={event => setFullTakeoffV2(event.target.checked)} />
-                <span>Full Takeoff V2 — durable reading with saved evidence by sheet and stage. Quantities and sourced prices require verification.</span>
+                <span>Read every page and save results for review.</span>
               </label>}
-            </fieldset>
+            </fieldset>}
 
             {fullTakeoffV2 && fullApprovalProfile && <fieldset disabled={isStartingAi || isUploading || !canWrite} className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs">
               <legend className="font-semibold">Approve provider spending for this reading</legend>
@@ -742,11 +793,12 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <label className="flex items-start gap-2"><input type="checkbox" checked={fullSpendConfirmed && fullSpendContext === fileContextKey} onChange={event => { setFullSpendConfirmed(event.target.checked); setFullSpendContext(fileContextKey); }} /><span>I authorize sending this PDF to the listed providers and spending up to the limits above for this reading. No automatic fallback to another provider is authorized.</span></label>
             </fieldset>}
 
+            </details>}
             {/* Upload New Revision */}
             <label className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 transition cursor-pointer">
               <div className="flex items-center gap-2">
                 <Upload className="w-3.5 h-3.5 text-brand-500" />
-                <span>Upload New Revision</span>
+                <span>Add PDF files</span>
               </div>
               <span className="text-[10px] font-mono text-slate-500">
                 {isUploading ? "Uploading..." : `Rev ${String(project.revisions.length + 1).padStart(2, "0")}`}
@@ -754,6 +806,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               <input
                 type="file"
                 accept=".pdf,application/pdf"
+                multiple
                 onChange={handleFileUpload}
                 className="hidden"
                 disabled={!canWrite || isUploading || isStartingAi || isPaying || !workspaceId || !project.remoteId}
@@ -769,13 +822,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>{isStartingAi ? fullTakeoffV2 ? 'Saving durable reading…' : 'Analyzing plan…' : fullTakeoffV2 ? 'Start Full Takeoff V2' : pilotActive ? 'Run included pilot analysis' : 'Run AI analysis (owner workspace)'}</span>
+                  <span>{isStartingAi ? 'Starting reading…' : fullTakeoffV2 ? 'Read every page' : pilotActive ? 'Run included pilot analysis' : 'Run AI analysis (owner workspace)'}</span>
                 </div>
                 <span className="text-[10px] font-mono text-emerald-700">{fullTakeoffV2 ? 'provider spend tracked' : 'no charge'}</span>
               </button>
             )}
 
-            {paidReading && !readingQuote && <button
+            {paidReading && !fullTakeoffPurchaseAvailable && !readingQuote && <button
               onClick={handleStartAiReading}
               disabled={!canWrite || !quoteRecoveryReady || !selectedTrades.length || !aiReadingAvailable || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
               className="w-full flex items-center justify-between px-3 py-2 bg-brand-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-medium text-brand-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -791,7 +844,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
 
             {pilotActive && <p className="text-xs text-slate-600">Your pilot includes one AI attempt per project, with one PDF up to 10 MB and 10 pages. Analysis is available in your invited workspace while budget remains.</p>}
 
-            {entitlementReady && (!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
+            {entitlementReady && (!aiReadingAvailable || !billingAvailable) && !freeReadingAvailable && !fullTakeoffPurchaseAvailable && <p className="text-xs leading-relaxed text-amber-800 px-1 py-2">Paid plan analysis is not available yet. Your uploaded plans and manual review remain accessible.</p>}
 
             {needsAiConsent && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
@@ -848,7 +901,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {/* Delete Plan */}
             <button
               onClick={handleDeletePlan}
-              disabled={!canWrite || !currentRevision}
+              disabled={!canWrite || !currentRevision || isUploading || isStartingAi || isPaying}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-rose-50 text-rose-600 rounded-lg text-xs font-medium transition text-left"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
@@ -858,7 +911,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         </div>
       </div>
 
-      <PhotoTakeoffPanel key={`${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} />
+      <div id="project-photos"><PhotoTakeoffPanel key={`${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} /></div>
 
       {workspaceId && project.remoteId && <ConstructionBudgetPanel key={`budget:${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} />}
 

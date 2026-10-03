@@ -9,7 +9,7 @@ import ts from 'typescript';
 // This is a handler regression test, not a substitute for the browser CI gate.
 const code = readFileSync(new URL('../app/src/pages/PlansPageContent.tsx', import.meta.url), 'utf8');
 const source = ts.createSourceFile('PlansPageContent.tsx', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['handlePay', 'handleFileUpload', 'handleStartFreeReading', 'handleStartAiReading', 'handleRecalculateQuote'] as const;
+const names = ['handlePay', 'uploadFiles', 'handleStartFreeReading', 'handleStartAiReading', 'handleRecalculateQuote'] as const;
 function handler(name: string, context: Record<string, unknown>): (...args: any[]) => Promise<void> {
   let initializer: ts.Expression | undefined;
   function visit(node: ts.Node) {
@@ -38,6 +38,7 @@ function harness() {
     contextKey: 'same-context', contextRef: { current: 'same-context' }, selectedTrades: ['Framing'], fullTakeoffV2: false,
     setIsPaying: noop, setIsUploading: noop, setIsStartingAi: noop, setPlanNotice: noop,
     setNeedsAiConsent: noop, setReadingQuote: noop, setFindings: noop,
+    setUploadBatch: noop, setSelectedFileIds: noop, setReturnOrderId: noop, setRecoverLatestOrder: noop, uploadScope: { current: 'workspace-1:project-1' },
     readableApiError: () => 'Controlled test failure', ApiError: class extends Error {},
     beginDocumentUpload: network('upload'), payForReading: network('checkout'),
     createAiPlanReading: network('generation'), getSavedReadingQuote: network('saved-quote'),
@@ -52,8 +53,8 @@ for (const first of names) {
   for (const second of names) {
     test(`${first} excludes ${second} before a React rerender`, async () => {
       const h = harness();
-      const firstAction = handler(first, h.context)(h.event);
-      const secondAction = handler(second, h.context)(h.event);
+      const firstAction = handler(first, h.context)(first === 'uploadFiles' ? h.event.target.files : h.event);
+      const secondAction = handler(second, h.context)(second === 'uploadFiles' ? h.event.target.files : h.event);
       // Release promises even on an assertion failure so the test cannot leave
       // rejected asynchronous work behind.
       const observed = h.calls.length;
@@ -68,7 +69,7 @@ for (const first of names) {
 for (const name of names) {
   test(`${name} denies a non-writer without acquiring the action lock`, async () => {
     const h = harness(); h.context.canWrite = false;
-    await handler(name, h.context)(h.event);
+    await handler(name, h.context)(name === 'uploadFiles' ? h.event.target.files : h.event);
     assert.equal(h.calls.length, 0); assert.equal(h.lock.current, false);
   });
 }

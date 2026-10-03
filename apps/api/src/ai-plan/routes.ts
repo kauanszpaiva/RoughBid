@@ -15,6 +15,7 @@ import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from '../take
 import { DurableFullTakeoffV2Service, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 import type { AutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
 import { fullTakeoffApprovalProfile, type FullTakeoffApprovalProfile } from '../takeoff-v2/user-spend-approval.ts';
+import { assertFullTakeoffRunAccess } from '../takeoff-v2/paid-access.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -101,7 +102,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
     const durableEnabled = process.env.AI_PLAN_DURABLE_ENABLED === 'true';
 
     if (parts[0] === 'takeoff-runs' && parts[1]) {
-      if (!await isPlatformAdmin(db, data.user.id)) throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
+      await assertFullTakeoffRunAccess(db, deps.findingsWriter, parts[1], data.user.id, workspaceId);
       const full = new DurableFullTakeoffV2Service(db, deps.findingsWriter, deps.storage,
         deps.fullTakeoffV2Queue, data.user.id, workspaceId,fetch,deps.automaticGeometry);
       if (request.method === 'GET' && parts.length === 2) {
@@ -132,7 +133,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       if (body.mode === FULL_TAKEOFF_V2_MODE) {
         // A deep run can outlive Vercel's request limit. This boundary only
         // reserves/enqueues; no HTTP path may initialize or call its provider.
-        if (!await isPlatformAdmin(db, data.user.id)) {
+        if (!Object.hasOwn(body, 'quote_id') && !await isPlatformAdmin(db, data.user.id)) {
           throw new ProjectApiError(403, 'Full Takeoff V2 is not enabled for this account.');
         }
         if (process.env.TAKEOFF_V2_ENABLED !== 'true') throw new ProjectApiError(503, 'Full Takeoff V2 is disabled. No run was started.');
@@ -187,6 +188,19 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       return json(await service.create(parts[1], body), 201);
     }
     if (request.method === 'GET' && parts[0] === 'projects' && parts[1] && parts[2] === 'ai-plan-entitlement') {
+      const purchaseCapability: { fullTakeoffPurchaseAvailable?: boolean } = {};
+      if (process.env.PAID_FULL_ENABLED === 'true') {
+        purchaseCapability.fullTakeoffPurchaseAvailable = false;
+        try {
+          const member = await db.from('workspace_members').select('role').eq('workspace_id',workspaceId).eq('user_id',data.user.id).maybeSingle();
+          const project = await db.from('projects').select('id').eq('workspace_id',workspaceId).eq('id',parts[1]).maybeSingle();
+          if (!member.error && ['admin','estimator'].includes(member.data?.role) && !project.error && project.data
+            && process.env.STRIPE_MODE === 'live' && process.env.TAKEOFF_V2_ENABLED === 'true' && deps.findingsWriter.rpc && deps.fullTakeoffV2Queue) {
+            const live = await deps.findingsWriter.rpc('full_takeoff_v2_worker_available',{p_version:'takeoff-v2.2-durable'});
+            purchaseCapability.fullTakeoffPurchaseAvailable = !live.error && live.data === true && await deps.fullTakeoffV2Queue.isWorkerAvailable();
+          }
+        } catch { /* A saved quote remains recoverable while new purchases are unavailable. */ }
+      }
       const fullEnabled = process.env.TAKEOFF_V2_ENABLED === 'true';
       if (fullEnabled && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         let fullTakeoffV2Available = false;
@@ -200,7 +214,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
             }
           } catch { /* Capability remains false until a verified worker heartbeat succeeds. */ }
         }
-        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval });
+        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval, ...purchaseCapability });
       }
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,
@@ -208,7 +222,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       // production wiring that explicitly confirms a paid reader triggers this
       // lookup, so legacy/free-provider callers remain independent.
       if (deps.paidReaderAvailable === true && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
-        return json({ freeReadingAvailable: true });
+        return json({ freeReadingAvailable: true, ...purchaseCapability });
       }
 
       if (deps.pilotEnforcement && deps.findingsWriter.rpc) {
@@ -218,7 +232,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
           const project = await db.from('projects').select('id, created_by').eq('workspace_id', workspaceId).eq('id', parts[1]).maybeSingle();
           if (project.error || !project.data) throw new ProjectApiError(404, 'Project not found');
           const eligible = access.data.workspace_id === workspaceId && project.data.created_by === data.user.id;
-          return json({ freeReadingAvailable: Boolean(deps.pilotReader) && eligible, pilotActive: true, pilot: access.data });
+          return json({ freeReadingAvailable: Boolean(deps.pilotReader) && eligible, pilotActive: true, pilot: access.data, ...purchaseCapability });
         }
       }
 
@@ -239,7 +253,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
           entitled = answer.error ? false : answer.data === true;
         }
       }
-      return json({ freeReadingAvailable: entitled });
+      return json({ freeReadingAvailable: entitled, ...purchaseCapability });
     }
     if (request.method === 'GET' && parts[0] === 'ai-plan-readings' && parts[1]) {
       return json(await service.get(parts[1]));

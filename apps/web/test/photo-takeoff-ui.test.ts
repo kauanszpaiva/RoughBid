@@ -337,3 +337,19 @@ test('intermediate photo checkpoint renders saved limitations and never certifie
   assert.match(html, /Advanced checkpoint diagnostics/); assert.match(html, /physical_scale_missing/);
   assert.equal(html.includes('<script>Wall</script>'), false);
 });
+
+test('photo coverage shows saved progress, missing views and only the needed measurement reference without a finished estimate', () => {
+  const first = observation(), count = observation({id:'count',label:'Visible doors',method:'visible_count',proposedQuantity:2,proposedUnit:'EA'});
+  const saved = detail({run:photoRun({status:'needs_review',result:{observations:[first,count],approvedMeasurements:[],blockers:[],humanReviewRequired:true,
+    releaseStatus:'blocked',pricingStatus:'missing_price',estimate:null}}),coverage:{version:'photo-evidence-v1',totalAssets:1,processedAssetIds:['photo-one'],pendingAssetIds:[],
+      unassessedAssetIds:[],unusableAssetIds:[],additionalViewAssetIds:['photo-one'],unresolvedObservationIds:[first.id,count.id],referenceRequiredObservationIds:[first.id],
+      processingComplete:true,completeTakeoffVerified:false,estimateStatus:'pending'}});
+  const render = productionFunction('PhotoRunEvidence',{React,emptyPhotoReviewDraft,reviewIssueMessages});
+  const html = renderToStaticMarkup(render({detail:saved,previews:{},previewErrors:{},previewLoading:{},onPreview:noop,canReview:false,disabled:false,drafts:{},onDraft:noop}));
+  assert.match(html,/1\/1 photos processed/);
+  assert.match(html,/Add another view/);
+  assert.match(html,/Estimate pending/);
+  assert.match(html,/quantity stays undetermined/);
+  assert.equal((html.match(/Add a verified measurement or mark a rectangle/g)??[]).length,1);
+  assert.doesNotMatch(html,/0 SF|estimate complete|budget complete/i);
+});

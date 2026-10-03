@@ -6,6 +6,7 @@ import { projectReadiness } from "./utils/projectReadiness";
 import { appendAcceptedAiQuantity } from "./utils/aiFindingReview";
 import { canWriteWorkspace } from "./utils/workspaceAccess";
 import { patchProjectRevision, type RevisionPatch } from "./utils/projectRevisions";
+import { persistFullPurchaseRevision, persistReadingOrderFiles, readFullPurchaseReturn, readReadingOrderReturn, restoreFullPurchaseRevision } from "./utils/fullPurchaseReturn";
 import { Sidebar, NavTab } from "./components/Sidebar";
 import { Header, ProjectStep } from "./components/Header";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -36,6 +37,7 @@ import {
   redeemPilotInvitation,
   bootstrapAuth,
   getPilotAccess,
+  getReadingOrder,
   createProject as createRemoteProject,
   createWorkspace,
   deleteProject as deleteRemoteProject,
@@ -251,7 +253,11 @@ export default function App() {
         const workspaces = await listWorkspaces();
         if (!active) return;
         const sortedWorkspaces = [...workspaces].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const selectedWorkspaceId = invitedWorkspaceId ?? readSelectedWorkspaceId(userId);
+        const purchaseReturn = readFullPurchaseReturn(window.location.search);
+        const orderReturn = readReadingOrderReturn(window.location.search);
+        // Return parameters only select records already granted by the server.
+        // They never establish payment, consent or permission to start a run.
+        const selectedWorkspaceId = invitedWorkspaceId ?? purchaseReturn?.workspaceId ?? orderReturn?.workspaceId ?? readSelectedWorkspaceId(userId);
         const savedWorkspace = sortedWorkspaces.find((candidate) => candidate.id === selectedWorkspaceId);
         const newestRealWorkspace = sortedWorkspaces.find((candidate) => !/\b(?:validation|qa|test|synthetic)\b/i.test(candidate.name));
         const resolved = savedWorkspace ?? newestRealWorkspace;
@@ -261,6 +267,12 @@ export default function App() {
         if (!active) return;
         saveSelectedWorkspaceId(userId, activeWorkspace.id);
         const remoteProjects = await listRemoteProjects(activeWorkspace.id);
+        let orderTarget = null;
+        if (orderReturn?.workspaceId === activeWorkspace.id) {
+          const order = await getReadingOrder(activeWorkspace.id, orderReturn.projectId, { orderId: orderReturn.orderId });
+          if (order?.items[0]) orderTarget = { ...orderReturn, fileId: order.items[0].file_id, quoteId: order.id };
+        }
+        const returnTarget = purchaseReturn ?? orderTarget;
         if (active) {
           const scope = { userId, workspaceId: activeWorkspace.id };
           scopeRef.current = scope;
@@ -270,7 +282,19 @@ export default function App() {
           const writable = canWriteWorkspace(activeWorkspace.role) && !pilotLocksActiveWorkspace;
           const unavailableDrafts = writable ? drafts.filter((draft) => !mapped.some((project) => draft.remoteId === project.remoteId && draft.id === project.id)) : drafts;
           // Only restore drafts whose remote project still exists in this workspace.
-          const recovered = writable ? mapped.map((project) => drafts.find((draft) => draft.remoteId === project.remoteId && draft.id === project.id) ?? project) : mapped;
+          let recovered = writable ? mapped.map((project) => drafts.find((draft) => draft.remoteId === project.remoteId && draft.id === project.id) ?? project) : mapped;
+          if (returnTarget && returnTarget.workspaceId === activeWorkspace.id) {
+            const savedProject = mapped.find(project => project.remoteId === returnTarget.projectId);
+            // Require the selected PDF to exist in the saved project, even if a
+            // local draft has a different current revision after Checkout.
+            const savedReturn = savedProject ? restoreFullPurchaseRevision(savedProject, returnTarget) : null;
+            if (savedReturn) {
+              const draft = recovered.find(project => project.remoteId === returnTarget.projectId);
+              const restored = draft ? restoreFullPurchaseRevision(draft, returnTarget) ?? savedReturn : savedReturn;
+              recovered = recovered.map(project => project.remoteId === restored.remoteId ? restored : project);
+              setActiveProject(restored); setActiveTab('projects'); setActiveStep('plans');
+            } else setOperationNotice('The purchased PDF revision could not be found in this workspace. Open its original project to recover the saved purchase.');
+          } else if (purchaseReturn || orderReturn) setOperationNotice('The purchase could not be restored in this workspace. Open its original project or sign in with the account used for checkout.');
           queue = new ProjectSaveQueue<Project>(
             (updated) => {
               if (!canWriteRef.current) return Promise.reject(new Error("This workspace is read-only for your account."));
@@ -284,7 +308,7 @@ export default function App() {
           );
           saveQueueRef.current = queue;
           for (const project of recovered) {
-            if (drafts.includes(project)) queue.recover(project);
+            if (writable && drafts.some(draft => draft.id === project.id && draft.remoteId === project.remoteId)) queue.recover(project);
           }
           commitProjects(recovered);
           if (unavailableDrafts.length) setOperationNotice(writable ? "An earlier unsaved draft belongs to an unavailable project. Its backup is still stored in this browser." : "Earlier unsaved drafts are kept in this browser. Read-only access shows the saved workspace version.");
@@ -602,6 +626,22 @@ export default function App() {
                   {activeStep === "plans" && (
                     <PlansPage
                       canWrite={canWrite}
+                      onBeforeFullCheckout={async fileId => {
+                        const scope = scopeRef.current, queue = saveQueueRef.current, projectId = activeProject.id;
+                        if (!scope || !queue || !canWriteRef.current) throw new Error('Load your writable workspace before opening checkout.');
+                        await persistFullPurchaseRevision({ projectId, fileId, queue,
+                          getProject: () => projectsRef.current.find(project => project.id === projectId),
+                          isActive: () => scopeRef.current === scope && saveQueueRef.current === queue && canWriteRef.current,
+                        });
+                      }}
+                      onBeforeOrderCheckout={async fileIds => {
+                        const scope = scopeRef.current, queue = saveQueueRef.current, projectId = activeProject.id;
+                        if (!scope || !queue || !canWriteRef.current) throw new Error('Load your writable workspace before opening checkout.');
+                        await persistReadingOrderFiles({ projectId, fileIds, queue,
+                          getProject: () => projectsRef.current.find(project => project.id === projectId),
+                          isActive: () => scopeRef.current === scope && saveQueueRef.current === queue && canWriteRef.current,
+                        });
+                      }}
                       onAppendRevision={(revision) => handleAppendRevision(activeProject.id, revision)}
                       onPatchRevision={(revisionId, patch) => handlePatchRevision(activeProject.id, revisionId, patch)}
                       key={`${workspace?.id}:${activeProject.remoteId}:${activeProject.id}`}

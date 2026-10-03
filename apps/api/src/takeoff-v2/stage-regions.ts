@@ -1,4 +1,6 @@
-import { cropSheetRegion, planPageRegions, readSheetFrame, type PageRegion } from '../ai-plan/page-tiles.ts';
+import { PDFDocument } from 'pdf-lib';
+import { cropSheetRegion, planPageRegions, type PageRegion, type SheetFrame } from '../ai-plan/page-tiles.ts';
+import { displayedRegionBounds, normalizedPdfRotation, type PdfRotation } from './pdf-orientation.ts';
 import type { DeepPassRequest, DeepPassResult } from './types.ts';
 import type { FullTakeoffV2ProviderFactory } from './service.ts';
 
@@ -9,17 +11,25 @@ export interface StageRegion {
   pdfBytes: Uint8Array;
   pageWidthPoints: number;
   pageHeightPoints: number;
+  rotationDegrees: PdfRotation;
+  sourceFrame: SheetFrame;
+  displayRegion: ReturnType<typeof displayedRegionBounds>;
 }
 export interface RegionCheckpointStore {
-  begin(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string): Promise<
+  inspect?(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string): Promise<
+    { disposition: 'run' } | { disposition: 'saved'; result: DeepPassResult }>;
+  begin(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string, eventId?: string): Promise<
     { disposition: 'run' } | { disposition: 'saved'; result: DeepPassResult }>;
   save(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string, result: DeepPassResult): Promise<void>;
 }
 export async function isolateStageRegions(bytes: Uint8Array, grid: 2 | 3): Promise<StageRegion[]> {
-  const frame = await readSheetFrame(bytes);
+  const document=await PDFDocument.load(bytes.slice(),{updateMetadata:false});
+  if(document.getPageCount()!==1)throw new Error('Regional source must contain one physical page.');
+  const page=document.getPage(0),frame=page.getCropBox(),rotationDegrees=normalizedPdfRotation(page.getRotation().angle);
   const regions = planPageRegions(frame, grid);
   return Promise.all(regions.map(async region => ({ id: `r${region.row}c${region.column}g${grid}`,
-    region, pdfBytes: await cropSheetRegion(bytes, frame, region), pageWidthPoints: frame.width, pageHeightPoints: frame.height })));
+    region, pdfBytes: await cropSheetRegion(bytes, frame, region), pageWidthPoints: frame.width, pageHeightPoints: frame.height,
+    rotationDegrees,sourceFrame:frame,displayRegion:displayedRegionBounds(region,frame.width,frame.height,rotationDegrees) })));
 }
 export async function stageRegionIdentity(request: DeepPassRequest, region: StageRegion, provider: string, model: string): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify({ run: request.runId, page: request.sheet.physicalPageNumber,
@@ -37,8 +47,15 @@ export class SqlRegionCheckpointStore implements RegionCheckpointStore {
       p_page_sha256: request.sheet.pageSha256, p_pass_type: request.passType, p_region_key: region.id,
       p_region: region.region, p_idempotency_key: identity };
   }
-  async begin(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string) {
-    const result = await this.rpc('begin_full_takeoff_region', this.identity(input, request, region, identity));
+  async inspect(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string) {
+    return this.read('inspect_full_takeoff_region',this.identity(input,request,region,identity));
+  }
+  async begin(input: StageFactoryInput, request: DeepPassRequest, region: StageRegion, identity: string, eventId?: string) {
+    return this.read(eventId ? 'begin_funded_full_takeoff_region' : 'begin_full_takeoff_region',
+      {...this.identity(input,request,region,identity),...(eventId ? {p_event_id:eventId} : {})});
+  }
+  private async read(fn: string, args: Record<string,unknown>) {
+    const result = await this.rpc(fn,args);
     if (result.error || !result.data || typeof result.data !== 'object') throw new Error('Regional dispatch requires saved identity reconciliation.');
     const data = result.data as Record<string, unknown>;
     if (data.disposition === 'run') return { disposition: 'run' as const };

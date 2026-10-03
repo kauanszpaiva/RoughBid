@@ -1,6 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { analyzePdfNativeContent } from './native-content.ts';
 import type { PlanSetManifest } from './types.ts';
+import { normalizedPdfRotation } from './pdf-orientation.ts';
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -19,13 +20,12 @@ export async function createPlanSetManifest(fileBytes: Uint8Array): Promise<Plan
   const sheets = [];
   for (let index = 0; index < source.getPageCount(); index += 1) {
     const page = source.getPage(index);
-    const single = await PDFDocument.create();
+    const single = await PDFDocument.create({ updateMetadata: false });
     const [copied] = await single.copyPages(source, [index]);
     single.addPage(copied!);
     const pageBytes = await single.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
     const { width, height } = page.getSize();
-    const rotation = page.getRotation().angle;
-    const rotationDegrees = ([0, 90, 180, 270].includes(rotation) ? rotation : 0) as 0 | 90 | 180 | 270;
+    const rotationDegrees = normalizedPdfRotation(page.getRotation().angle);
     const native = nativeContent.get(index + 1);
     sheets.push({
       physicalPageNumber: index + 1,

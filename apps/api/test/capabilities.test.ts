@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runtimeCapabilities } from '../src/http/capabilities.ts';
 import { handleApiRequest } from '../src/http/handler.ts';
 
-const closed = { aiReadingAvailable: false, fullTakeoffV2: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport:false };
+const closed = { aiReadingAvailable: false, fullTakeoffV2: false, fullTakeoffBilling: false, billing: false, membershipStarter: false, membershipPro: false, membershipTeam: false, billingPortal: false, marketplaceSupplierImport:false };
 const configured = {
   PAID_PLAN_READINGS_ENABLED: 'true', GEMINI_API_KEY: 'unit-provider-credential', GEMINI_MODEL: 'gemini-2.5-flash',
   OPENROUTER_API_KEY: 'unit-free-provider-credential',
@@ -52,6 +52,16 @@ test('Full worker deployment declaration does not require Stripe or HTTP model c
   assert.equal(flags.billing, false);
   assert.equal(flags.aiReadingAvailable, false);
   assert.equal(runtimeCapabilities({ ...env, REDIS_URL: '' }).fullTakeoffV2, false);
+});
+test('Full checkout declaration accepts a live restricted key independently of disabled quick billing', () => {
+  const env = { ...configured, PAID_PLAN_READINGS_ENABLED: 'false', PAID_FULL_ENABLED: 'true', STRIPE_MODE: 'live',
+    STRIPE_SECRET_KEY: 'rk_live_unitcredential', STRIPE_EXPECTED_ACCOUNT_ID: 'acct_unit', TAKEOFF_V2_ENABLED: 'true', TAKEOFF_V2_WORKER_ENABLED: 'true',
+    TAKEOFF_V2_SCHEMA_VERSION: 'takeoff-v2-foundation-v1', REDIS_URL: 'redis://localhost:6379' };
+  const flags = runtimeCapabilities(env);
+  assert.equal(flags.fullTakeoffBilling, true); assert.equal(flags.billing, false); assert.equal(flags.aiReadingAvailable, false);
+  for (const overrides of [{ STRIPE_SECRET_KEY: 'rk_test_unitcredential' }, { PAID_FULL_ENABLED: 'false' }, { STRIPE_WEBHOOK_SECRET: '' }, { REDIS_URL: '' }]) {
+    assert.equal(runtimeCapabilities({ ...env, ...overrides }).fullTakeoffBilling, false);
+  }
 });
 
 test('masked secrets, placeholder models and unmeasured policies cannot advertise paid availability', () => {

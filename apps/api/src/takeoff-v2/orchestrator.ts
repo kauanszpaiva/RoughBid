@@ -1,4 +1,5 @@
 import { enrichGeometryCheckpoint } from './scale-evidence.ts';
+import { FullTakeoffBudgetWait, FullTakeoffRunBudgetExhausted } from './budget-wait.ts';
 import type { DeepCheckpointRepository, DeepPassProvider, DeepPassRequest, DeepPassResult, DeepPassType, PlanSetManifest } from './types.ts';
 
 export const DEEP_PASS_ORDER: readonly DeepPassType[] = [
@@ -96,7 +97,9 @@ export async function runDeepTakeoff(
         idempotencyKey: await idempotencyKey(runId, sheet.physicalPageNumber, passType, 1),
         reasoningEffort: 'high',
       };
-      const disposition = await repository.begin(request);
+      const deferred = provider.defersCheckpointClaim === true;
+      if (deferred && !repository.inspect) throw new Error('Full Takeoff requires its admission-aware checkpoint store.');
+      const disposition = await (deferred ? repository.inspect!(request) : repository.begin(request));
       if (disposition !== 'run') {
         sheetSummary.passesCompleted += 1;
         if (disposition === 'already_blocked') {
@@ -107,8 +110,16 @@ export async function runDeepTakeoff(
         continue;
       }
       summary.attempted += 1;
+      let claimed = !deferred;
+      const claim = async (eventId?: string) => {
+        if (claimed) return;
+        if (await repository.begin(request, eventId) !== 'run') throw new Error('Full Takeoff checkpoint changed before dispatch.');
+        claimed = true;
+      };
       try {
-        const providerResult = validatedPassResult(await provider.runPass(request));
+        const providerResult = validatedPassResult(await provider.runPass(request, deferred ? claim : undefined));
+        // Deterministic or explicitly unavailable evidence does not need AI spend.
+        await claim();
         const result: DeepPassResult = passType === 'geometry'
           ? {
               ...providerResult,
@@ -123,6 +134,8 @@ export async function runDeepTakeoff(
           sheetSummary.blockers.push(`${passType} pass is blocked.`);
         } else summary.succeeded += 1;
       } catch (error) {
+        if (error instanceof FullTakeoffBudgetWait || error instanceof FullTakeoffRunBudgetExhausted) throw error;
+        await claim();
         summary.failed += 1;
         sheetSummary.status = 'blocked';
         // Provider/transport/database exceptions may contain private plan text,

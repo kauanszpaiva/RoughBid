@@ -1,4 +1,5 @@
 import { isPlatformAdmin } from '../access/platform-admin.ts';
+import { assertFullTakeoffRunAccess } from './paid-access.ts';
 import { downloadPlan } from '../billing/project-preflight.ts';
 import { ProjectApiError, assertPlanStoragePath, type SupabaseLike } from '../projects/service.ts';
 import type { AiPlanObjectStorage, PlanReadingFindingsWriter } from '../ai-plan/service.ts';
@@ -16,12 +17,13 @@ export class MeasurementReviewService {
   private readonly workspaceId:string;
   constructor(db:SupabaseLike,deps:MeasurementReviewDependencies,userId:string,workspaceId:string){this.db=db;this.deps=deps;this.userId=userId;this.workspaceId=workspaceId;}
   private async authorize(runId:string,write=false) {
-    if(!await isPlatformAdmin(this.db,this.userId))throw new ProjectApiError(403,'Full Takeoff measurement review is restricted to the platform owner during validation.');
     const member=value<any>(await this.db.from('workspace_members').select('role').eq('workspace_id',this.workspaceId).eq('user_id',this.userId).maybeSingle(),'Could not verify measurement access.');
     if(!member||!['admin','estimator'].includes(member.role))throw new ProjectApiError(403,'Admin or estimator access is required for measurement review.');
-    const run=value<any>(await this.db.from('takeoff_runs').select('id,workspace_id,project_id,file_id,file_sha256,orchestrator_version,mode,manifest')
+    const run=value<any>(await this.db.from('takeoff_runs').select('id,workspace_id,project_id,file_id,file_sha256,orchestrator_version,mode,manifest,payment_kind')
       .eq('id',runId).eq('workspace_id',this.workspaceId).eq('mode','full').eq('orchestrator_version',FULL_TAKEOFF_V2_DURABLE_VERSION).maybeSingle(),'Could not read the measurement run.');
     if(!run)throw new ProjectApiError(404,'Full Takeoff run not found.');
+    if(run.payment_kind==='paid')await assertFullTakeoffRunAccess(this.db,this.deps.writer,runId,this.userId,this.workspaceId);
+    else if(!await isPlatformAdmin(this.db,this.userId))throw new ProjectApiError(403,'Full Takeoff measurement review is restricted to the platform owner during validation.');
     const project=value<any>(await this.db.from('projects').select('id').eq('id',run.project_id).eq('workspace_id',this.workspaceId).maybeSingle(),'Could not verify the measurement project.');
     if(!project)throw new ProjectApiError(404,'Measurement project not found.');
     if(write){

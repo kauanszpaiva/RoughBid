@@ -56,7 +56,6 @@ export const FullRegionalEvidence = ({ saved }: { saved: FullTakeoffCheckpoint }
   return <section aria-label="Selected regional evidence" className="mt-3 rounded border border-blue-200 bg-blue-50 p-3 space-y-2">
     <h5 className="font-semibold">Region {saved.region?.key ?? 'identity unavailable'} — {saved.region?.status ?? 'status unavailable'}</h5>
     {rectangle && <p>Row {rectangle.row}, column {rectangle.column} of {rectangle.rows} × {rectangle.columns} regions. Neighboring regions overlap.</p>}
-    {(saved.pass.provider || saved.pass.model) && <p>Saved source: {[saved.pass.provider, saved.pass.model].filter(Boolean).join(' / ')}.</p>}
     <p>This is persisted reading evidence. Verify the source PDF, scale, physical identity and duplicate elements; no measured quantity or price is certified.</p>
     {!saved.pass.checkpoint && <p>No regional checkpoint payload has been saved yet. A processing or unknown state does not imply success.</p>}
     {evidence.observations.map((observation, index) => <div key={index} className="rounded bg-white p-2"><p>{observation.description}</p>
@@ -306,17 +305,18 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     const sheets = [...(run.sheets ?? [])].sort((a, b) => a.physical_page_number - b.physical_page_number);
     return (
       <div className="space-y-4">
-        <section aria-label="Full Takeoff V2 progress" role="status" className="p-3.5 bg-brand-50 border border-blue-200 rounded-lg text-brand-900 space-y-2">
+        <section aria-label="Reading progress" role="status" className="p-3.5 bg-brand-50 border border-blue-200 rounded-lg text-brand-900 space-y-2">
           <h4 className="text-sm font-semibold flex items-center gap-2">
             {isAiPlanInFlight(run.status) && <Loader2 className="w-4 h-4 animate-spin" />}
-            Full Takeoff V2: {run.status.replaceAll("_", " ")}
+            {presentation.statusLabel}
           </h4>
           <p>{presentation.notice}</p>
           <p className="font-medium">{presentation.savedProgress}</p>
+          {presentation.resumeEstimate && <p>Estimated next processing window: {presentation.resumeEstimate}. This time may change.</p>}
           {isAiPlanInFlight(run.status) && run.progress?.currentPage && <p>
             Current physical sheet: {run.progress.currentPage}{run.progress.currentPass ? ` — ${run.progress.currentPass.replaceAll("_", " ")}` : ""}.
           </p>}
-          <p>Progress counts saved stages, including blocked stages. It does not certify measured quantities or prices.</p>
+          <p>Saved progress includes work that needs attention. Review the page results below; missing quantities and prices remain pending.</p>
           {run.updated_at && <p className="text-slate-600">Last saved update: {new Date(run.updated_at).toLocaleString()}</p>}
           {canWrite && <div className="flex flex-wrap gap-2 pt-1">
             {presentation.canCancel && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("cancel")} className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-rose-800 disabled:opacity-50">
@@ -332,12 +332,12 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           <button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Reload saved progress</button>
         </div>}
         {(run.processing_error || runActionError) && <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800">
-          {run.processing_error && <p>{run.processing_error}</p>}{runActionError && <p>{runActionError}</p>}
+          {run.processing_error && <><p>Some work could not finish. Review the saved results and pending pages.</p><details><summary>Processing details</summary>{run.processing_error}</details></>}{runActionError && <p>{runActionError}</p>}
           {runActionError && <button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Reload saved progress before another action</button>}
         </div>}
         <section aria-label="Takeoff review requirements" className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-1">
           <h4 className="font-semibold">{run.output_summary?.takeoff_v2?.releaseStatus === "review_ready" ? "Evidence ready for human review" : "Release pending evidence and review"}</h4>
-          <p>Check scale, measurement sources, sheet references and ambiguities. Agreement between models does not verify measurements.</p>
+          <p>Check scale, measurement sources, page references and missing details before using quantities.</p>
           <p>The budget requires supported quantities, assembly compositions and sourced unit prices. No estimate items are created from these observations.</p>
           {(run.status === "failed" || run.status === "cancelled") && !presentation.canRestart && <p>An uncertain or failed attempt must be reconciled before this run can resume. No provider call is repeated from this screen.</p>}
         </section>
@@ -358,7 +358,6 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                 if (event.currentTarget.open && !saved) void handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type);
               }}>
                 <summary className="cursor-pointer text-slate-800">{pass.pass_type.replaceAll("_", " ")} — {pass.status} (attempt {pass.attempt})</summary>
-                {(pass.provider || pass.model) && <p className="mt-2 text-slate-500">Evidence source: {[pass.provider, pass.model].filter(Boolean).join(" / ")}</p>}
                 {pass.failure_classification && <p className="text-rose-800">Attempt requires review: {pass.failure_classification.replaceAll("_", " ")}</p>}
                 {loadingCheckpoints[key] && <p role="status" className="mt-2">Loading saved evidence…</p>}
                 {checkpointErrors[key] && <p role="alert" className="mt-2 text-rose-800">{checkpointErrors[key]}</p>}
@@ -585,7 +584,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             </div>
             <div>
               <div className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5 sm:gap-2">
-                <span>AI Estimator Assistant</span>
+                <span>Results and pending items</span>
                 <span className="text-[9px] sm:text-[10px] bg-brand-50 text-brand-500 px-1.5 py-0.5 rounded font-mono font-medium">
                   Advisory
                 </span>
@@ -698,7 +697,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         {/* Footer */}
         <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
           <span className="text-[10px] sm:text-[11px] text-slate-500 truncate">
-            {isFullRun ? 'Reviewed quantities and sourced prices remain separate evidence gates.' : 'Additions recalculate financial engine instantly.'}
+            {isFullRun ? 'Use verified measurements and current source prices.' : 'Additions recalculate financial engine instantly.'}
           </span>
           <button
             onClick={onClose}

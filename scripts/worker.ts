@@ -14,13 +14,14 @@ import {
   type DurableEntitlement,
 } from '../apps/api/src/ai-plan/durable.ts';
 import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
-import { DurableFullTakeoffV2Processor, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
+import { DurableFullTakeoffV2Processor, requeueDueFullTakeoffBudgetRuns, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
 import { createStageDeepPassProviderFactory } from '../apps/api/src/takeoff-v2/stage-provider.ts';
 import { requireStageDeepPassConfig } from '../apps/api/src/takeoff-v2/stage-config.ts';
 import { SqlRegionCheckpointStore } from '../apps/api/src/takeoff-v2/stage-regions.ts';
 import { createLocalRegionRenderer } from '../apps/api/src/takeoff-v2/local-region-renderer.ts';
 import { configureFullRunSpendLimits, requireFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
 import { fullTakeoffApprovalProfile, userApprovedFullRunLimits } from '../apps/api/src/takeoff-v2/user-spend-approval.ts';
+import { paidFullRunLimits } from '../apps/api/src/takeoff-v2/paid-access.ts';
 import { loadAcceptedGeometryMeasurements } from '../apps/api/src/takeoff-v2/measurement-review.ts';
 import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
@@ -183,7 +184,8 @@ async function main() {
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
       async prepareRun(input){
-        await configureFullRunSpendLimits(input,userApprovedFullRunLimits(input.manifest.spendApproval,approvalProfile,spendLimits),rpc);
+        await configureFullRunSpendLimits(input,input.manifest.paidAuthorization ? paidFullRunLimits(input.manifest,process.env)
+          : userApprovedFullRunLimits(input.manifest.spendApproval,approvalProfile,spendLimits),rpc);
         if(geometryProfile?.kamai&&geometryQueue){
           const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
             .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();
@@ -246,8 +248,17 @@ async function main() {
     fullTakeoffPresenceQueue.on('error', () => console.error('[worker] Full Takeoff V2 presence connection unavailable'));
     fullTakeoffPresence = createFullTakeoffConsumerPresence(worker as unknown as PresenceConsumer, workerId,
       fullTakeoffPresenceQueue.client as unknown as Promise<PresenceRedis>);
+    let recoveringBudget = false;
     const refreshPresence = async () => {
-      if (!await fullTakeoffPresence!.refresh()) console.error('[worker] Full Takeoff V2 consumer presence unavailable');
+      if (!await fullTakeoffPresence!.refresh()) { console.error('[worker] Full Takeoff V2 consumer presence unavailable'); return; }
+      if (recoveringBudget) return;
+      recoveringBudget = true;
+      try {
+        await requeueDueFullTakeoffBudgetRuns(db as unknown as PlanReadingFindingsWriter, {add: runId =>
+          fullTakeoffPresenceQueue!.add('full-takeoff',{runId},{jobId:runId,attempts:3,
+            backoff:{type:'exponential',delay:5000},removeOnComplete:true,removeOnFail:true})});
+      } catch { console.error('[worker] Full Takeoff V2 saved waiting readings will retry queue recovery'); }
+      finally { recoveringBudget = false; }
     };
     await refreshPresence();
     fullTakeoffPresenceTimer = setInterval(() => { void refreshPresence(); }, FULL_TAKEOFF_PRESENCE_INTERVAL_MS);

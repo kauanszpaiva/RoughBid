@@ -39,6 +39,21 @@ test('automatic geometry cannot silently add another vendor bill to model-only u
   assert.throws(() => fullTakeoffApprovalProfile({ ...consentTestEnv, GEOMETRY_PROVIDER_ENABLED: 'true', TAKEOFF_V2_KAMAI_ENABLED: 'true' }), /separate per-job/);
 });
 
+test('persisted JSONB consent starts with the same authorization regardless of object key order', () => {
+  const profile = fullTakeoffApprovalProfile(consentTestEnv);
+  const limits = requireFullRunSpendLimits(consentTestEnv, requireStageDeepPassConfig(consentTestEnv));
+  const approval = approveFullTakeoffSpend({ confirmed: true, policyId: profile.policyId, budgetsUsd: { gemini: 1 } }, profile, 'owner');
+  const persisted = { ...approval, providers: approval.providers.map(({ models, provider, approvedUsd }) => ({ models, provider, approvedUsd })) };
+  assert.notEqual(JSON.stringify(approval.providers), JSON.stringify(persisted.providers), 'fixture models PostgreSQL JSONB key order');
+  assert.deepEqual(userApprovedFullRunLimits(persisted, profile, limits), userApprovedFullRunLimits(approval, profile, limits));
+  for (const providers of [
+    [{ ...persisted.providers[0]!, provider: 'openai' }],
+    [{ ...persisted.providers[0]!, approvedUsd: 4 }],
+    [{ ...persisted.providers[0]!, models: ['unapproved-model'] }],
+    [{ ...persisted.providers[0]!, arbitrary: true }],
+  ]) assert.throws(() => userApprovedFullRunLimits({ ...persisted, providers } as typeof approval, profile, limits));
+});
+
 test('displayed minimum covers the existing company reservation and never changes that policy', () => {
   const profile = fullTakeoffApprovalProfile({ ...consentTestEnv, TAKEOFF_V2_CALL_RESERVATION_USD: '2.5' });
   assert.equal(profile.providers[0]!.minimumUsd, 2.5);

@@ -34,8 +34,8 @@ test('saved blocked stages do not certify coverage, measured quantities or price
   const state = presentFullTakeoffStatus(run({ status: 'needs_review', progress: { completed: 10, total: 10 },
     output_summary: { takeoff_v2: { releaseStatus: 'blocked', budgetStatus: 'awaiting_measurement_and_price_evidence' } } }));
   assert.equal(state.finished, true);
-  assert.match(state.savedProgress, /10\/10 checkpoints saved/);
-  assert.match(state.notice, /unresolved blockers/);
+  assert.match(state.savedProgress, /10\/10 reading steps saved/);
+  assert.match(state.notice, /unresolved items/);
   assert.match(state.notice, /quantities and prices are not verified/);
   assert.doesNotMatch(state.notice, /complete takeoff|released|100%/i);
   assert.equal(state.canCancel, false);
@@ -50,7 +50,7 @@ test('all persisted review-ready evidence still requires human measurement and p
 
 test('invalid or missing progress never becomes an invented percentage or checkpoint count', () => {
   for (const progress of [null, {}, { completed: 11, total: 10 }, { completed: -1, total: 10 }, { completed: 0, total: 0 }, { completed: 1.2, total: 10 }]) {
-    assert.equal(presentFullTakeoffStatus(run({ progress })).savedProgress, 'Checkpoint totals are not available yet');
+    assert.equal(presentFullTakeoffStatus(run({ progress })).savedProgress, 'Reading progress is not available yet');
   }
   assert.equal(isAiPlanInFlight('processing'), true);
   assert.equal(isAiPlanInFlight('queued'), true);

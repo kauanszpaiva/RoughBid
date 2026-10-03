@@ -240,15 +240,14 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
   };
 
   return <section aria-label="Photo takeoff" className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4">
-    <div><h3 className="font-bold text-slate-900 flex items-center gap-2"><Camera className="h-4 w-4" />Photo evidence and measurements</h3>
-      <p className="text-xs text-slate-600 mt-1">Read construction photos separately from the PDF plan. Quantities need a reviewed count or physical measurement reference; unit prices require their own sources.</p></div>
+    <div><h3 className="font-bold text-slate-900 flex items-center gap-2"><Camera className="h-4 w-4" />Construction photos</h3>
+      <p className="text-xs text-slate-600 mt-1">Upload photos to identify visible work and review measurements. When a dimension is missing, add a verified reading or a reference with known dimensions. Prices remain pending until a source is added.</p></div>
     {(!workspaceId || !projectId) ? <p className="text-sm text-amber-900">Save this project to a signed-in workspace before using photo evidence.</p> : <>
       {!capability && !readError && <p role="status" className="text-sm text-slate-600">Checking photo-processing access.</p>}
-      {capability && !capability.enabled && <p className="text-sm text-amber-900">Photo processing is awaiting verified configuration and private-photo authorization. Saved evidence remains available.</p>}
+      {capability && !capability.enabled && <p className="text-sm text-amber-900">New photo readings are not available yet. You can still open saved photos and measurements.</p>}
       {capability?.enabled && <div className="text-xs text-slate-700 space-y-1">
-        <p>Observation source: {[capability.provider, capability.model].filter(Boolean).join(' / ')}. Provider spend is tracked.</p>
-        {!capability.workerReady && <p className="text-amber-900">The durable photo worker is unavailable. Private uploads are allowed; no analysis can start yet.</p>}
-        <p>Independent reconciliation and risk review remain pending unless saved evidence explicitly records them.</p>
+        {!capability.workerReady && <p className="text-amber-900">Photo reading is temporarily unavailable. You can upload photos and review saved results.</p>}
+        <p>Check the visible surfaces and any missing views before using the measurements.</p>
       </div>}
       {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{notice}</p>}
       {(readError || actionError) && <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{readError && <p>Saved state could not be refreshed: {readError}. An existing worker may still be running.</p>}{actionError && <p>{actionError}</p>}</div>}
@@ -259,13 +258,13 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
         <button onClick={handleStart} disabled={!canWrite || !capability?.workerReady || !selection.length || selection.some(item => !item.asset) || Boolean(busy) || needsRead.current} className="rounded-md bg-slate-900 text-white px-3 py-2 text-xs disabled:opacity-50">{busy === 'start' ? 'Saving photo job…' : acknowledgedRun.current ? 'Open saved photo reading' : 'Start photo reading'}</button>
         <button onClick={() => { setActionError(null); setRefresh(value => value + 1); }} disabled={Boolean(busy)} className="rounded-md border px-3 py-2 text-xs disabled:opacity-50">Reload saved runs</button>
       </div>
-      <p className="text-xs text-slate-500">JPEG, PNG or WebP only. Up to 8 photos, 20 MB per photo and 40 MB per batch. A preview, similar views or model agreement cannot establish scale.</p>
+      <p className="text-xs text-slate-500">JPEG, PNG or WebP. Up to 8 photos, 20 MB each and 40 MB total. Photos need a known physical reference to measure length or area.</p>
       {selection.length > 0 && <ul className="space-y-1 text-xs">{selection.map((item, index) => <li key={index}><strong>{item.file.name}</strong> — {item.status}{item.error ? `: ${item.error}` : ''}</li>)}</ul>}
       {history.length > 0 && <label className="block text-xs font-medium">Saved photo runs<select aria-label="Saved photo runs" value={runId ?? ''} onChange={event => { setRunId(event.target.value); loadedDraftRun.current = null; setDrafts({}); setActionError(null); }} disabled={Boolean(busy)} className="block mt-1 w-full rounded-md border border-slate-300 p-2">{history.map(run => <option key={run.id} value={run.id}>{run.created_at ? new Date(run.created_at).toLocaleString() : run.id} — {run.status.replaceAll('_', ' ')}</option>)}</select></label>}
       {detail && <>
         <div role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
           <h4 className="font-semibold flex items-center gap-2">{isPhotoRunInFlight(detail.run.status) && <Loader2 className="h-4 w-4 animate-spin" />}Photo reading: {detail.run.status.replaceAll('_', ' ')}</h4>
-          <p>{photoCheckpointProgress(detail)}</p><p>Saved checkpoints remain recoverable after leaving this page. The reading has no overall time deadline.</p>
+          <p>{photoCheckpointProgress(detail)}</p><p>Your progress is saved. You can leave this page and return later.</p>
           {detail.run.error_code && <><p className="text-amber-900">Unresolved state: {reviewIssueMessage(detail.run.error_code)}</p><details><summary>Advanced run diagnostic</summary><code>{detail.run.error_code}</code></details></>}
           <div className="flex flex-wrap gap-2 pt-1">
             {canWrite && isPhotoRunInFlight(detail.run.status) && !detail.run.cancel_requested && <button onClick={() => handleRunAction('cancel')} disabled={Boolean(busy) || needsRead.current} className="rounded-md border border-rose-300 px-3 py-1.5 text-xs text-rose-800 disabled:opacity-50">Cancel photo reading</button>}
@@ -293,10 +292,18 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
   const review = detail.run.result;
   const observations = review?.observations ?? [];
   return <div className="space-y-4">
+    {detail.coverage && <section aria-label="Photo coverage" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
+      <h4 className="font-semibold">{detail.coverage.processedAssetIds.length}/{detail.coverage.totalAssets} photos processed</h4>
+      {detail.coverage.pendingAssetIds.length > 0 && <p>{detail.coverage.pendingAssetIds.length} photo(s) still need processing.</p>}
+      {detail.coverage.unusableAssetIds.length > 0 && <p className="text-amber-900">A clearer source is needed for photo(s) {detail.assets.flatMap((asset,index)=>detail.coverage!.unusableAssetIds.includes(asset.id)?[index+1]:[]).join(', ')}.</p>}
+      {detail.coverage.additionalViewAssetIds.length > 0 && <p className="text-amber-900">Add another view of the surfaces shown in photo(s) {detail.assets.flatMap((asset,index)=>detail.coverage!.additionalViewAssetIds.includes(asset.id)?[index+1]:[]).join(', ')}.</p>}
+      {detail.coverage.referenceRequiredObservationIds.length > 0 && <p>{detail.coverage.referenceRequiredObservationIds.length} observed surface(s) need a measurement reference. See the marked items below.</p>}
+      <p>Estimate pending. Processing every photo does not verify hidden surfaces, measurements or prices.</p>
+    </section>}
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
       <h4 className="font-semibold">Measurement evidence requires human review</h4>
       <p>Independent review: {review?.independentReview ?? 'pending'}. Pricing: missing source prices. No completed budget is implied by this reading.</p>
-      {review?.stageStatus && <p>{Object.entries(review.stageStatus).map(([stage, status]) => `${stage.replaceAll('_', ' ')}: ${status}`).join(' · ')}</p>}
+      {review?.stageStatus && <details><summary>Review progress details</summary><p>{Object.entries(review.stageStatus).map(([stage, status]) => `${stage.replaceAll('_', ' ')}: ${status}`).join(' · ')}</p></details>}
       {review?.blockers.length ? <><ul className="list-disc pl-4">{reviewIssueMessages(review.blockers).map((blocker, index) => <li key={index}>{blocker}</li>)}</ul><details><summary>Advanced review codes</summary><pre className="whitespace-pre-wrap break-all">{review.blockers.join('\n')}</pre></details></> : <p>Check coverage, scale, perspective, hidden surfaces and physical object identity before using any quantities.</p>}
     </div>
     <div className="grid gap-3 sm:grid-cols-2">{detail.assets.map((asset, index) => <figure key={asset.id} className="rounded-lg border border-slate-200 p-3 space-y-2">
@@ -335,6 +342,7 @@ export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoadi
         const draft = drafts[observation.id] ?? emptyPhotoReviewDraft(observation);
         return <article key={observation.id} className="rounded-lg border border-slate-200 p-3 space-y-2 text-xs">
           <h5 className="font-semibold text-slate-900">{observation.label}</h5>
+          {detail.coverage?.referenceRequiredObservationIds.includes(observation.id) && <p className="rounded bg-amber-50 p-2 text-amber-900">Add a verified measurement or mark a rectangle with known dimensions for this surface. Until then, its quantity stays undetermined.</p>}
           <p>{observation.proposedQuantity === null || !observation.proposedUnit ? 'Physical quantity is undetermined.' : `Unverified proposal: ${observation.proposedQuantity} ${observation.proposedUnit}.`} Method: {observation.method.replaceAll('_', ' ')}.</p>
           <p>Evidence regions: {observation.regions.map((region, index) => `photo ${detail.assets.findIndex(asset => asset.id === region.sourceAssetId) + 1}, marked surface ${index + 1}`).join('; ')}.</p>
           {observation.uncertainty.length > 0 && <ul className="list-disc pl-4 text-amber-900">{reviewIssueMessages(observation.uncertainty).map((uncertainty, index) => <li key={index}>{uncertainty}</li>)}</ul>}

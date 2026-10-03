@@ -8,6 +8,7 @@ import { assertPhotoId, assertPhotoStoragePath, inspectPhoto, loadVerifiedPhoto,
   type PhotoAssetRow } from './assets.ts';
 import { PHOTO_TAKEOFF_VERSION, type PhotoTakeoffProfile } from './config.ts';
 import { enqueuePhotoRun, type PhotoTakeoffQueue } from './queue.ts';
+import { photoSourceBlockers, summarizePhotoCoverage } from './coverage.ts';
 
 export interface PhotoRequestDependencies {
   writer: DocumentDb;
@@ -175,7 +176,9 @@ export class PhotoTakeoffService {
     await this.access(projectId); const run = await this.run(projectId,runId);
     const steps = await this.db.from('photo_takeoff_steps').select('photo_asset_id,status,completed_at').eq('workspace_id',this.workspaceId).eq('project_id',projectId).eq('run_id',runId).order('created_at');
     if (steps.error) throw new ProjectApiError(503,'Photo checkpoints are unavailable.');
-    return {run:safeRun(run,true),steps:steps.data??[],assets:run.manifest?.assets??[],references:run.manifest?.references??[]};
+    const assets=run.manifest?.assets??[];
+    return {run:safeRun(run,true),steps:steps.data??[],assets,references:run.manifest?.references??[],
+      coverage:summarizePhotoCoverage(assets,steps.data??[],{...run.result,references:run.result?.references??run.manifest?.references??[]})};
   }
   async checkpoint(projectId:string,runId:string,assetId:string) {
     await this.access(projectId);assertPhotoId(assetId);const run=await this.run(projectId,runId);
@@ -220,7 +223,10 @@ export class PhotoTakeoffService {
       reviewerId:this.userId,references:[...references].sort((a,b)=>a.id.localeCompare(b.id)),
       decisions:[...decisions].sort((a,b)=>a.observationId.localeCompare(b.observationId))}))).digest('hex');
     const review=reviewPhotoEvidence({assets,workspaceId:this.workspaceId,projectId,observations:run.result.observations,references,decisions});
-    const result={...review,releaseStatus:'blocked',blockers:[...new Set([...review.blockers,'independent_photo_review_pending'])],
+    const checkpoints=await this.db.from('photo_takeoff_steps').select('photo_asset_id,status,result').eq('workspace_id',this.workspaceId)
+      .eq('project_id',projectId).eq('run_id',runId);
+    if(checkpoints.error)throw new ProjectApiError(503,'Photo source evidence could not be verified. The saved review is unchanged.');
+    const result={...review,releaseStatus:'blocked',blockers:[...new Set([...review.blockers,...photoSourceBlockers(assets,checkpoints.data??[]),'independent_photo_review_pending'])],
       independentReview:'pending',stageStatus:run.result.stageStatus,photoQuality:run.result.photoQuality,
       reviewed_by:this.userId,reviewed_at:new Date().toISOString(),references,decisions};
     return this.rpc('save_photo_takeoff_review',{p_run_id:runId,p_workspace_id:this.workspaceId,p_project_id:projectId,p_user_id:this.userId,

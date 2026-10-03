@@ -15,7 +15,7 @@ test('application mutation guards run before project state or API changes', () =
     const body = app.slice(app.indexOf(`const ${name} =`));
     assert.match(body, new RegExp(`const ${name} = [^]*?=> \\{\\s+if \\(!canWriteRef\\.current`));
   }
-  assert.match(app, /const recovered = writable \?/);
+  assert.match(app, /(?:const|let) recovered = writable \?/);
   assert.match(app, /canPublish=\{canWrite\}/);
 });
 

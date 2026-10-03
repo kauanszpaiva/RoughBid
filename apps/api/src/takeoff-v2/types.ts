@@ -23,6 +23,7 @@ export interface PlanSetManifest {
   physicalPageCount: number;
   sheets: PlanSheetManifestEntry[];
   spendApproval?: import('./user-spend-approval.ts').FullTakeoffSpendApproval;
+  paidAuthorization?: import('./paid-access.ts').PaidFullAuthorization;
 }
 
 export interface ScaleEvidence {
@@ -69,9 +70,13 @@ export interface DeepPassResult {
   outputTokens?: number;
 }
 
-export interface DeepPassProvider { runPass(request: DeepPassRequest): Promise<DeepPassResult>; }
+export interface DeepPassProvider {
+  readonly defersCheckpointClaim?: boolean;
+  runPass(request: DeepPassRequest, beforeDispatch?: (eventId?: string) => Promise<void>): Promise<DeepPassResult>;
+}
 export interface DeepCheckpointRepository {
-  begin(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'>;
+  inspect?(request: DeepPassRequest): Promise<'run' | 'already_succeeded' | 'already_blocked'>;
+  begin(request: DeepPassRequest, eventId?: string): Promise<'run' | 'already_succeeded' | 'already_blocked'>;
   succeed(request: DeepPassRequest, result: DeepPassResult): Promise<void>;
   fail(request: DeepPassRequest, failure: { classification: string; message: string }): Promise<void>;
 }

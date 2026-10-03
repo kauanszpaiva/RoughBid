@@ -177,7 +177,7 @@ test('a lost lease aborts the active factory transport signal and cannot finaliz
     if(fn==='claim_full_takeoff_v2')return{data:{lease_id:'lease',manifest,workspace_id:'workspace',project_id:'project',file_id:'file',storage_path:'workspace/project/file/source.pdf',requested_by:'user'},error:null};
     if(fn==='heartbeat_full_takeoff_v2')return{data:!canceled,error:null};
     if(fn==='begin_full_takeoff_v2_pass')return{data:'run',error:null};
-    if(fn==='release_full_takeoff_v2'){retry=args.p_allow_retry;return{data:true,error:null};}
+    if(fn==='fail_full_takeoff_boundary'){retry=false;assert.equal(args.p_error_code,'reading_authorization_ended');return{data:true,error:null};}
     if(fn==='finish_full_takeoff_v2'){finished=true;return{data:true,error:null};}
     throw new Error('Unexpected offline lease RPC');
   }};

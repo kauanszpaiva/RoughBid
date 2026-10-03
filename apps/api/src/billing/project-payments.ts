@@ -5,20 +5,36 @@ import { isConfiguredValue, requirePaidPlanReadingConfig } from '../ai-plan/read
 import { isPlatformAdmin } from '../access/platform-admin.ts';
 import type { ProjectMembership } from '../../../../packages/domain/src/project-charge.ts';
 import type { StripeEvent } from './stripe.ts';
+import { openPaidFullCheckout, preparePaidFullQuote, requirePaidFullReadiness, startPaidFullAfterPayment } from './full-takeoff-payments.ts';
+import { prepareReadingOrder, savedReadingOrder, openReadingOrderCheckout, reconcileReadingOrder } from './full-reading-orders.ts';
 export interface ServerDatabase { from(table: string): any; rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: any }> }
 export function databaseValue(result: { data: any; error: any }) {
+  if (result.error?.message === 'PDF already belongs to an accepted or paid purchase') {
+    throw new ProjectApiError(409,'One selected PDF already belongs to an existing purchase. Open it or select only new PDFs.');
+  }
   if (result.error) throw new ProjectApiError(503, 'Unable to save payment or processing state. Please try again.');
   return result.data;
 }
 const publicQuote = (q: any) => ({ id: q.id, project_id: q.project_id, file_id: q.file_id, amount_cents: q.amount_cents, currency: q.currency,
   page_count: q.page_count, trades: q.trades, scope: q.scope, status: q.status, attempts: q.attempts,
-  job_id: q.job_id, expires_at: q.expires_at, membership: q.membership, max_attempts: 2 });
+  job_id: q.job_id, expires_at: q.expires_at, membership: q.membership, max_attempts: q.mode === 'full_v2' ? 1 : 2,
+  ...(q.mode === 'full_v2' ? { mode: 'full_v2', full_run_id: q.full_run_id ?? null, full_contract_hash: q.full_contract_hash,
+    purchase_order_id: q.purchase_order_id ?? null, full_consent_confirmed: q.full_consent?.confirmed === true,
+    full_summary: { physicalPageCount: q.full_contract.manifest.physicalPageCount, regionGrid: q.full_contract.regionGrid,
+      stages: q.full_contract.stages, providers: q.full_contract.providers.map((provider: any) => ({ provider: provider.provider,
+        models: provider.models, maximumCalls: provider.maximumCalls })), maximumCalls: q.full_contract.maximumCalls,
+      executionPolicy: q.full_contract.executionPolicy, pricingVersion: q.full_contract.pricing.version,
+      pricingExpiresAt: q.full_contract.pricing.expiresAt } } : {}) });
 export class ProjectPayments {
   private db: ServerDatabase;
   private env: Record<string,string|undefined>;
   private fetcher: typeof fetch;
-  constructor(db: ServerDatabase, env: Record<string,string|undefined>, fetcher: typeof fetch = fetch) {
+  private fullReadiness: () => Promise<void>;
+  private startPaidFull: (quoteId: string) => Promise<void>;
+  constructor(db: ServerDatabase, env: Record<string,string|undefined>, fetcher: typeof fetch = fetch, fullReadiness?: () => Promise<void>, startPaidFull?: (quoteId: string) => Promise<void>) {
     this.db=db; this.env=env; this.fetcher=fetcher;
+    this.fullReadiness = fullReadiness ?? (() => requirePaidFullReadiness(db, env));
+    this.startPaidFull = startPaidFull ?? (quoteId => startPaidFullAfterPayment(db, env, quoteId));
   }
   async assertNoActivePilot(userId: string) {
     const pilot = databaseValue(await this.db.rpc('get_pilot_access', { p_user_id: userId }));
@@ -47,6 +63,15 @@ export class ProjectPayments {
   }
   async quote(userId: string, workspaceId: string, projectId: string, input: Record<string,unknown>, storage: AiPlanObjectStorage) {
     await this.access(userId,workspaceId,projectId);
+    if (input.mode === 'full_v2') {
+      const quote = await preparePaidFullQuote({ db: this.db, env: this.env, fetcher: this.fetcher, storage,
+      userId, workspaceId, projectId, fileId: input.file_id,
+      // Voluntary purchase uses the actual subscription, including for owners.
+      membership: () => this.membership(workspaceId), ready: this.fullReadiness });
+      if (quote.purchase_order_id) throw new ProjectApiError(409,'This PDF belongs to a saved purchase. Open the selected files purchase to view its price and results.');
+      return publicQuote(quote);
+    }
+    if (input.mode !== undefined && input.mode !== 'quick') throw new ProjectApiError(400, 'Invalid reading mode.');
     // A platform owner uses the dedicated complimentary provider path. Do not
     // manufacture a paid quote (even an enterprise-discounted one) because that
     // leaves the browser in an impossible state: quote says pay, checkout says
@@ -73,30 +98,43 @@ export class ProjectPayments {
       membership,pricing_version:price.version,livemode:this.env.STRIPE_MODE === 'live' } }));
     return publicQuote(row);
   }
-  async savedQuote(userId: string, workspaceId: string, projectId: string, fileId: string, quoteId?: string) {
+  async savedQuote(userId: string, workspaceId: string, projectId: string, fileId: string, quoteId?: string, mode = 'quick') {
     await this.access(userId, workspaceId, projectId);
+    if (!['quick', 'full_v2'].includes(mode)) throw new ProjectApiError(400, 'Invalid reading mode.');
     if (!fileId) throw new ProjectApiError(400, 'Select an uploaded plan.');
     const file = databaseValue(await this.db.from('project_files').select('id')
       .eq('id', fileId).eq('workspace_id', workspaceId).eq('project_id', projectId).maybeSingle());
     if (!file) throw new ProjectApiError(404, 'Plan not found.');
     const scoped = () => this.db.from('project_reading_quotes').select('*')
       .eq('workspace_id', workspaceId).eq('project_id', projectId).eq('file_id', fileId)
-      .eq('livemode', this.env.STRIPE_MODE === 'live');
+      .eq('livemode', this.env.STRIPE_MODE === 'live').eq('mode', mode);
     if (quoteId) {
       const quote = databaseValue(await scoped().eq('id', quoteId).maybeSingle());
-      return quote ? publicQuote(quote) : null;
+      return quote && !quote.purchase_order_id ? publicQuote(quote) : null;
     }
     // Recover paid/revoked history before a newer abandoned price calculation.
     // This is a read only view; payment, file hash and attempts remain enforced
     // by the existing reservation RPC when the estimator explicitly starts AI.
     let quote = databaseValue(await scoped().in('status', ['paid', 'processing', 'complete', 'failed', 'revoked'])
       .order('created_at', { ascending: false }).limit(1).maybeSingle());
+    if (mode === 'full_v2' && quote?.status === 'revoked' && !quote.full_run_id) {
+      // An explicitly requested new purchase can supersede a closed checkout
+      // that never owned a run. Saved execution/payment history is not revived.
+      const replacement = databaseValue(await scoped().eq('status', 'quoted').gt('expires_at', new Date().toISOString())
+        .gt('created_at', quote.created_at).order('created_at', { ascending: false }).limit(1).maybeSingle());
+      if (replacement) quote = replacement;
+    }
     if (!quote) quote = databaseValue(await scoped().eq('status', 'quoted').gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false }).limit(1).maybeSingle());
-    return quote ? publicQuote(quote) : null;
+    // An order's allocation is the actual receipt. Never display its child's
+    // earlier standalone quote as if it were another customer charge.
+    return quote && !quote.purchase_order_id ? publicQuote(quote) : null;
   }
-  async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string) {
+  async checkout(userId: string, workspaceId: string, projectId: string, quoteId: string, input: Record<string, unknown> = {}) {
     await this.access(userId,workspaceId,projectId);
+    if (input.mode === 'full_v2') return openPaidFullCheckout({ db: this.db, env: this.env, fetcher: this.fetcher,
+      userId, workspaceId, projectId, quoteId, consent: input.consent, ready: this.fullReadiness });
+    if (input.mode !== undefined && input.mode !== 'quick') throw new ProjectApiError(400, 'Invalid reading mode.');
     if (await isPlatformAdmin(this.db, userId)) {
       throw new ProjectApiError(409, 'Platform owner access is complimentary. No checkout is required for this account.');
     }
@@ -104,10 +142,11 @@ export class ProjectPayments {
     requirePaidPlanReadingConfig(this.env);
     const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id',quoteId).eq('project_id',projectId).eq('workspace_id',workspaceId).maybeSingle());
     if (!q) throw new ProjectApiError(404,'Quote not found.');
+    if (q.mode === 'full_v2') throw new ProjectApiError(409, 'Review and accept the Full reading scope before checkout.');
     if (q.status !== 'quoted' || Date.parse(q.expires_at) <= Date.now()+30_000) throw new ProjectApiError(409,'Refresh the project price or check its payment status.');
     const key = this.env.STRIPE_SECRET_KEY;
     const appUrl = this.env.APP_URL;
-    if (!isConfiguredValue(key) || !key.startsWith(q.livemode ? 'sk_live_' : 'sk_test_') || !isConfiguredValue(this.env.STRIPE_WEBHOOK_SECRET) || !isConfiguredValue(appUrl) || new URL(appUrl).protocol !== 'https:') throw new ProjectApiError(503,'Checkout is not configured.');
+    if (!isConfiguredValue(key) || !(q.livemode ? /^(?:sk|rk)_live_/ : /^(?:sk|rk)_test_/).test(key) || !isConfiguredValue(this.env.STRIPE_WEBHOOK_SECRET) || !isConfiguredValue(appUrl) || new URL(appUrl).protocol !== 'https:') throw new ProjectApiError(503,'Checkout is not configured.');
     if (q.stripe_session_id) {
       const response = await this.fetcher(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(q.stripe_session_id)}`,{headers:{authorization:`Bearer ${key}`}});
       const session = await response.json() as {url?:string;status?:string};
@@ -141,8 +180,46 @@ export class ProjectPayments {
     databaseValue(await this.db.from('project_reading_quotes').update({stripe_session_id:session.id}).eq('id',q.id));
     return { url:session.url };
   }
+  async readingOrder(userId:string,workspaceId:string,projectId:string,input:Record<string,unknown>,storage:AiPlanObjectStorage) {
+    await this.access(userId,workspaceId,projectId);
+    return prepareReadingOrder({db:this.db,env:this.env,fetcher:this.fetcher,ready:this.fullReadiness,userId,workspaceId,projectId,
+      fileIds:input.file_ids,storage,membership:()=>this.membership(workspaceId)});
+  }
+  async savedReadingOrder(userId:string,workspaceId:string,projectId:string,orderId?:string,fileIds?:unknown,containsFileId?:string) {
+    await this.access(userId,workspaceId,projectId);
+    return savedReadingOrder(this.db,userId,workspaceId,projectId,orderId,fileIds,containsFileId);
+  }
+  async readingOrderCheckout(userId:string,workspaceId:string,projectId:string,input:Record<string,unknown>) {
+    await this.access(userId,workspaceId,projectId);
+    return openReadingOrderCheckout({db:this.db,env:this.env,fetcher:this.fetcher,ready:this.fullReadiness,userId,workspaceId,projectId,
+      orderId:String(input.order_id??''),consent:input.consent});
+  }
   async reconcile(event: StripeEvent): Promise<void> {
+    // This endpoint belongs to the platform's account, never a Connect account.
+    if (event.account) return;
+    if (await reconcileReadingOrder(this.db,event,this.startPaidFull,{env:this.env,fetcher:this.fetcher})) return;
     const obj = event.data.object as any;
+    let paidFullQuoteId: string | undefined;
+    if (event.type.startsWith('checkout.session.') && obj.metadata?.roughbid_quote_id) {
+      const q = databaseValue(await this.db.from('project_reading_quotes').select('*').eq('id', obj.metadata.roughbid_quote_id).maybeSingle());
+      if (!q) return; // Another product's event cannot manufacture a local quote.
+      if (q.mode === 'full_v2' || obj.metadata.roughbid_mode === 'full_v2') {
+        if (q.mode !== 'full_v2' || obj.metadata.roughbid_mode !== 'full_v2' || event.livemode !== true || q.livemode !== true) return;
+        if (q.stripe_session_id !== obj.id || q.full_contract_hash !== obj.metadata.roughbid_contract_hash
+          || q.workspace_id !== obj.metadata.workspace_id || q.project_id !== obj.metadata.project_id || q.user_id !== obj.client_reference_id) {
+          throw new Error('Full payment event does not match its saved purchase.');
+        }
+        if (obj.payment_status === 'paid' && (obj.amount_total !== q.amount_cents || typeof obj.currency !== 'string'
+          || obj.currency.trim().toLowerCase() !== q.currency)) throw new Error('Full payment amount does not match its saved purchase.');
+        paidFullQuoteId = q.id;
+      }
+    }
+    if (['checkout.session.async_payment_failed', 'checkout.session.expired'].includes(event.type) && obj.metadata?.roughbid_mode === 'full_v2') {
+      if (!obj.metadata?.roughbid_quote_id || typeof obj.id !== 'string') return;
+      databaseValue(await this.db.rpc('fail_paid_full_payment', { p_event_id: event.id, p_quote_id: obj.metadata.roughbid_quote_id,
+        p_session_id: obj.id, p_livemode: event.livemode, p_release_reason: event.type === 'checkout.session.expired' ? 'expired' : 'failed' }));
+      return;
+    }
     if (event.type === 'charge.refunded' || event.type === 'charge.dispute.created') {
       const intent = obj.payment_intent;
       if (typeof intent !== 'string' || (event.type === 'charge.refunded' && !(obj.amount_refunded > 0))) return;
@@ -154,9 +231,13 @@ export class ProjectPayments {
     if (!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type)) return;
     const quoteId = obj.metadata?.roughbid_quote_id;
     if (!quoteId || obj.mode !== 'payment' || obj.payment_status !== 'paid') return;
+    if (obj.metadata?.roughbid_mode === 'full_v2' && event.livemode !== true) return;
     if (typeof obj.payment_intent !== 'string' || !Number.isSafeInteger(obj.amount_total) || typeof obj.currency !== 'string') throw new Error('Invalid project payment event');
     databaseValue(await this.db.rpc('confirm_project_reading_payment',{p_event_id:event.id,p_quote_id:quoteId,p_session_id:obj.id,
       p_payment_intent:obj.payment_intent,p_amount:obj.amount_total,p_currency:obj.currency.trim().toLowerCase(),p_livemode:event.livemode}));
+    // Signed, paid, live and consent-bound only. If enqueue fails, Stripe retries
+    // the webhook; the saved payment and unique quote/run identity are retained.
+    if (paidFullQuoteId) await this.startPaidFull(paidFullQuoteId);
   }
 }
 export async function handleProjectPayment(request: Request, db: SupabaseLike, payments: ProjectPayments, storage?: AiPlanObjectStorage): Promise<Response> {
@@ -164,20 +245,27 @@ export async function handleProjectPayment(request: Request, db: SupabaseLike, p
     const url = new URL(request.url);
     const parts = url.pathname.split('/');
     const readingQuoteRead = request.method === 'GET' && parts[4] === 'reading-quote';
-    if (request.method !== 'POST' && !readingQuoteRead) return Response.json({error:'Method not allowed'},{status:405});
+    const readingOrderRead = request.method === 'GET' && parts[4] === 'reading-order';
+    if (request.method !== 'POST' && !readingQuoteRead && !readingOrderRead) return Response.json({error:'Method not allowed'},{status:405});
     const {data,error} = await db.auth.getUser();
     if (error || !data.user) throw new ProjectApiError(401,'Sign in to continue.');
     const workspaceId = request.headers.get('x-workspace-id');
     if (!workspaceId) throw new ProjectApiError(400,'Select a company.');
     const projectId = parts[3]!;
+    if (readingOrderRead) return Response.json(await payments.savedReadingOrder(data.user.id,workspaceId,projectId,
+      url.searchParams.get('order_id')||undefined,(url.searchParams.get('file_ids')??'').split(',').filter(Boolean),url.searchParams.get('contains_file_id')||undefined),{headers:{'cache-control':'private, no-store'}});
     if (readingQuoteRead) return Response.json(await payments.savedQuote(data.user.id, workspaceId, projectId,
-      url.searchParams.get('file_id') ?? '', url.searchParams.get('quote_id') || undefined), { headers: { 'cache-control': 'private, no-store' } });
+      url.searchParams.get('file_id') ?? '', url.searchParams.get('quote_id') || undefined, url.searchParams.get('mode') ?? 'quick'), { headers: { 'cache-control': 'private, no-store' } });
     const input = await request.json();
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ProjectApiError(400,'Invalid request.');
-    if (parts[4] === 'reading-quote' && !storage) throw new ProjectApiError(503, 'Project storage is not configured.');
-    const result = parts[4] === 'reading-quote'
+    if (['reading-quote','reading-order'].includes(parts[4]!) && !storage) throw new ProjectApiError(503, 'Project storage is not configured.');
+    const result = parts[4] === 'reading-order'
+      ? await payments.readingOrder(data.user.id,workspaceId,projectId,input,storage!)
+      : parts[4] === 'reading-order-checkout'
+      ? await payments.readingOrderCheckout(data.user.id,workspaceId,projectId,input)
+      : parts[4] === 'reading-quote'
       ? await payments.quote(data.user.id,workspaceId,projectId,input,storage!)
-      : await payments.checkout(data.user.id,workspaceId,projectId,String(input.quote_id ?? ''));
+      : await payments.checkout(data.user.id,workspaceId,projectId,String(input.quote_id ?? ''),input);
     return Response.json(result);
   } catch(error) {
     return Response.json({error:error instanceof ProjectApiError ? error.message : 'Unable to prepare this project.'},{status:error instanceof ProjectApiError ? error.status : 500});

@@ -72,7 +72,15 @@ export function userApprovedFullRunLimits(approval: FullTakeoffSpendApproval | u
   }
   const verified = approveFullTakeoffSpend({ confirmed: true, policyId: approval.policyId,
     budgetsUsd: Object.fromEntries(approval.providers.map(provider => [provider.provider, provider.approvedUsd])) }, profile, approval.approvedBy);
-  if (JSON.stringify(verified.providers) !== JSON.stringify(approval.providers)) throw new Error('Saved provider/model approval does not match this worker.');
+  // PostgreSQL JSONB reorders object keys. Compare the approved values, never
+  // their serialization order, while still rejecting extra fields and models.
+  if (verified.providers.some((provider, index) => {
+    const saved = approval.providers[index];
+    return !saved || Object.keys(saved).length !== 3
+      || saved.provider !== provider.provider || saved.approvedUsd !== provider.approvedUsd
+      || !Array.isArray(saved.models) || saved.models.length !== provider.models.length
+      || saved.models.some((model, modelIndex) => model !== provider.models[modelIndex]);
+  })) throw new Error('Saved provider/model approval does not match this worker.');
   return limits.map(limit => {
     const user = verified.providers.find(provider => provider.provider === limit.provider);
     if (!user || user.approvedUsd > limit.approvedUsd) throw new Error('User approval exceeds the configured provider ceiling.');

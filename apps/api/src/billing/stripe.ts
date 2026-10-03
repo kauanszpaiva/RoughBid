@@ -143,7 +143,7 @@ export function createPortalRequest(input: PortalInput): PortalRequest {
   return { customer: input.customerId, return_url: requireHttps(input.returnUrl, 'return URL') };
 }
 
-export type StripeEvent = { id: string; type: string; livemode: boolean; data: { object: unknown } };
+export type StripeEvent = { id: string; type: string; livemode: boolean; account?: string; data: { object: unknown } };
 
 /** Verify Stripe's v1 HMAC signature against the unmodified request bytes. */
 export function verifyStripeWebhook(rawBody: string | Uint8Array, signature: string | null, secret: string, now = Date.now(), toleranceSeconds = 300): void {
