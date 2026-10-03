@@ -7,6 +7,7 @@ import { requireFullRunSpendLimits } from '../takeoff-v2/run-spend-policy.ts';
 import { splitPhysicalPages } from '../takeoff-v2/claude-provider.ts';
 import { isolateStageRegions } from '../takeoff-v2/stage-regions.ts';
 import { STAGE_MODEL_REGISTRY } from '../takeoff-v2/stage-config.ts';
+import { buildPriorEvidenceContext,priorEvidenceNeedsReview } from '../takeoff-v2/prior-context.ts';
 import { requestEvidence, type ProviderResponse, type StageEvidenceInput } from '../takeoff-v2/stage-provider.ts';
 import { extractSheetText } from '../ai-plan/sheet-text.ts';
 import { renderBridgeRegion, verifyBridgeRenderer } from './renderer.ts';
@@ -58,14 +59,10 @@ function assertOperation(command:BridgeCommand,authority:BridgeAuthorization,dep
   if(command.action==='submit_stage'&&(command.expected_stage_version!==s.stage_version
     ||command.expected_operation_spec_sha256!==specHash||command.expected_approved_contract_sha256!==bridgeObjectHash(approval)))throw new BridgeError('bridge_identity_conflict',409);
 }
-function previousContext(rows:any[],ids:readonly string[]):string {
+export function previousContext(rows:any[],ids:readonly string[]):string {
   if(rows.length!==ids.length||rows.some(r=>!ids.includes(r.id)||!['succeeded','blocked'].includes(r.status)))throw new BridgeError('bridge_identity_conflict',409);
   const ordered=ids.map(id=>rows.find(r=>r.id===id));
-  const context=ordered.map(r=>({physical_page_number:r.checkpoint.physical_page_number,pass_type:r.checkpoint.pass_type,
-    status:r.status,observations:r.checkpoint.observations,blockers:r.checkpoint.blockers}));
-  const text=JSON.stringify(context);
-  return text.length<=24_000?text:JSON.stringify({coverage:'context_capacity_reached',source_pages:context.map(r=>r.physical_page_number),
-    blocker:'Full cross-sheet context exceeds this request. Directed reference review remains required.'});
+  return buildPriorEvidenceContext(ordered);
 }
 async function materialize(authority:BridgeAuthorization,deps:BridgeServiceDependencies):Promise<{
   request:DeepPassRequest;evidence:StageEvidenceInput;context:string;sourceHashes:Record<string,string>;
@@ -146,7 +143,7 @@ async function submit(command:Extract<BridgeCommand,{action:'submit_stage'}>,aut
         return call();
       },()=>requestEvidence(guardedFetch,deps.config.stages,stage,input.request,input.evidence,input.context));
     response.bridgeSource={inputKind:input.evidence.kind,textTruncated:input.evidence.kind==='text'&&input.evidence.truncated,
-      contextTruncated:input.context.includes('context_capacity_reached')};
+      contextTruncated:input.context.includes('context_capacity_reached'),priorReviewRequired:priorEvidenceNeedsReview(input.context,input.request.sheet.physicalPageNumber)};
     if(!dispatchToken||transportCount!==1||Buffer.byteLength(bridgeCanonical(response))>500_000)throw new BridgeError('bridge_result_unavailable',503);
     return await bridgeRpc<BridgeOperation>(deps.db,'finalize_provider_bridge_operation',{p_operation_id:operation.id,p_dispatch_token:dispatchToken,
       p_result:response,p_result_sha256:bridgeObjectHash(response),p_usage:bridgeUsage(response,usageRoute,dispatchPayload,dispatchedAt),p_outcome:'result'});

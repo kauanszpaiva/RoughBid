@@ -4,13 +4,24 @@ import { BRIDGE_HEADER_NAMES, BRIDGE_PATH, BRIDGE_PROTOCOL, BridgeError, type Br
 import { bridgeSha256, signBridgeCommand, verifyBridgeSignature, type BridgeAuthConfig } from '../src/provider-bridge/auth.ts';
 import { authenticateBridgeRequest, parseBridgeCommand } from '../src/provider-bridge/request.ts';
 import { bridgeCanonical, bridgeObjectHash, requireBridgeRuntimeConfig } from '../src/provider-bridge/config.ts';
-import { handleProviderBridge } from '../src/provider-bridge/service.ts';
+import { handleProviderBridge,previousContext } from '../src/provider-bridge/service.ts';
 import { ProviderBridgeClient } from '../src/provider-bridge/client.ts';
 import type { BridgeOperation, BridgeDatabase } from '../src/provider-bridge/persistence.ts';
 import { createPlanSetManifest } from '../src/takeoff-v2/preflight.ts';
 import { fullTakeoffApprovalProfile, approveFullTakeoffSpend } from '../src/takeoff-v2/user-spend-approval.ts';
 import { createStageDeepPassProviderFactory } from '../src/takeoff-v2/stage-provider.ts';
 import { PDFDocument, degrees, rgb } from 'pdf-lib';
+import { buildPriorEvidenceContext } from '../src/takeoff-v2/prior-context.ts';
+
+test('server and worker preserve identical regional coverage/blockers, or explicitly mark all oversized prior context incomplete',()=>{
+ const row={id:'prior-region',status:'blocked' as const,checkpoint:{physical_page_number:1,pass_type:'completeness',observations:[],blockers:['Unreviewed detail.'],
+   source_coverage:{total_regions:4,completed_regions:3,completeness_verified:false,blocked_regions:['r2c1g2'],regions:[{region_key:'r2c1g2',status:'blocked',blockers:['Revision callout is illegible.']}]},human_review_required:true}};
+ const worker=buildPriorEvidenceContext([row]),server=previousContext([row],['prior-region']);assert.equal(server,worker);
+ assert.deepEqual(JSON.parse(server)[0].source_coverage,row.checkpoint.source_coverage);assert.match(server,/Revision callout is illegible/);
+ const oversized={...row,checkpoint:{...row.checkpoint,observations:[{description:'x'.repeat(24000)}]}};
+ const incomplete=previousContext([oversized],['prior-region']);assert.ok(incomplete.length<=24000);assert.equal(JSON.parse(incomplete).context_complete,false);
+ assert.equal(incomplete,buildPriorEvidenceContext([oversized]));assert.match(incomplete,/unresolved blockers exceed/);
+});
 import { withUsageMeter, meterGeminiCall, meterOpenAiCompatibleCall } from '../src/owner-usage/meter.ts';
 import { renderBridgeRegion, verifyBridgeRenderer, bridgePageImages } from '../src/provider-bridge/renderer.ts';
 import { isolateStageRegions } from '../src/takeoff-v2/stage-regions.ts';

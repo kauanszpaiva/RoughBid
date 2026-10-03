@@ -13,13 +13,14 @@ import { deepPassOutputSchema } from './stage-schema.ts';
 import { isolateStageRegions, stageRegionIdentity, type RegionCheckpointStore, type StageRegion } from './stage-regions.ts';
 import type { FullTakeoffV2ProviderFactory } from './service.ts';
 import type { DeepPassProvider, DeepPassRequest, DeepPassResult } from './types.ts';
+import { buildPriorEvidenceContext,priorEvidenceNeedsReview } from './prior-context.ts';
 
 const MAX_RESPONSE_BYTES = 500_000;
 const MAX_PAGE_BYTES = 10 * 1024 * 1024;
 type Json = Record<string, unknown>;
 type FactoryInput = Parameters<FullTakeoffV2ProviderFactory['create']>[0];
 export type ProviderResponse = { raw: Json; usage?: { inputTokens?: number; outputTokens?: number }; id?: string;
-  bridgeSource?:{inputKind:'pdf'|'images'|'text';textTruncated:boolean;contextTruncated:boolean} };
+  bridgeSource?:{inputKind:'pdf'|'images'|'text';textTruncated:boolean;contextTruncated:boolean;priorReviewRequired?:boolean} };
 export interface StageSourceImage {
   dataUrl: string;
   label?: string;
@@ -289,13 +290,7 @@ class StageDeepPassProvider implements DeepPassProvider {
     const entries = [...this.priorEvidence.values()].filter(value =>
       ['classification', 'legends_schedules'].includes(String(value.checkpoint.pass_type))
       || value.checkpoint.physical_page_number === request.sheet.physicalPageNumber);
-    const text = JSON.stringify(entries.map(value => ({ physical_page_number: value.checkpoint.physical_page_number,
-      pass_type: value.checkpoint.pass_type, status: value.status, observations: value.checkpoint.observations,
-      blockers: value.checkpoint.blockers })));
-    // Never silently present a partial whole-set context as complete.
-    return text.length <= 24_000 ? text : JSON.stringify({ coverage: 'context_capacity_reached',
-      source_pages: entries.map(value => value.checkpoint.physical_page_number),
-      blocker: 'Full cross-sheet context exceeds this request. Directed reference review remains required.' });
+    return buildPriorEvidenceContext(entries);
   }
   private async dispatch(stage: ConfiguredEvidenceStage, request: DeepPassRequest, evidence: StageEvidenceInput, context: string,
     beforeDispatch?: (eventId: string) => Promise<void>): Promise<DeepPassResult> {
@@ -309,8 +304,11 @@ class StageDeepPassProvider implements DeepPassProvider {
     const reasons = [...parsed.checkpoint.blockers as string[]];
     if (observations.length === MAX_OBSERVATIONS) reasons.push('capacity_more_regional_review_required');
     if (evidence.kind === 'text' && (evidence.truncated||response.bridgeSource?.textTruncated)) reasons.push('Source transcript/evidence was truncated; omitted text requires review.');
-    if ((context.includes('context_capacity_reached')||response.bridgeSource?.contextTruncated) && ['reconciliation', 'conflict_detection', 'completeness'].includes(request.passType)) {
+    if ((context.includes('context_capacity_reached')||response.bridgeSource?.contextTruncated) && ['reconciliation', 'conflict_detection', 'completeness','risk_review'].includes(request.passType)) {
       reasons.push('Cross-sheet reference context needs directed review; whole-set reconciliation is incomplete.');
+    }
+    if(request.passType==='risk_review'&&(response.bridgeSource?.priorReviewRequired===true||priorEvidenceNeedsReview(context,request.sheet.physicalPageNumber))){
+      reasons.push('Prior checkpoints retain unresolved blockers, incomplete coverage, or geometry/human-review requirements. Risk review does not close them.');
     }
     if (evidence.kind !== 'pdf' && request.passType === 'completeness') reasons.push('Selected regions or text-only evidence cannot establish complete visual sheet coverage.');
     return { ...parsed, status: reasons.length ? 'blocked' : parsed.status,
@@ -384,7 +382,8 @@ class StageDeepPassProvider implements DeepPassProvider {
       source_coverage: { visual_coverage: 'grid_regions_visited', completed_regions: results.length, total_regions: regions.length,
         coordinate_space:'unrotated_cropbox_bottom_left_points',rotation_degrees:request.sheet.rotationDegrees,
         regions: results.map(({ region, result }) => ({ region_key: region.id, region: region.region,
-          source_frame:region.sourceFrame,display_region:region.displayRegion,status:result.status })),
+          source_frame:region.sourceFrame,display_region:region.displayRegion,status:result.status,
+          blockers:result.checkpoint.blockers,source_coverage:result.checkpoint.source_coverage,capacity:result.checkpoint.capacity })),
         blocked_regions: blockedRegions, completeness_verified: false, overlap_deduplication: 'human_review_required' },
       human_review_required: true, reasoning_effort: stage.reasoningEffort };
     if (Buffer.byteLength(JSON.stringify(checkpoint)) > 750_000) {
@@ -439,13 +438,15 @@ class StageDeepPassProvider implements DeepPassProvider {
     }
     const stage = this.config.stages[request.passType];
     if (!stage) {
+      let result=localStageCheckpoint(request);
       if (request.passType === 'geometry' && this.sources.loadGeometryMeasurements) {
         const geometry = await this.sources.loadGeometryMeasurements(this.input, request);
-        return { status: 'blocked', provider: 'roughbid', model: 'deterministic-v1', checkpoint: {
-          ...localStageCheckpoint(request).checkpoint, ...geometry, human_review_required: true,
-          blockers: ['Reviewed measurements are preserved. Whole-sheet/category coverage and unresolved geometry still require review.'] } };
+        result={ status: 'blocked', provider: 'roughbid', model: 'deterministic-v1', checkpoint: {
+          ...result.checkpoint, ...geometry, human_review_required: true,
+          blockers: [...(Array.isArray(geometry.blockers)?geometry.blockers:[]),'Reviewed measurements are preserved. Whole-sheet/category coverage and unresolved geometry still require review.'] } };
       }
-      return localStageCheckpoint(request);
+      this.priorEvidence.set(`${request.sheet.physicalPageNumber}:${request.passType}`,result);
+      return result;
     }
     const page = this.pages.get(request.sheet.physicalPageNumber);
     if (!page || page.byteLength > MAX_PAGE_BYTES) throw new ProjectApiError(422, 'The isolated stage PDF is unavailable or exceeds its bound.');

@@ -57,6 +57,46 @@ function success(provider: string, text = checkpoint()) {
   if (provider === 'claude') return { id: 'msg-1', stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: 'private' }, { type: 'text', text }], usage: { input_tokens: 123, output_tokens: 45 } };
   return { responseId: 'gemini-1', candidates: [{ finishReason: 'STOP', content: { parts: [{ thought: true, text: 'private' }, { text }] } }], usageMetadata: { promptTokenCount: 123, candidatesTokenCount: 40, thoughtsTokenCount: 5 } };
 }
+
+test('risk review receives regional legibility blockers and local geometry limits, and cannot close them',async()=>{
+  const {input,request}=await fixture(),meter=accounting();let regionCalls=0,riskContext:any[]=[];
+  const settings={...env('openai','gpt-6-astra'),TAKEOFF_V2_REGIONAL_REVIEW_ENABLED:'true',TAKEOFF_V2_REGION_GRID:'2',
+    TAKEOFF_V2_STAGE_DISCIPLINE_ENABLED:'true',TAKEOFF_V2_STAGE_DISCIPLINE_PROVIDER:'openai',TAKEOFF_V2_STAGE_DISCIPLINE_MODEL:'gpt-6-astra',
+    TAKEOFF_V2_STAGE_RISK_REVIEW_ENABLED:'true',TAKEOFF_V2_STAGE_RISK_REVIEW_PROVIDER:'openai',TAKEOFF_V2_STAGE_RISK_REVIEW_MODEL:'gpt-6-astra'};
+  const provider=await createStageDeepPassProviderFactory(settings,(async(_url,init)=>{
+    const body=JSON.parse(String(init?.body)),instruction=body.input[0].content.find((c:any)=>c.type==='input_text').text;
+    const risk=instruction.startsWith('Run only risk_review'),value=JSON.parse(checkpoint(2,risk?'risk_review':'discipline'));
+    if(risk)riskContext=JSON.parse(instruction.split('(cross-references, not new visual evidence):\n')[1]);
+    else if(++regionCalls===1){value.status='blocked';value.checkpoint.blockers=['Dimension is illegible in the north-west region.'];}
+    return Response.json(success('openai',JSON.stringify(value)));
+  })as typeof fetch,{regionCheckpoints:{async begin(){return {disposition:'run'}},async save(){}},
+    loadGeometryMeasurements:async()=>({coverageStatus:'partial',humanReviewRequired:true,measurements:[],blockers:['Independent scale confirmation is missing.']})}).create({...input,leaseId:'lease-1'});
+  await provider.runPass(request('geometry'));
+  await meter.run(()=>provider.runPass(request('discipline')));
+  const result=await meter.run(()=>provider.runPass(request('risk_review')));
+  assert.equal(regionCalls,4);const regional=riskContext.find(c=>c.pass_type==='discipline');
+  assert.equal(regional.source_coverage.total_regions,4);assert.equal(regional.source_coverage.completeness_verified,false);
+  assert.deepEqual(regional.source_coverage.regions[0].blockers,['Dimension is illegible in the north-west region.']);
+  const geometry=riskContext.find(c=>c.pass_type==='geometry');assert.equal(geometry.coverageStatus,'partial');
+  assert.ok(geometry.blockers.includes('Independent scale confirmation is missing.'));assert.ok(geometry.deterministic_scale);
+  assert.equal(result.status,'blocked');assert.match(JSON.stringify(result.checkpoint.blockers),/Risk review does not close/);
+});
+
+test('risk truncation stays within24K and cannot become clean success in direct or server bridge context',async()=>{
+  const {input,request}=await fixture();
+  const settings={...env('openai','gpt-6-astra'),TAKEOFF_V2_STAGE_RISK_REVIEW_ENABLED:'true',TAKEOFF_V2_STAGE_RISK_REVIEW_PROVIDER:'openai',TAKEOFF_V2_STAGE_RISK_REVIEW_MODEL:'gpt-6-astra'};
+  for(const bridged of [false,true]){
+    const meter=accounting();let sentContext='';
+    const provider=await createStageDeepPassProviderFactory(settings,(async(_url,init)=>{
+      const body=JSON.parse(String(init?.body));sentContext=body.input[0].content.find((c:any)=>c.type==='input_text').text.split('(cross-references, not new visual evidence):\n')[1];
+      return Response.json(success('openai',checkpoint(2,'risk_review')));
+    })as typeof fetch,{loadPriorEvidence:async()=>bridged?[]:[{status:'blocked',checkpoint:{physical_page_number:2,pass_type:'classification',observations:[{description:'x'.repeat(25000)}],blockers:['Cross-page conflict still unresolved.']}}],
+      ...(bridged?{evidenceTransport:async()=>({raw:success('openai',checkpoint(2,'risk_review')),bridgeSource:{inputKind:'pdf' as const,textTruncated:false,contextTruncated:true,priorReviewRequired:true}})}:{})}).create(input);
+    const result=await meter.run(()=>provider.runPass(request('risk_review')));
+    if(!bridged){assert.ok(sentContext.length<=24000);assert.equal(JSON.parse(sentContext).context_complete,false);assert.match(sentContext,/context_capacity_reached/);}
+    assert.equal(result.status,'blocked');assert.match(JSON.stringify(result.checkpoint.blockers),/whole-set reconciliation is incomplete/);
+  }
+});
 test('stage transports send documented JSON contracts and one physical PDF only, after reservation', async () => {
   const { input, request } = await fixture();
   for (const [providerName, model, effort, expectedGeminiThinking] of [
