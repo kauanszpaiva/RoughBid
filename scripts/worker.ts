@@ -16,12 +16,10 @@ import {
 import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
 import { DurableFullTakeoffV2Processor, requeueDueFullTakeoffBudgetRuns, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
 import { createStageDeepPassProviderFactory } from '../apps/api/src/takeoff-v2/stage-provider.ts';
-import { requireStageDeepPassConfig } from '../apps/api/src/takeoff-v2/stage-config.ts';
 import { SqlRegionCheckpointStore } from '../apps/api/src/takeoff-v2/stage-regions.ts';
 import { createLocalRegionRenderer } from '../apps/api/src/takeoff-v2/local-region-renderer.ts';
-import { configureFullRunSpendLimits, requireFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
-import { fullTakeoffApprovalProfile, userApprovedFullRunLimits } from '../apps/api/src/takeoff-v2/user-spend-approval.ts';
-import { paidFullRunLimits } from '../apps/api/src/takeoff-v2/paid-access.ts';
+import { configureFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
+import { createFullTakeoffRunSpendPolicy } from '../apps/api/src/takeoff-v2/paid-access.ts';
 import { loadAcceptedGeometryMeasurements } from '../apps/api/src/takeoff-v2/measurement-review.ts';
 import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
@@ -181,8 +179,8 @@ async function main() {
   }
 
   if (process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.TAKEOFF_V2_WORKER_ENABLED === 'true') {
-    // Validate exact capabilities and separately approved exposure before a
-    // consumer is advertised. This starts no provider request and no spending.
+    // Validate exact capabilities before advertising a consumer. Spending
+    // authority is validated per run, before its budget is persisted.
     const rpc = async (name: string, args: Record<string, unknown>) => await db.rpc(name, args);
     const workerId = crypto.randomUUID();
     const bridge = process.env.TAKEOFF_V2_TRANSPORT === 'bridge'
@@ -190,16 +188,14 @@ async function main() {
     // Key parity, real endpoint, schema and exact profile are proven without inference.
     // A configured bridge failure never falls back to local provider credentials.
     if (bridge) await bridge.handshake();
-    const spendLimits = requireFullRunSpendLimits(process.env, requireStageDeepPassConfig(process.env));
-    const approvalProfile = fullTakeoffApprovalProfile(process.env);
+    const runSpendPolicy = createFullTakeoffRunSpendPolicy(process.env);
     const schema = await db.rpc('full_takeoff_stage_schema_ready');
     if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
       ...(bridge ? { evidenceTransport: bridge.evidenceTransport } : {}),
       async prepareRun(input){
-        await configureFullRunSpendLimits(input,input.manifest.paidAuthorization ? paidFullRunLimits(input.manifest,process.env)
-          : userApprovedFullRunLimits(input.manifest.spendApproval,approvalProfile,spendLimits),rpc);
+        await configureFullRunSpendLimits(input,runSpendPolicy(input.manifest),rpc);
         if(geometryProfile?.kamai&&geometryQueue){
           const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
             .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();

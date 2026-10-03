@@ -3,7 +3,9 @@ import { hashPaidFullContract, validatePaidFullContract, type PaidFullContract }
 import type { PlanReadingFindingsWriter } from '../ai-plan/service.ts';
 import { ProjectApiError, type SupabaseLike } from '../projects/service.ts';
 import type { PlanSetManifest } from './types.ts';
-import type { FullRunSpendLimit } from './run-spend-policy.ts';
+import { requireFullRunSpendLimits, type FullRunSpendLimit } from './run-spend-policy.ts';
+import { requireStageDeepPassConfig } from './stage-config.ts';
+import { fullTakeoffApprovalProfile, userApprovedFullRunLimits } from './user-spend-approval.ts';
 
 export interface PaidFullAuthorization {
   quoteId: string;
@@ -42,4 +44,15 @@ export function paidFullRunLimits(manifest: PlanSetManifest, env: Record<string,
   }
   return contract.providers.map(provider => ({ ...provider, models: [...provider.models],
     approvalRef: `${contract.version}:${saved.quoteId}:${saved.paymentRevision}` }));
+}
+
+/** Startup validates capabilities; each run supplies its own spending authority. */
+export function createFullTakeoffRunSpendPolicy(env: Record<string, string | undefined>): (manifest: PlanSetManifest) => FullRunSpendLimit[] {
+  requireStageDeepPassConfig(env);
+  return manifest => {
+    // A paid contract never inherits or falls back to complimentary approval.
+    if (manifest.paidAuthorization) return paidFullRunLimits(manifest, env);
+    const limits = requireFullRunSpendLimits(env, requireStageDeepPassConfig(env));
+    return userApprovedFullRunLimits(manifest.spendApproval, fullTakeoffApprovalProfile(env), limits);
+  };
 }
