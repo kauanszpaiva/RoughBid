@@ -110,7 +110,7 @@ test('founder Full availability requires authorized project, live heartbeat and 
 
 test('queue retries are durable identity retries and never add a second provider attempt id',async()=>{
   let added:any;
-  class Queue {async getWorkers(){return[{}];}async add(name:string,data:any,options:any){added={name,data,options};}async close(){}}
+  class Queue {client=Promise.resolve({status:'ready',eval:async()=>1});async getWorkers(){return[];}async add(name:string,data:any,options:any){added={name,data,options};}async close(){}}
   const queue=await createFullTakeoffV2Queue('redis://localhost',async()=>({Queue}) as never);
   await queue.add('run');assert.equal(added.options.jobId,'run');assert.equal(added.options.attempts,3);
   assert.deepEqual(added.data,{runId:'run'});assert.equal(await queue.isWorkerAvailable(),true);

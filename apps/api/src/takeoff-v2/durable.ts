@@ -9,6 +9,7 @@ import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from './servi
 import type { DeepCheckpointRepository, DeepPassRequest, DeepPassResult, PlanSetManifest } from './types.ts';
 import type { AutomaticGeometryCoordinator } from './automatic-geometry.ts';
 import { approveFullTakeoffSpend, fullTakeoffApprovalProfile } from './user-spend-approval.ts';
+import { fullTakeoffConsumerPresent, type PresenceRedis } from './worker-presence.ts';
 
 export const FULL_TAKEOFF_V2_QUEUE = 'takeoff-full-v2';
 export const FULL_TAKEOFF_V2_DURABLE_VERSION = 'takeoff-v2.2-durable';
@@ -25,10 +26,13 @@ export async function createFullTakeoffV2Queue(redisUrl: string,
   if (!redisUrl) throw new Error('REDIS_URL is required for durable Full Takeoff.');
   const bull = await loader();
   const queue = new bull.Queue(FULL_TAKEOFF_V2_QUEUE, { connection: {
-    url: redisUrl, maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 5_000, retryStrategy: () => null,
+    url: redisUrl, maxRetriesPerRequest: 1, enableOfflineQueue: false, autoResendUnfulfilledCommands: false,
+    connectTimeout: 5_000, commandTimeout: 5_000, retryStrategy: () => null,
   } });
   return {
-    async isWorkerAvailable() { try { return (await queue.getWorkers()).length > 0; } catch { return false; } },
+    async isWorkerAvailable() {
+      return fullTakeoffConsumerPresent((queue as unknown as { client: Promise<PresenceRedis> }).client);
+    },
     add(runId) {
       // Retries recover transport/process crashes. The SQL pass claims never
       // redispatch an uncertain provider call, even after its worker lease ends.
