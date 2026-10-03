@@ -419,7 +419,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       try {
         if (!readingOrderPanel.current) throw new Error('Your saved purchase is still loading. Try again when its status is ready.');
         await readingOrderPanel.current.prepare();
-        if (uploadScope.current === captured && photoIntakeState.count) await photoPanel.current?.generate();
+        if (uploadScope.current === captured && photoIntakeState.count) {
+          await grantWorkspaceAiConsent(workspaceId);
+          if (uploadScope.current === captured) await photoPanel.current?.generate();
+        }
       } catch (error) { if (uploadScope.current === captured) setPlanNotice(readableApiError(error)); }
       return;
     }
