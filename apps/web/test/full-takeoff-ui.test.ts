@@ -287,3 +287,23 @@ test('Full V2 polling and individual evidence reads use the durable API and lega
   assert.match(wrapper, /aiPlanMode: 'quick'/);
   assert.doesNotMatch(plansCode, /setFullTakeoffV2\(value\.fullTakeoffV2\)/);
 });
+
+test('configuration recovery sends current approval through resume without changing legacy cancellation',async()=>{
+  const calls:unknown[]=[],approval={confirmed:true,policyId:'current',budgetsUsd:{gemini:1}};
+  const context={canWrite:true,workspaceId:'workspace',jobId:'run',fullRun:run({status:'failed',error_code:'reading_configuration_unavailable',payment_kind:'complimentary'}),
+    runActionInFlight:{current:false},runActionNeedsRefresh:{current:false},presentFullTakeoffStatus,
+    reviewContext:{current:'same'},contextKey:'same',setRunAction:noop,setRunActionError:noop,setFullRun:noop,setReload:noop,
+    cancelFullTakeoffRun:async()=>{throw new Error('No cancellation');},
+    restartFullTakeoffRun:async(...args:unknown[])=>{calls.push(args);return{id:'run',status:'queued'};}};
+  await productionFunction(modalCode,'handleRunAction',context)('restart',approval);
+  assert.deepEqual(calls,[['workspace','run',approval]]);
+});
+
+test('restart API serializes fresh approval only when supplied',async()=>{
+  const calls:any[]=[],api=readFileSync(new URL('../app/src/services/api.ts',import.meta.url),'utf8');
+  const restart=productionFunction(api,'restartFullTakeoffRun',{request:async(...args:any[])=>calls.push(args),encodeURIComponent});
+  const approval={confirmed:true,policyId:'current',budgetsUsd:{gemini:1}};
+  await restart('workspace','run',approval);await restart('workspace','run');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1].body)),{spend_approval:approval});
+  assert.equal('body' in calls[1][1],false,'normal resume retains its original request contract');
+});

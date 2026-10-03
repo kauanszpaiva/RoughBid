@@ -20,6 +20,7 @@ import {
   cancelFullTakeoffRun,
   restartFullTakeoffRun,
   type FullTakeoffRun,
+  type FullTakeoffSpendInput,
   type FullTakeoffPass,
   type FullTakeoffCheckpoint,
   setPlanReadingFindingStatus,
@@ -28,6 +29,7 @@ import {
 } from "../services/api";
 import { TakeoffCoverageDashboard } from "./TakeoffCoverageDashboard";
 import { PlanMeasurementPanel } from "./PlanMeasurementPanel";
+import { FullReadingConfigurationRecovery } from './FullReadingConfigurationRecovery';
 import { isAiPlanInFlight, presentFullTakeoffCheckpoint, presentFullTakeoffStatus, presentFullTakeoffRegions, isFullRegionalPass, fullRegionRectangle } from "../utils/aiPlanStatus";
 
 interface AIPlanModalProps {
@@ -169,7 +171,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleRunAction = async (action: "cancel" | "restart") => {
+  const handleRunAction = async (action: "cancel" | "restart", approval?: FullTakeoffSpendInput) => {
     if (!canWrite || !workspaceId || !jobId || !fullRun || runActionInFlight.current || runActionNeedsRefresh.current) return;
     const presentation = presentFullTakeoffStatus(fullRun);
     if (action === "cancel" ? !presentation.canCancel : !presentation.canRestart) return;
@@ -177,7 +179,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     setRunAction(action);
     setRunActionError(null);
     try {
-      const result = action === "cancel" ? await cancelFullTakeoffRun(workspaceId, jobId) : await restartFullTakeoffRun(workspaceId, jobId);
+      const result = action === "cancel" ? await cancelFullTakeoffRun(workspaceId, jobId) : await restartFullTakeoffRun(workspaceId, jobId, approval);
       if (reviewContext.current !== contextKey) return;
       setFullRun(previous => previous ? { ...previous, status: result.status } : previous);
       setReload(value => value + 1);
@@ -322,11 +324,14 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
             {presentation.canCancel && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("cancel")} className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-rose-800 disabled:opacity-50">
               {runAction === "cancel" ? "Requesting cancellation…" : "Cancel reading"}
             </button>}
-            {presentation.canRestart && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("restart")} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50">
+            {presentation.canRestart && !(run.error_code === 'reading_configuration_unavailable' && run.payment_kind === 'complimentary') && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("restart")} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50">
               {runAction === "restart" ? "Requesting resume…" : "Resume from saved stages"}
             </button>}
           </div>}
         </section>
+        {canWrite && presentation.canRestart && run.error_code === 'reading_configuration_unavailable' && run.payment_kind === 'complimentary' && workspaceId && project.remoteId && <FullReadingConfigurationRecovery
+          key={`${contextKey}:${reload}`} workspaceId={workspaceId} projectId={project.remoteId} busy={Boolean(runAction) || Boolean(runActionError)}
+          onApprove={approval => void handleRunAction('restart',approval)} />}
         {jobError && <div role="alert" className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
           <p>Saved progress could not be refreshed: {jobError}</p><p>The worker may still be running. Last saved evidence remains below.</p>
           <button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Reload saved progress</button>

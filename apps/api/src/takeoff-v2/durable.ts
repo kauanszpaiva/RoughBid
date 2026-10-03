@@ -177,7 +177,7 @@ export class DurableFullTakeoffV2Service {
 
   async get(runId: string) {
     const run = dbValue<any>(await this.db.from('takeoff_runs')
-      .select('id,workspace_id,project_id,file_id,file_sha256,status,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error,not_before,waiting_reason,error_code')
+      .select('id,workspace_id,project_id,file_id,file_sha256,status,payment_kind,orchestrator_version,progress,output_summary,created_at,started_at,completed_at,updated_at,cancel_requested_at,processing_error,not_before,waiting_reason,error_code')
       .eq('id', runId).eq('workspace_id', this.workspaceId).eq('mode', 'full')
       .eq('orchestrator_version', FULL_TAKEOFF_V2_DURABLE_VERSION).maybeSingle(), 'Could not read Full Takeoff progress.');
     if (!run) throw new ProjectApiError(404, 'Full Takeoff run not found.');
@@ -243,8 +243,27 @@ export class DurableFullTakeoffV2Service {
     return canceled.data;
   }
 
-  async restart(runId: string) {
+  async restart(runId: string, spendInput?: unknown) {
     await this.ready();
+    const run = dbValue<any>(await this.db.from('takeoff_runs').select('id,status,error_code,payment_kind,project_id,file_id,manifest')
+      .eq('id',runId).eq('workspace_id',this.workspaceId).eq('mode','full')
+      .eq('orchestrator_version',FULL_TAKEOFF_V2_DURABLE_VERSION).maybeSingle(), 'Could not verify the saved reading.');
+    if (!run) throw new ProjectApiError(404,'Full Takeoff run not found.');
+    if (run.status === 'failed' && run.error_code === 'reading_configuration_unavailable' && run.payment_kind === 'complimentary') {
+      // A normal resume keeps the stale profile forever. Reauthorize only this
+      // untouched failure; SQL independently rejects any prior funding/evidence.
+      const spendApproval = approveFullTakeoffSpend(spendInput,fullTakeoffApprovalProfile(process.env),this.userId);
+      const reserved = await this.writer.rpc!('reserve_full_takeoff_v2', {
+        p_user_id:this.userId,p_workspace_id:this.workspaceId,p_project_id:run.project_id,p_file_id:run.file_id,
+        p_manifest:{...run.manifest,spendApproval},p_version:FULL_TAKEOFF_V2_DURABLE_VERSION,
+      });
+      if (reserved.error || reserved.data?.run?.id !== runId || reserved.data.run.status !== 'queued') {
+        throw new ProjectApiError(409,'This configuration failure cannot be retried until its saved evidence and processing setup are reviewed.');
+      }
+      await this.enqueue(runId);
+      return reserved.data.run;
+    }
+    if (spendInput !== undefined) throw new ProjectApiError(409,'A saved reading with processing history cannot replace its original approval.');
     const restarted = await this.writer.rpc!('restart_full_takeoff_v2', {
       p_run_id: runId, p_user_id: this.userId, p_workspace_id: this.workspaceId,
     });
