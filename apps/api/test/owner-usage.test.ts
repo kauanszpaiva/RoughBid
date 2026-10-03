@@ -22,6 +22,9 @@ test('cost estimates include thinking tokens, validate numbers, and expire rathe
   assert.equal(m.outputTokens,4096); assert.equal(m.estimatedCostUsd,0.03936);
   assert.equal(domain.measureGeminiUsage({promptTokenCount:-1,candidatesTokenCount:2},'gemini-3.8-flash',now),null);
   assert.equal(domain.measureGeminiUsage({promptTokenCount:3,candidatesTokenCount:2},'other-model',now).estimatedCostUsd,null);
+  const december = domain.measureGeminiUsage({promptTokenCount:32000,cachedContentTokenCount:8000,candidatesTokenCount:3000,thoughtsTokenCount:1096},
+    'gemini-3.8-flash',new Date('2026-12-31T23:59:59Z'));
+  assert.equal(december.outputTokens,4096); assert.equal(december.estimatedCostUsd,0.03396);
   assert.equal(domain.measureGeminiUsage({promptTokenCount:3,candidatesTokenCount:2},'gemini-3.8-flash',new Date('2027-01-01')).estimatedCostUsd,null);
 });
 

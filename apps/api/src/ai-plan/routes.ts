@@ -14,6 +14,7 @@ import { hasPlatformAdminProjectAccess, isPlatformAdmin } from '../access/platfo
 import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from '../takeoff-v2/service.ts';
 import { DurableFullTakeoffV2Service, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 import type { AutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
+import { fullTakeoffApprovalProfile, type FullTakeoffApprovalProfile } from '../takeoff-v2/user-spend-approval.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -189,13 +190,17 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       const fullEnabled = process.env.TAKEOFF_V2_ENABLED === 'true';
       if (fullEnabled && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         let fullTakeoffV2Available = false;
+        let fullTakeoffApproval: FullTakeoffApprovalProfile | undefined;
         if (process.env.REDIS_URL && deps.findingsWriter.rpc) {
           try {
             const live = await deps.findingsWriter.rpc('full_takeoff_v2_worker_available', { p_version: 'takeoff-v2.2-durable' });
-            fullTakeoffV2Available = !live.error && live.data === true;
+            if (!live.error && live.data === true) {
+              fullTakeoffApproval = fullTakeoffApprovalProfile(process.env);
+              fullTakeoffV2Available = true;
+            }
           } catch { /* Capability remains false until a verified worker heartbeat succeeds. */ }
         }
-        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available });
+        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval });
       }
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,

@@ -8,6 +8,7 @@ import { DEEP_PASS_ORDER, runDeepTakeoff } from './orchestrator.ts';
 import { FULL_TAKEOFF_V2_MODE, type FullTakeoffV2ProviderFactory } from './service.ts';
 import type { DeepCheckpointRepository, DeepPassRequest, DeepPassResult, PlanSetManifest } from './types.ts';
 import type { AutomaticGeometryCoordinator } from './automatic-geometry.ts';
+import { approveFullTakeoffSpend, fullTakeoffApprovalProfile } from './user-spend-approval.ts';
 
 export const FULL_TAKEOFF_V2_QUEUE = 'takeoff-full-v2';
 export const FULL_TAKEOFF_V2_DURABLE_VERSION = 'takeoff-v2.2-durable';
@@ -77,6 +78,7 @@ export class DurableFullTakeoffV2Service {
     const fileId = typeof input.file_id === 'string' ? input.file_id.trim() : '';
     if (!fileId) throw new ProjectApiError(400, 'file_id is required.');
     await this.ready();
+    const spendApproval = approveFullTakeoffSpend(input.spend_approval, fullTakeoffApprovalProfile(process.env), this.userId);
     const membership = dbValue<any>(await this.db.from('workspace_members').select('role')
       .eq('workspace_id', this.workspaceId).eq('user_id', this.userId).maybeSingle(), 'Could not verify workspace access.');
     if (!membership || !['admin', 'estimator'].includes(membership.role)) throw new ProjectApiError(403, 'Admin or estimator access is required for Full Takeoff.');
@@ -93,6 +95,7 @@ export class DurableFullTakeoffV2Service {
     let manifest: PlanSetManifest;
     try { manifest = await createPlanSetManifest(bytes); }
     catch { throw new ProjectApiError(422, 'The uploaded file could not be deterministically preflighted as a PDF.'); }
+    manifest.spendApproval = spendApproval;
     if (manifest.physicalPageCount > 200) throw new ProjectApiError(422, 'Full Takeoff V2 supports at most 200 physical PDF pages per run.');
     if (Number.isInteger(file.page_count) && file.page_count > 0 && file.page_count !== manifest.physicalPageCount) {
       throw new ProjectApiError(409, 'Stored page count does not match deterministic Full Takeoff preflight.');
@@ -292,6 +295,10 @@ export class DurableFullTakeoffV2Processor {
       if (manifest.fileSha256 !== context.manifest?.fileSha256 || manifest.physicalPageCount !== context.manifest?.physicalPageCount) {
         throw new Error('Full Takeoff plan identity changed after authorization.');
       }
+      if (context.manifest?.spendApproval?.approvedBy !== context.requested_by) {
+        throw new Error('Full Takeoff user spending approval is missing or belongs to another requester.');
+      }
+      manifest.spendApproval = context.manifest.spendApproval;
       const checkpoints = new LeasedDeepCheckpointRepository(rpc, job.data.runId, leaseId, assertActive,
         async value => { await job.updateProgress?.(value).catch(() => {}); });
       const summary = await withUsageMeter({ writer: this.writer, userId: context.requested_by,

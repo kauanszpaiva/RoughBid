@@ -1,10 +1,19 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
 import { createPlanSetManifest } from '../src/takeoff-v2/preflight.ts';
 import { DEEP_PASS_ORDER } from '../src/takeoff-v2/orchestrator.ts';
 import { DurableFullTakeoffV2Processor, DurableFullTakeoffV2Service, createFullTakeoffV2Queue } from '../src/takeoff-v2/durable.ts';
+
+import { consentTestEnv } from './helpers/full-takeoff-consent-fixture.ts';
+import { approveFullTakeoffSpend, fullTakeoffApprovalProfile } from '../src/takeoff-v2/user-spend-approval.ts';
+const previousConsentEnv = Object.fromEntries(Object.keys(consentTestEnv).map(key => [key, process.env[key]]));
+Object.assign(process.env, consentTestEnv);
+after(() => { for (const [key, value] of Object.entries(previousConsentEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+const profile = fullTakeoffApprovalProfile(consentTestEnv);
+const spendInput = { confirmed: true, policyId: profile.policyId, budgetsUsd: { gemini: 1 } };
+const spendApproval = approveFullTakeoffSpend(spendInput, profile, 'user');
 
 function query(data: unknown, selected?: (columns: string) => void) {
   const result: any = {};
@@ -32,7 +41,7 @@ test('full HTTP always enqueues with 202 without constructing the provider, irre
   let calls=0,enqueued='';
   try {
     const response=await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-readings',{
-      method:'POST',headers:{'x-workspace-id':'workspace','content-type':'application/json'},body:JSON.stringify({file_id:'file',mode:'full_v2'}),
+      method:'POST',headers:{'x-workspace-id':'workspace','content-type':'application/json'},body:JSON.stringify({file_id:'file',mode:'full_v2',spend_approval:spendInput}),
     }),db() as never,{
       storage:{presign:async()=>({url:'https://storage.test/source.pdf'})},reader:{read:async()=>{calls++;throw new Error('No HTTP provider');}},
       fullTakeoffV2ProviderFactory:{create:()=>{calls++;throw new Error('No HTTP factory');}},paidReaderAvailable:false,
@@ -45,7 +54,7 @@ test('full HTTP always enqueues with 202 without constructing the provider, irre
     });
     assert.equal(response.status,202);assert.equal(enqueued,'run');assert.equal(calls,0);
     const mixed=await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-readings',{
-      method:'POST',headers:{'x-workspace-id':'workspace','content-type':'application/json'},body:JSON.stringify({file_id:'file',mode:'full_v2',page_number:1}),
+      method:'POST',headers:{'x-workspace-id':'workspace','content-type':'application/json'},body:JSON.stringify({file_id:'file',mode:'full_v2',spend_approval:spendInput,page_number:1}),
     }),db() as never,{storage:{presign:async()=>({url:'https://test'})},reader:{read:async()=>{calls++;throw new Error('No HTTP provider');}},findingsWriter:{from:()=>{}},paidReaderAvailable:true});
     assert.equal(mixed.status,400);assert.equal(calls,0);
   }finally {globalThis.fetch=originalFetch;if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(legacy===undefined)delete process.env.AI_PLAN_DURABLE_ENABLED;else process.env.AI_PLAN_DURABLE_ENABLED=legacy;}
@@ -56,8 +65,21 @@ test('missing durable schema/worker closes Full before downloading or creating a
   const service=new DurableFullTakeoffV2Service(db() as never,{from:()=>{throw new Error('unused');},rpc:async(fn)=>{
     if(fn==='reserve_full_takeoff_v2')reservations++;return{data:false,error:null};
   }},{presign:async()=>{downloads++;return{url:'https://test'};}},{isWorkerAvailable:async()=>true,add:async()=>{}},'user','workspace');
-  await assert.rejects(service.reserve('project',{mode:'full_v2',file_id:'file'}),(e:any)=>e.status===503);
+  await assert.rejects(service.reserve('project',{mode:'full_v2',spend_approval:spendInput,file_id:'file'}),(e:any)=>e.status===503);
   assert.equal(downloads,0);assert.equal(reservations,0);
+});
+
+test('missing or stale explicit spending approval stops HTTP before downloading, reserving or queuing', async () => {
+  let downloads = 0, reservations = 0, enqueues = 0;
+  const service = new DurableFullTakeoffV2Service(db() as never, { from: () => {}, rpc: async fn => {
+    if (fn === 'reserve_full_takeoff_v2') reservations++;
+    return { data: true, error: null };
+  } }, { presign: async () => { downloads++; return { url: 'https://storage.test/plan.pdf' }; } },
+  { isWorkerAvailable: async () => true, add: async () => { enqueues++; } }, 'user', 'workspace');
+  for (const approval of [undefined, { ...spendInput, confirmed: false }, { ...spendInput, policyId: 'old-profile' }]) {
+    await assert.rejects(service.reserve('project', { mode: 'full_v2', file_id: 'file', spend_approval: approval }), (error: any) => error.status === 400);
+  }
+  assert.deepEqual({ downloads, reservations, enqueues }, { downloads: 0, reservations: 0, enqueues: 0 });
 });
 
 test('Full HTTP defers automatic geometry to its durable worker and cancellation includes its scoped children',async()=>{
@@ -68,13 +90,13 @@ test('Full HTTP defers automatic geometry to its durable worker and cancellation
     {run:{id:'run',status:'queued'},reused:false}:{id:'run',status:'cancelled'},error:null})};
   const service=new DurableFullTakeoffV2Service(db() as never,writer,{presign:async()=>({url:'https://storage.test/fixture.pdf'})},
     {isWorkerAvailable:async()=>true,add:async()=>{enqueued++;}},'user','workspace',(async()=>new Response(bytes)) as typeof fetch,coordinator);
-  const reserved=await service.reserve('project',{file_id:'file',mode:'full_v2'});
+  const reserved=await service.reserve('project',{file_id:'file',mode:'full_v2',spend_approval:spendInput});
   assert.equal(prepared,0);assert.equal(enqueued,1);assert.equal(reserved.automaticGeometry!.state,'deferred_to_durable_worker');
   const result=await service.cancel('run');assert.equal(result.automaticGeometry.cancelledChildren,2);
   assert.deepEqual(cancelled,{runId:'run',workspaceId:'workspace',userId:'user'});
 });
 
-test('founder Full availability needs only authorized project and live Full heartbeat, independent of legacy reader or checkout',async()=>{
+test('founder Full availability requires authorized project, live heartbeat and a public approval profile, independent of legacy reader or checkout',async()=>{
   const previous=process.env.TAKEOFF_V2_ENABLED,redis=process.env.REDIS_URL;
   process.env.TAKEOFF_V2_ENABLED='true';process.env.REDIS_URL='redis://localhost';
   try {
@@ -82,7 +104,7 @@ test('founder Full availability needs only authorized project and live Full hear
       storage:{presign:async()=>({url:'https://test'})},reader:{read:async()=>{throw new Error('No reader required');}},paidReaderAvailable:false,
       findingsWriter:{from:()=>{},rpc:async(fn)=>{assert.equal(fn,'full_takeoff_v2_worker_available');return{data:true,error:null};}},
     });
-    assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:true});
+    assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:true,fullTakeoffApproval:profile});
   }finally {if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(redis===undefined)delete process.env.REDIS_URL;else process.env.REDIS_URL=redis;}
 });
 
@@ -94,8 +116,9 @@ test('queue retries are durable identity retries and never add a second provider
   assert.deepEqual(added.data,{runId:'run'});assert.equal(await queue.isWorkerAvailable(),true);
 });
 
-async function workerFixture(options:{cancelAfterCall?:boolean;uncertain?:boolean;reuse?:boolean}={}) {
-  const bytes=await pdf(),manifest=await createPlanSetManifest(bytes),saved=new Map<string,any>(),rpcNames:string[]=[];
+async function workerFixture(options:{cancelAfterCall?:boolean;uncertain?:boolean;reuse?:boolean;wrongApprovalActor?:boolean}={}) {
+  const bytes=await pdf(),manifest={...await createPlanSetManifest(bytes),spendApproval},saved=new Map<string,any>(),rpcNames:string[]=[];
+  if (options.wrongApprovalActor) manifest.spendApproval = { ...spendApproval, approvedBy: 'other-user' };
   let providerCalls=0,canceled=false,finalized=false,now=0;
   const writer={from:()=>{throw new Error('mock factory does not meter external requests');},rpc:async(fn:string,args:any)=>{
     rpcNames.push(fn);
@@ -131,6 +154,13 @@ test('worker reuse skips completed calls; uncertain claims and cancellation neve
   assert.equal(canceled.providerCalls,1);assert.equal(canceled.saved.size,0);assert.equal(canceled.finalized,false);
 });
 
+test('worker rejects a saved approval belonging to another requester before constructing provider evidence', async () => {
+  const fixture = await workerFixture({ wrongApprovalActor: true });
+  await assert.rejects(fixture.processor.process({ data: { runId: 'run' }, attemptsMade: 0, opts: { attempts: 3 } }));
+  assert.equal(fixture.providerCalls, 0);
+  assert.equal(fixture.finalized, false);
+});
+
 test('progress summary excludes source checkpoints; selected detail is limited to one pass',async()=>{
   const selected:string[]=[];
   const readDb={from:(table:string)=>query(table==='takeoff_runs'?{id:'run',project_id:'project'}:table==='plan_sheets'?[{id:'sheet',physical_page_number:1}]:table==='takeoff_measurement_reviews'?[{review_status:'accepted'},{review_status:'blocked'}]:[{plan_sheet_id:'sheet',pass_type:'geometry',status:'blocked'}],columns=>selected.push(columns))};
@@ -142,7 +172,7 @@ test('progress summary excludes source checkpoints; selected detail is limited t
 });
 
 test('a lost lease aborts the active factory transport signal and cannot finalize or retry',async()=>{
-  const bytes=await pdf(),manifest=await createPlanSetManifest(bytes);let canceled=false,aborted=false,retry:any,finished=false;
+  const bytes=await pdf(),manifest={...await createPlanSetManifest(bytes),spendApproval};let canceled=false,aborted=false,retry:any,finished=false;
   const writer={from:()=>{},rpc:async(fn:string,args:any)=>{
     if(fn==='claim_full_takeoff_v2')return{data:{lease_id:'lease',manifest,workspace_id:'workspace',project_id:'project',file_id:'file',storage_path:'workspace/project/file/source.pdf',requested_by:'user'},error:null};
     if(fn==='heartbeat_full_takeoff_v2')return{data:!canceled,error:null};

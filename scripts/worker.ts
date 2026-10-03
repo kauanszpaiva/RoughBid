@@ -19,6 +19,7 @@ import { requireStageDeepPassConfig } from '../apps/api/src/takeoff-v2/stage-con
 import { SqlRegionCheckpointStore } from '../apps/api/src/takeoff-v2/stage-regions.ts';
 import { createLocalRegionRenderer } from '../apps/api/src/takeoff-v2/local-region-renderer.ts';
 import { configureFullRunSpendLimits, requireFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
+import { fullTakeoffApprovalProfile, userApprovedFullRunLimits } from '../apps/api/src/takeoff-v2/user-spend-approval.ts';
 import { loadAcceptedGeometryMeasurements } from '../apps/api/src/takeoff-v2/measurement-review.ts';
 import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
@@ -172,12 +173,13 @@ async function main() {
     // consumer is advertised. This starts no provider request and no spending.
     const rpc = async (name: string, args: Record<string, unknown>) => await db.rpc(name, args);
     const spendLimits = requireFullRunSpendLimits(process.env, requireStageDeepPassConfig(process.env));
+    const approvalProfile = fullTakeoffApprovalProfile(process.env);
     const schema = await db.rpc('full_takeoff_stage_schema_ready');
     if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
       async prepareRun(input){
-        await configureFullRunSpendLimits(input,spendLimits,rpc);
+        await configureFullRunSpendLimits(input,userApprovedFullRunLimits(input.manifest.spendApproval,approvalProfile,spendLimits),rpc);
         if(geometryProfile?.kamai&&geometryQueue){
           const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
             .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();

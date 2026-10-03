@@ -135,8 +135,9 @@ export class HttpPhotoReader implements PhotoReader {
       return parsePhotoReading(JSON.parse(text),input.asset,input.references);
     }
     const geminiBody={
-        systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{inlineData:{mimeType:input.asset.mimeType,data},mediaResolution:{level:'media_resolution_high'}},{text:'Inspect this image and return the bounded evidence checkpoint.'}]}],
-        generationConfig:{maxOutputTokens:config.maxOutputTokens,thinkingConfig:{thinkingLevel:config.reasoningEffort},responseFormat:{text:{mimeType:'application/json',schema}}},
+        // generateContent uses REST enums for resolution, reasoning and output MIME.
+        systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{inlineData:{mimeType:input.asset.mimeType,data},mediaResolution:{level:'MEDIA_RESOLUTION_HIGH'}},{text:'Inspect this image and return the bounded evidence checkpoint.'}]}],
+        generationConfig:{maxOutputTokens:config.maxOutputTokens,thinkingConfig:{thinkingLevel:config.reasoningEffort.toUpperCase()},responseFormat:{text:{mimeType:'APPLICATION_JSON',schema}}},
     };
     if (Buffer.byteLength(JSON.stringify(geminiBody))>20_000_000) throw new Error('photo_provider_image_limits_require_crop');
     raw = await meterGeminiCall(config.model,'generate',() => post(this.fetcher,

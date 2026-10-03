@@ -378,8 +378,15 @@ export type PlanReadingJob = {
  * receives false, and the POST route re-checks the allowlist server-side.
  */
 export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
-  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean; fullTakeoffApproval?: FullTakeoffApprovalProfile }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
+
+export interface FullTakeoffApprovalProfile {
+  version: 'full-user-spend-v1';
+  policyId: string;
+  providers: Array<{ provider: string; models: string[]; minimumUsd: number; maximumUsd: number; maximumCalls: number }>;
+}
+export interface FullTakeoffSpendInput { confirmed: true; policyId: string; budgetsUsd: Record<string, number> }
 
 export function createAiPlanReading(workspaceId: string, projectId: string, input: { file_id: string; quote_id?: string; mode?: "quick" | "detailed" | "full_v2"; trades?: string[]; scope?: string }) {
   return request<PlanReadingJob>(`/api/projects/${projectId}/ai-plan-readings`, {
@@ -438,9 +445,9 @@ export type FullTakeoffRun = {
 };
 
 /** Reserve a durable run; the response is an acknowledgement, never completed evidence. */
-export function createFullTakeoffRun(workspaceId: string, projectId: string, fileId: string) {
+export function createFullTakeoffRun(workspaceId: string, projectId: string, fileId: string, approval: FullTakeoffSpendInput) {
   return request<FullTakeoffRun>(`/api/projects/${projectId}/ai-plan-readings`, {
-    method: "POST", workspaceId, body: { file_id: fileId, mode: "full_v2" },
+    method: "POST", workspaceId, body: { file_id: fileId, mode: "full_v2", spend_approval: approval },
   });
 }
 

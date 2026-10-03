@@ -14,6 +14,8 @@ import { isAiPlanInFlight, presentAiPlanStatus, presentFullTakeoffStatus } from 
 import { BlueprintViewer } from "../components/BlueprintViewer";
 import { PhotoTakeoffPanel } from "../components/PhotoTakeoffPanel";
 import { ConstructionBudgetPanel } from "../components/ConstructionBudgetPanel";
+import { fullTakeoffSpendInput } from "../utils/fullTakeoffApproval";
+import type { FullTakeoffApprovalProfile } from "../services/api";
 import { getAiPlanEntitlement, getAiPlanReading, getFullTakeoffRun, createFullTakeoffRun, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
@@ -51,6 +53,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [fullTakeoffV2, setFullTakeoffV2] = useState(false);
   const [fullTakeoffV2Available, setFullTakeoffV2Available] = useState(false);
+  const [fullApprovalProfile, setFullApprovalProfile] = useState<FullTakeoffApprovalProfile | null>(null);
+  const [fullBudgetAmounts, setFullBudgetAmounts] = useState<Record<string, string>>({});
+  const [fullSpendConfirmed, setFullSpendConfirmed] = useState(false);
+  const [fullSpendContext, setFullSpendContext] = useState('');
   const [billingAvailable, setBillingAvailable] = useState(false);
   const [findings, setFindings] = useState<PlanReadingFinding[]>([]);
   // Per-workspace entitlement. Never derived from a global flag: a customer
@@ -70,10 +76,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setFreeReadingAvailable(false);
     setFullTakeoffV2Available(false);
     setFullTakeoffV2(false);
+    setFullApprovalProfile(null);
+    setFullBudgetAmounts({});
+    setFullSpendConfirmed(false);
     setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setFullApprovalProfile(value.fullTakeoffApproval ?? null); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
       .catch(() => { if (active) setEntitlementError(true); });
     return () => { active = false; };
   }, [workspaceId, project.remoteId, entitlementRetry]);
@@ -95,11 +104,13 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const contextRef = useRef('');
   const contextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}:${selectedTrades.join(',')}:${fullTakeoffV2}`;
   const fileContextKey = `${workspaceId}:${project.remoteId}:${currentRevision?.remoteFileId}`;
+  const fullSpendApproval = fullTakeoffSpendInput(fullApprovalProfile, fullBudgetAmounts, fullSpendConfirmed && fullSpendContext === fileContextKey);
   const paidReading = entitlementReady && !freeReadingAvailable && !fullTakeoffV2Available && !pilotActive;
   const quoteRecoveryReady = quoteRecoveryContext === fileContextKey;
   contextRef.current = contextKey;
 
   useEffect(() => { setReadingQuote(null); quoteRefreshId.current = undefined; setPlanNotice(null); setNeedsAiConsent(false); setIsStartingAi(false); }, [workspaceId, project.remoteId, currentRevision?.remoteFileId]);
+  useEffect(() => { setFullBudgetAmounts({}); setFullSpendConfirmed(false); }, [fileContextKey]);
   useEffect(() => { contextRef.current = contextKey; return () => { contextRef.current = ''; }; }, [contextKey]);
 
   // Returning from Checkout or reloading only reads persisted state. The
@@ -348,6 +359,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const handleStartFreeReading = async () => {
     if (!canWrite || paidActionInFlight.current || isUploading || isStartingAi || isPaying) return;
     if (fullTakeoffV2 && !fullTakeoffV2Available) return;
+    if (fullTakeoffV2 && !fullSpendApproval) {
+      setPlanNotice('Enter the provider spending limits and approve this reading before starting.');
+      return;
+    }
     if (!workspaceId || !project.remoteId || !currentRevision?.remoteFileId) {
       setPlanNotice("AI reading requires a signed-in workspace, synced project, and server-uploaded PDF.");
       return;
@@ -358,7 +373,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setNeedsAiConsent(false);
     try {
       if (fullTakeoffV2) {
-        const run = await createFullTakeoffRun(workspaceId, project.remoteId, currentRevision.remoteFileId);
+        const run = await createFullTakeoffRun(workspaceId, project.remoteId, currentRevision.remoteFileId, fullSpendApproval!);
         if (contextRef.current !== contextKey) return;
         setFindings([]);
         const presentation = presentFullTakeoffStatus(run);
@@ -714,6 +729,19 @@ export const PlansPage: React.FC<PlansPageProps> = ({
               </label>}
             </fieldset>
 
+            {fullTakeoffV2 && fullApprovalProfile && <fieldset disabled={isStartingAi || isUploading || !canWrite} className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs">
+              <legend className="font-semibold">Approve provider spending for this reading</legend>
+              <p>Choose a USD ceiling for each provider. These are spending limits, not a quote or a verified account balance. The reading may stop before finishing when a limit is reached.</p>
+              {fullApprovalProfile.providers.map(provider => <label className="block space-y-1" key={provider.provider}>
+                <span className="block font-medium">{provider.provider} · {provider.models.join(', ')}</span>
+                <span className="block">Allowed limit: ${provider.minimumUsd}–${provider.maximumUsd} USD; up to {provider.maximumCalls} calls.</span>
+                <input aria-label={`${provider.provider} spending limit USD`} type="number" min={provider.minimumUsd} max={provider.maximumUsd} step="0.000001" inputMode="decimal" value={fullBudgetAmounts[provider.provider] ?? ''}
+                  onChange={event => { setFullBudgetAmounts(previous => ({ ...previous, [provider.provider]: event.target.value })); setFullSpendConfirmed(false); }} className="w-full rounded border border-slate-300 bg-white p-2" />
+              </label>)}
+              <p>Selected maximum total: {fullTakeoffSpendInput(fullApprovalProfile, fullBudgetAmounts, true) ? `$${fullApprovalProfile.providers.reduce((sum, provider) => sum + Number(fullBudgetAmounts[provider.provider] || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USD` : 'enter all limits'}. Cancellation stops new work; completed or uncertain provider requests can still cost money.</p>
+              <label className="flex items-start gap-2"><input type="checkbox" checked={fullSpendConfirmed && fullSpendContext === fileContextKey} onChange={event => { setFullSpendConfirmed(event.target.checked); setFullSpendContext(fileContextKey); }} /><span>I authorize sending this PDF to the listed providers and spending up to the limits above for this reading. No automatic fallback to another provider is authorized.</span></label>
+            </fieldset>}
+
             {/* Upload New Revision */}
             <label className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 transition cursor-pointer">
               <div className="flex items-center gap-2">
@@ -736,7 +764,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             {entitlementReady && (freeReadingAvailable || fullTakeoffV2Available) && (
               <button
                 onClick={handleStartFreeReading}
-                disabled={!canWrite || (!freeReadingAvailable && !fullTakeoffV2) || (!fullTakeoffV2 && !selectedTrades.length) || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
+                disabled={!canWrite || (!freeReadingAvailable && !fullTakeoffV2) || (fullTakeoffV2 && !fullSpendApproval) || (!fullTakeoffV2 && !selectedTrades.length) || !currentRevision?.remoteFileId || currentRevision.processingStatus !== "ready" || isStartingAi || isPaying || isUploading}
                 className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-medium text-emerald-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-center gap-2">

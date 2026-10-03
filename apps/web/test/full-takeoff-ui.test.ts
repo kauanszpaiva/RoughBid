@@ -88,6 +88,7 @@ function startContext(overrides: Record<string, unknown> = {}) {
     canWrite: true, paidActionInFlight: { current: false }, isUploading: false, isStartingAi: false, isPaying: false,
     workspaceId: 'workspace', project: { remoteId: 'project', projectType: 'Residential' }, currentRevision: { id: 'revision', remoteFileId: 'file' },
     fullTakeoffV2: true, fullTakeoffV2Available: true, selectedTrades: [], contextKey: 'context', contextRef: { current: 'context' },
+    fullSpendApproval: { confirmed: true, policyId: 'unit-profile', budgetsUsd: { gemini: 1 } },
     setIsStartingAi: noop, setPlanNotice: noop, setNeedsAiConsent: noop, setFindings: noop,
     createFullTakeoffRun: async (...input: unknown[]) => { calls.push(input); return run(); },
     createAiPlanReading: async () => { throw new Error('Legacy reading must not run'); },
@@ -101,13 +102,20 @@ function startContext(overrides: Record<string, unknown> = {}) {
 test('owner Full V2 acknowledgement saves its durable identity and mode without a quote or legacy findings', async () => {
   const fixture = startContext();
   await productionFunction(plansCode, 'handleStartFreeReading', fixture.context)();
-  assert.deepEqual(JSON.parse(JSON.stringify(fixture.calls)), [['workspace', 'project', 'file']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.calls)), [['workspace', 'project', 'file', { confirmed: true, policyId: 'unit-profile', budgetsUsd: { gemini: 1 } }]]);
   assert.deepEqual(JSON.parse(JSON.stringify(fixture.patch)), [['revision', { aiPlanJobId: 'durable-run', aiPlanStatus: 'queued', aiPlanMode: 'full_v2' }]]);
   assert.equal((fixture.context.paidActionInFlight as { current: boolean }).current, false);
 });
 
 test('Full V2 selection cannot dispatch when this workspace is not entitled', async () => {
   const fixture = startContext({ fullTakeoffV2Available: false });
+  await productionFunction(plansCode, 'handleStartFreeReading', fixture.context)();
+  assert.equal(fixture.calls.length, 0);
+  assert.equal(fixture.patch.length, 0);
+});
+
+test('Full V2 start requires the current explicit user spend approval', async () => {
+  const fixture = startContext({ fullSpendApproval: null });
   await productionFunction(plansCode, 'handleStartFreeReading', fixture.context)();
   assert.equal(fixture.calls.length, 0);
   assert.equal(fixture.patch.length, 0);

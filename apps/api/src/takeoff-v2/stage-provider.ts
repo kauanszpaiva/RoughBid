@@ -195,8 +195,9 @@ async function requestEvidence(fetcher: typeof fetch, config: StageDeepPassConfi
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'application/pdf', data } }, { text: instruction }] }],
       generationConfig: {
-        maxOutputTokens: stage.maxOutputTokens, thinkingConfig: { thinkingLevel: stage.reasoningEffort },
-        responseFormat: { text: { mimeType: 'application/json', schema } },
+        // generateContent uses REST enum names, unlike the Interactions API.
+        maxOutputTokens: stage.maxOutputTokens, thinkingConfig: { thinkingLevel: stage.reasoningEffort.toUpperCase() },
+        responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema } },
       },
     }), requirement);
   const usage = record(raw.usageMetadata) ? raw.usageMetadata : {};

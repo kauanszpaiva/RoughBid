@@ -59,9 +59,15 @@ function success(provider: string, text = checkpoint()) {
 }
 test('stage transports send documented JSON contracts and one physical PDF only, after reservation', async () => {
   const { input, request } = await fixture();
-  for (const [providerName, model] of [['openai', 'gpt-6-astra'], ['claude', 'claude-opus-5-5'], ['claude', 'claude-fable-5-1'], ['gemini', 'gemini-3.1-pro-preview'], ['gemini', 'gemini-3.8-flash']]) {
+  for (const [providerName, model, effort, expectedGeminiThinking] of [
+    ['openai', 'gpt-6-astra'], ['claude', 'claude-opus-5-5'], ['claude', 'claude-fable-5-1'],
+    ['gemini', 'gemini-3.1-pro-preview', 'high', 'HIGH'], ['gemini', 'gemini-3.1-pro-preview', 'low', 'LOW'],
+    ['gemini', 'gemini-3.8-flash', 'high', 'HIGH'], ['gemini', 'gemini-3.8-flash', 'medium', 'MEDIUM'],
+    ['gemini', 'gemini-3.8-flash', 'low', 'LOW'],
+  ]) {
     const meter = accounting(); let body: any; let url = ''; let signal: AbortSignal | null | undefined;
-    const provider = await createStageDeepPassProviderFactory(env(providerName!, model!), (async (target, init) => {
+    const settings = { ...env(providerName!, model!), ...(effort ? { TAKEOFF_V2_STAGE_CLASSIFICATION_REASONING_EFFORT: effort } : {}) };
+    const provider = await createStageDeepPassProviderFactory(settings, (async (target, init) => {
       meter.calls.push('fetch'); url = String(target); body = JSON.parse(String(init?.body)); signal = init?.signal;
       return Response.json(success(providerName!));
     }) as typeof fetch).create(input);
@@ -79,8 +85,9 @@ test('stage transports send documented JSON contracts and one physical PDF only,
       assert.equal(body.output_config.effort, 'max'); assert.equal(body.output_config.format.type, 'json_schema');
       assert.equal(body.tool_choice, undefined); data = body.messages[0].content[0].source.data;
     } else {
-      assert.match(url, /:generateContent$/); assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'high');
-      assert.equal(body.generationConfig.responseFormat.text.mimeType, 'application/json');
+      // REST discovery revision 20261002: ThinkingConfig / TextResponseFormat enums.
+      assert.match(url, /:generateContent$/); assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, expectedGeminiThinking);
+      assert.equal(body.generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON');
       data = body.contents[0].parts[0].inlineData.data;
     }
     const isolated = await PDFDocument.load(Buffer.from(data!, 'base64')); assert.equal(isolated.getPageCount(), 1);

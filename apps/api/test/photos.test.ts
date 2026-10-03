@@ -132,15 +132,22 @@ test('unreferenced physical quantities and counterfeit sources are rejected inst
   assert.throws(()=>parsePhotoReading(wrong,asset,[]),/invalid_photo_observation/);
 });
 
-for(const [provider,model] of [['openai','gpt-6-astra'],['claude','claude-opus-5-5'],['gemini','gemini-3.1-pro-preview']]){
-  test(`${provider} photo adapter requires a real reservation before its single mocked HTTP dispatch`,async()=>{
-    const config=requirePhotoTakeoffConfig(environment(provider,model)),id=crypto.randomUUID();
+for(const [provider,model,effort,expectedGeminiThinking] of [['openai','gpt-6-astra'],['claude','claude-opus-5-5'],
+  ['gemini','gemini-3.1-pro-preview','high','HIGH'],['gemini','gemini-3.1-pro-preview','low','LOW']]){
+  test(`${provider} ${effort??'default'} photo adapter requires a real reservation before its single mocked HTTP dispatch`,async()=>{
+    const config=requirePhotoTakeoffConfig({...environment(provider,model),...(effort?{PHOTO_TAKEOFF_REASONING_EFFORT:effort}:{})}),id=crypto.randomUUID();
     const asset={id,workspaceId:WORKSPACE,projectId:PROJECT,sha256:createHash('sha256').update(PNG).digest('hex'),revision:'revision-1',
       mimeType:'image/png' as const,byteSize:PNG.length,widthPixels:1,heightPixels:1,storageVerified:true as const};
     let calls=0,reservations=0,allowed=false;
     const transport=(async(url,options)=>{
       calls++;const body=JSON.parse(String(options?.body));
-      if(provider==='gemini')assert.ok(String(url).includes(`/models/${model}:generateContent`));else assert.equal(body.model,model);
+      if(provider==='gemini'){
+        assert.ok(String(url).includes(`/models/${model}:generateContent`));
+        // REST discovery revision 20261002; Interactions-style values are invalid here.
+        assert.equal(body.generationConfig.thinkingConfig.thinkingLevel,expectedGeminiThinking);
+        assert.equal(body.generationConfig.responseFormat.text.mimeType,'APPLICATION_JSON');
+        assert.equal(body.contents[0].parts[0].mediaResolution.level,'MEDIA_RESOLUTION_HIGH');
+      }else assert.equal(body.model,model);
       assert.ok(!String(options?.body).includes('storage.invalid'));
       assert.equal(options?.redirect,'error');assert.ok(options?.signal);
       const payload=JSON.stringify(evidence(id));
