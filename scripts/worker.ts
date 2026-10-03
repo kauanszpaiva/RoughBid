@@ -3,7 +3,8 @@
 // provider-specific durable AI plan-reading queues. Deploy this process only on
 // a host that supports a continuously running worker (Railway/Fly/Render/VM).
 import { createClient } from '@supabase/supabase-js';
-import { Worker } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
+import { createFullTakeoffConsumerPresence, FULL_TAKEOFF_PRESENCE_INTERVAL_MS, type PresenceConsumer, type PresenceRedis } from '../apps/api/src/takeoff-v2/worker-presence.ts';
 import type { DocumentDb } from '../apps/api/src/documents/service.ts';
 import { PdfJobProcessor, PopplerPdfConverter, createBullMqPipeline } from '../apps/api/src/documents/worker.ts';
 import {
@@ -96,6 +97,9 @@ async function main() {
 
   const aiWorkers: Worker[] = [];
   let fullTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
+  let fullTakeoffPresenceTimer: ReturnType<typeof setInterval> | undefined;
+  let fullTakeoffPresence: ReturnType<typeof createFullTakeoffConsumerPresence> | undefined;
+  let fullTakeoffPresenceQueue: Queue | undefined;
   let photoTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   let geometryHeartbeat:ReturnType<typeof setInterval>|undefined;
@@ -235,6 +239,18 @@ async function main() {
     worker.on('error', () => console.error('[worker] Full Takeoff V2 queue connection failed'));
     await worker.waitUntilReady();
     aiWorkers.push(worker);
+    fullTakeoffPresenceQueue = new Queue(FULL_TAKEOFF_V2_QUEUE, { skipMetasUpdate: true, connection: {
+      url: redisUrl, maxRetriesPerRequest: 1, enableOfflineQueue: false, autoResendUnfulfilledCommands: false,
+      connectTimeout: 5000, commandTimeout: 5000,
+    } });
+    fullTakeoffPresenceQueue.on('error', () => console.error('[worker] Full Takeoff V2 presence connection unavailable'));
+    fullTakeoffPresence = createFullTakeoffConsumerPresence(worker as unknown as PresenceConsumer, workerId,
+      fullTakeoffPresenceQueue.client as unknown as Promise<PresenceRedis>);
+    const refreshPresence = async () => {
+      if (!await fullTakeoffPresence!.refresh()) console.error('[worker] Full Takeoff V2 consumer presence unavailable');
+    };
+    await refreshPresence();
+    fullTakeoffPresenceTimer = setInterval(() => { void refreshPresence(); }, FULL_TAKEOFF_PRESENCE_INTERVAL_MS);
     fullTakeoffHeartbeat = setInterval(() => { void touch().catch(() => console.error('[worker] Full Takeoff V2 heartbeat unavailable')); }, 30_000);
     console.log('[worker] Full Takeoff V2 queue attached', { queue: FULL_TAKEOFF_V2_QUEUE, workerId });
   }
@@ -268,8 +284,11 @@ async function main() {
     console.log(`[worker] received ${signal}, shutting down`);
     if (workerHeartbeat) clearInterval(workerHeartbeat);
     if (fullTakeoffHeartbeat) clearInterval(fullTakeoffHeartbeat);
+    if (fullTakeoffPresenceTimer) clearInterval(fullTakeoffPresenceTimer);
     if (photoTakeoffHeartbeat) clearInterval(photoTakeoffHeartbeat);
     if (geometryHeartbeat) clearInterval(geometryHeartbeat);
+    await fullTakeoffPresence?.close();
+    await fullTakeoffPresenceQueue?.close().catch(() => console.error('[worker] Full Takeoff V2 presence connection close unavailable'));
     await Promise.allSettled([
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
       ...aiWorkers.map((worker) => worker.close()),
