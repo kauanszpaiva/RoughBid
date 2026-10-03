@@ -78,7 +78,7 @@ export interface PlanReadingResult {
   findings: PlanReadingFinding[];
 }
 
-const MAX_FINDINGS = 200;
+export const MAX_FINDINGS = 1_000;
 
 /** Only normalized PDF coordinates survive; provider pricing is never persisted. */
 export function sanitizePlanGeometry(raw: unknown): Record<string, unknown> {

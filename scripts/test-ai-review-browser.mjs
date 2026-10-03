@@ -6,7 +6,7 @@ import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Isolated synthetic review responses. No auth, customer PDF, AI or payment.
-const playwright = await import(new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
+const playwright = await import(process.env.PLAYWRIGHT_MODULE_PATH || new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const root = await mkdtemp(path.join(repo, '.review-check-'));
 let server;
@@ -17,7 +17,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AIPlanModal } from '../apps/web/app/src/components/AIPlanModal';
 import { appendAcceptedAiQuantity } from '../apps/web/app/src/utils/aiFindingReview';
-window.reviewHarness = { loads: 0, writes: 0, imports: 0, status: 'needs_review', failLoad: location.search.includes('fail'), lastEstimate: null };
+window.reviewHarness = { loads: 0, writes: 0, imports: 0, unexpected: [], status: 'needs_review', failLoad: location.search.includes('fail'), holdWrite: location.search.includes('hold'), releaseWrite: null, lastEstimate: null };
 function Fixture() {
   const [open, setOpen] = useState(true);
   const [project, setProject] = useState({ id: 'review-project', name: 'SYNTHETIC review test', quantities: [], estimateItems: [], revisions: [{ id: 'revision', isCurrent: true, fileName: 'fixture.pdf', revisionNumber: '01', aiPlanJobId: 'saved-job' }] });
@@ -27,6 +27,16 @@ createRoot(document.getElementById('root')).render(<Fixture />);
 `);
   const stub = `
 export class ApiError extends Error {}
+const unexpected = name => async () => {
+  window.reviewHarness.unexpected.push(name);
+  throw new Error('Unexpected review fixture API call: ' + name);
+};
+export const getFullTakeoffRun = unexpected('getFullTakeoffRun');
+export const getFullTakeoffCheckpoint = unexpected('getFullTakeoffCheckpoint');
+export const cancelFullTakeoffRun = unexpected('cancelFullTakeoffRun');
+export const restartFullTakeoffRun = unexpected('restartFullTakeoffRun');
+export const createDocumentPreviewUrl = unexpected('createDocumentPreviewUrl');
+export const request = unexpected('request');
 export async function getAiPlanReading() {
   const h = window.reviewHarness; h.loads++;
   if (h.failLoad) { h.failLoad = false; throw new Error('Synthetic temporary load failure'); }
@@ -34,7 +44,10 @@ export async function getAiPlanReading() {
 }
 export async function setPlanReadingFindingStatus(workspaceId, findingId, status) {
   window.reviewHarness.writes++;
-  await new Promise(resolve => setTimeout(resolve, 200));
+  await new Promise(resolve => {
+    if (window.reviewHarness.holdWrite) window.reviewHarness.releaseWrite = resolve;
+    else setTimeout(resolve, 200);
+  });
   window.reviewHarness.status = status;
   return { id: findingId, status };
 }
@@ -46,7 +59,9 @@ export async function setPlanReadingFindingStatus(workspaceId, findingId, status
       name: 'isolated-review-api',
       enforce: 'pre',
       resolveId(source, importer) {
-        if (importer?.replaceAll('\\', '/').endsWith('/components/AIPlanModal.tsx') && source === '../services/api') return '\0review-fixture-api';
+        // Include the calibrated measurement and geometry clients imported by
+        // the modal so this synthetic legacy-reading fixture cannot load auth.
+        if (source === '../services/api' || (importer?.replaceAll('\\', '/').includes('/services/') && /^\.\/api(?:\.ts)?$/.test(source))) return '\0review-fixture-api';
       },
       load(id) { if (id === '\0review-fixture-api') return stub; },
     }],
@@ -62,8 +77,13 @@ export async function setPlanReadingFindingStatus(workspaceId, findingId, status
     try {
       const page = await browser.newPage({ viewport: browserName === 'webkit' ? { width: 390, height: 844 } : { width: 1365, height: 900 } });
       const errors = [];
+      const external = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
+      await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.hostname === '127.0.0.1') return route.continue();
+        external.push(url.origin); return route.abort();
+      });
       await page.goto('http://127.0.0.1:4181/?fail=1');
       await page.getByRole('button', { name: 'Retry loading saved reading' }).click();
       await page.getByRole('button', { name: 'Add Item', exact: true }).waitFor({ timeout: 5000 }).catch(async error => { console.log(await page.locator('body').innerText()); throw error; });
@@ -80,19 +100,25 @@ export async function setPlanReadingFindingStatus(workspaceId, findingId, status
       assert.equal(line.pricingStatus, 'missing_price');
       assert.equal(line.materialCost, 0);
       assert.equal(line.pricingSource, undefined);
+      assert.deepEqual(await page.evaluate(() => window.reviewHarness.unexpected), []);
 
       // A successful status write may outlive a closed review. On reopening,
       // accepted-but-unlinked evidence must still be importable exactly once.
-      await page.goto('http://127.0.0.1:4181/');
+      await page.goto('http://127.0.0.1:4181/?hold=1');
       await page.getByRole('button', { name: 'Add Item', exact: true }).click();
+      await page.waitForFunction(() => typeof window.reviewHarness.releaseWrite === 'function');
       await page.getByRole('button', { name: 'Done', exact: true }).click();
+      await page.getByRole('button', { name: 'Add Item', exact: true }).waitFor({ state: 'detached' });
+      await page.evaluate(() => window.reviewHarness.releaseWrite());
       await page.waitForFunction(() => window.reviewHarness.status === 'accepted');
       assert.equal(await page.evaluate(() => window.reviewHarness.imports), 0);
       await page.getByTestId('reopen').click();
       await page.getByRole('button', { name: 'Add Item', exact: true }).click();
       await page.waitForFunction(() => window.reviewHarness.imports === 1);
       assert.equal(await page.evaluate(() => window.reviewHarness.writes), 1, 'Recover the saved acceptance without another status write.');
+      assert.deepEqual(await page.evaluate(() => window.reviewHarness.unexpected), []);
       assert.deepEqual(errors, []);
+      assert.deepEqual(external, []);
       console.log('PASS ' + browserName + ': saved-result retry, visible coverage limits, reentrant acceptance, evidence-only pricing, close/reopen recovery');
     } finally { await browser.close(); }
   }

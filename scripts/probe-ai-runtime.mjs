@@ -7,9 +7,17 @@ const KNOWN_REASONS = new Set([
 ]);
 
 export async function probeAiRuntime(env = process.env, fetcher = fetch) {
-  if (env.PAID_PLAN_READINGS_ENABLED !== 'true') return { status: 'disabled' };
+  const fullGeminiEnabled = env.TAKEOFF_V2_ENABLED === 'true'
+    && env.TAKEOFF_V2_STAGE_PROVIDER_ENABLED === 'true'
+    && env.TAKEOFF_V2_STAGE_CLASSIFICATION_ENABLED === 'true'
+    && env.TAKEOFF_V2_STAGE_CLASSIFICATION_PROVIDER?.trim() === 'gemini';
+  if (env.PAID_PLAN_READINGS_ENABLED !== 'true' && !fullGeminiEnabled) return { status: 'disabled' };
   const key = env.GEMINI_API_KEY?.trim();
-  const model = env.GEMINI_MODEL?.trim();
+  // Match the explicit stage selection, including the shared-model fallback.
+  // Metadata access alone does not verify inference, billing, or quota.
+  const model = (fullGeminiEnabled
+    ? env.TAKEOFF_V2_STAGE_CLASSIFICATION_MODEL ?? env.GEMINI_MODEL
+    : env.GEMINI_MODEL)?.trim();
   if (!key || /masked|redacted|placeholder|changeme|^\[|^</i.test(key)
       || !model || !/^gemini-[a-z0-9][a-z0-9._-]{1,78}$/i.test(model)) {
     return { status: 'unconfigured', code: 'PROVIDER_CONFIGURATION' };

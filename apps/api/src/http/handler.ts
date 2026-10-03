@@ -16,6 +16,7 @@ import { createBillingEndpointHandler } from '../billing/endpoints.ts';
 import { createBillingConfigFromEnv } from '../billing/stripe.ts';
 import { handleAiPlanRequest, type AiPlanRequestDependencies } from '../ai-plan/routes.ts';
 import { createDurableAiPlanQueue, type DurableAiPlanQueue } from '../ai-plan/durable.ts';
+import { createFullTakeoffV2Queue, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
 import { PLAN_READING_UNAVAILABLE } from '../ai-plan/readiness.ts';
@@ -33,6 +34,17 @@ import type { SupabaseLike } from '../projects/service.ts';
 import { handleMarketplaceCatalog } from '../marketplace/catalog.ts';
 import { handleSupplierPriceImport } from '../marketplace/supplier-import.ts';
 import { handleWorkspaceCatalogRequest } from '../catalogs/routes.ts';
+import { handleConstructionBudgetRequest } from '../construction-budget/routes.ts';
+import { handlePhotoRequest } from '../photos/routes.ts';
+import { requirePhotoTakeoffProfile } from '../photos/config.ts';
+import { createPhotoTakeoffQueue, type PhotoTakeoffQueue } from '../photos/queue.ts';
+import type { PhotoRequestDependencies } from '../photos/service.ts';
+import type { DocumentDb } from '../documents/service.ts';
+import { handleMeasurementReviewRequest, type MeasurementReviewDependencies } from '../takeoff-v2/measurement-routes.ts';
+import { handleGeometryRequest } from '../geometry/routes.ts';
+import { loadGeometryProfile } from '../geometry/config.ts';
+import { createGeometryQueue, type GeometryQueue } from '../geometry/queue.ts';
+import { createAutomaticGeometryCoordinator } from '../takeoff-v2/automatic-geometry.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -205,13 +217,71 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       await queue?.close?.().catch(() => {});
     }
   }
-  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname)) {
+  if (/^\/api\/projects\/[^/]+\/(?:construction-budget|supplier-quotes)$/.test(pathname)) {
+    const key=loadSupabaseServiceRoleKey(),url=process.env.SUPABASE_URL?.trim();
+    if(!key||!url)return json({error:'Documented construction budgeting persistence is not configured.'},503);
+    const writer=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+    return handleConstructionBudgetRequest(request,client as unknown as SupabaseLike,writer);
+  }
+  if (/^\/api\/projects\/[^/]+\/geometry\//.test(pathname)) {
+    const key=loadSupabaseServiceRoleKey(),url=process.env.SUPABASE_URL?.trim();
+    if(!key||!url)return json({error:'Geometric evidence persistence is not configured.'},503);
+    let geometryQueue:GeometryQueue|undefined;
+    try{
+      const storage=process.env.BLOB_READ_WRITE_TOKEN?new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env)):new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      let profile:ReturnType<typeof loadGeometryProfile>;
+      try{profile=loadGeometryProfile(process.env);}catch{/* Saved evidence and cancellation remain readable with dispatch closed. */}
+      const needsQueue=pathname.endsWith('/capability')||request.method==='POST'&&/\/runs(?:\/[^/]+\/resume)?$/.test(pathname);
+      if(profile&&needsQueue&&process.env.REDIS_URL){try{geometryQueue=await createGeometryQueue(process.env.REDIS_URL);}catch{/* Intake fails closed. */}}
+      const writer=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}) as unknown as DocumentDb;
+      return await handleGeometryRequest(request,client as unknown as SupabaseLike,{writer,storage,...(profile?{profile}:{}),...(geometryQueue?{queue:geometryQueue}:{})});
+    }catch{return json({error:'Geometric evidence is unavailable. No provider request was started on HTTP.'},503);}
+    finally{await geometryQueue?.close?.().catch(()=>{});}
+  }
+  if (/^\/api\/projects\/[^/]+\/photos\/(?:capability|uploads|runs)(?:\/[^/]+(?:\/(?:complete|download-url|cancel|resume|review))?)?$/.test(pathname)) {
+    const writerKey = loadSupabaseServiceRoleKey();
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    if (!writerKey || !supabaseUrl) return json({ error: 'Private photo processing is not configured.' }, 503);
+    let photoQueue: PhotoTakeoffQueue | undefined;
+    try {
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      // Only public model/profile attestations are needed on HTTP. Credentials
+      // and image-provider requests belong to the isolated photo worker.
+      let config: PhotoRequestDependencies['config'];
+      try { config = requirePhotoTakeoffProfile(process.env); }
+      catch { /* Existing private results/cancellation remain accessible while disabled. */ }
+      const needsQueue = request.method === 'POST' && /\/runs(?:\/[^/]+\/resume)?$/.test(pathname);
+      if (config && needsQueue && process.env.REDIS_URL) {
+        try { photoQueue = await createPhotoTakeoffQueue(process.env.REDIS_URL); }
+        catch { /* Reservation/resume fails closed without its dedicated queue. */ }
+      }
+      const writer = createClient(supabaseUrl, writerKey, { auth: { persistSession: false, autoRefreshToken: false } }) as unknown as DocumentDb;
+      return await handlePhotoRequest(request, client as unknown as SupabaseLike, {
+        writer, storage, ...(config ? { config } : {}), ...(photoQueue ? { queue: photoQueue } : {}),
+      });
+    } catch { return json({ error: 'Private photo processing is not configured.' }, 503); }
+    finally { await photoQueue?.close?.().catch(() => {}); }
+  }
+  if (/^\/api\/takeoff-runs\/[^/]+\/measurements$/.test(pathname)) {
+    const writerKey=loadSupabaseServiceRoleKey(),supabaseUrl=process.env.SUPABASE_URL?.trim();
+    if(!writerKey||!supabaseUrl)return json({error:'Measurement review persistence is not configured.'},503);
+    let storage:MeasurementReviewDependencies['storage'];
+    try { storage=process.env.BLOB_READ_WRITE_TOKEN?new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env)):new S3ObjectStorage(loadObjectStorageConfig(process.env)); }
+    catch { /* Existing manual measurements can be reviewed without vector extraction/storage. */ }
+    const writer=createClient(supabaseUrl,writerKey,{auth:{persistSession:false,autoRefreshToken:false}}) as unknown as PlanReadingFindingsWriter;
+    return handleMeasurementReviewRequest(request,client as unknown as SupabaseLike,{writer,...(storage?{storage}:{})});
+  }
+  if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname) || /^\/api\/takeoff-runs\/[^/]+(?:\/(?:cancel|restart))?$/.test(pathname)) {
     const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();
     const supabaseUrl = process.env.SUPABASE_URL?.trim();
     if (!supabaseServiceRoleKey || !supabaseUrl) {
       return json({ error: 'AI plan reading is not configured.' }, 503);
     }
     let durableQueue: DurableAiPlanQueue | undefined;
+    let fullTakeoffV2Queue: FullTakeoffV2Queue | undefined;
+    let geometryQueue:GeometryQueue|undefined;
     try {
       const storage = process.env.BLOB_READ_WRITE_TOKEN
         ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
@@ -238,7 +308,8 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       } catch { /* Free owner route stays closed until its own config is verified. */ }
 
       const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
-      if (!readers.length && !freeReader && !pilotReader && isCreateReading) {
+      const fullV2Request = isCreateReading && (await request.clone().json().catch(() => ({})))?.mode === 'full_v2';
+      if (!readers.length && !freeReader && !pilotReader && isCreateReading && !fullV2Request) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
       if (isCreateReading && process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
@@ -250,12 +321,25 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           catch { /* The selected durable route will fail closed without a queue. */ }
         }
       }
+      if ((fullV2Request || pathname.endsWith('/restart')) && process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.REDIS_URL) {
+        try { fullTakeoffV2Queue = await createFullTakeoffV2Queue(process.env.REDIS_URL); }
+        catch { /* Full V2 fails closed without its dedicated queue. */ }
+      }
       const reader = readers.length
         ? new MultiProviderPlanReader(readers)
         : { read: async () => { throw new Error(PLAN_READING_UNAVAILABLE); } };
       const findingsWriter = createClient(supabaseUrl, supabaseServiceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }) as unknown as PlanReadingFindingsWriter;
+      let automaticGeometry:AiPlanRequestDependencies['automaticGeometry'];
+      try{
+        const profile=loadGeometryProfile(process.env);
+        // The HTTP boundary advertises a durable fanout only. It never calls
+        // Kamai/APS or performs page-by-page child reservations itself.
+        if(profile){
+          automaticGeometry=createAutomaticGeometryCoordinator(client as unknown as DocumentDb,{writer:findingsWriter as unknown as DocumentDb,storage,profile});
+        }
+      }catch{/* Explicit geometry enablement/configuration remains closed. */}
       const deps: AiPlanRequestDependencies = {
         pilotEnforcement: true,
         ...(pilotReader ? { pilotReader } : {}),
@@ -268,12 +352,16 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         // PDF directly, so loading images for it would be wasted bandwidth.
         pageImagesEnabled: configuredReaders.has('kimi') || configuredReaders.has('deepseek'),
         ...(durableQueue ? { durableQueue } : {}),
+        ...(fullTakeoffV2Queue ? { fullTakeoffV2Queue } : {}),
+        ...(automaticGeometry?{automaticGeometry}:{}),
       };
       return await handleAiPlanRequest(request, client as unknown as SupabaseLike, deps);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'AI plan reading is not configured.' }, 503);
     } finally {
       await durableQueue?.close?.().catch(() => {});
+      await fullTakeoffV2Queue?.close?.().catch(() => {});
+      await geometryQueue?.close?.().catch(()=>{});
     }
   }
   if (/^\/api\/projects\/[^/]+\/client-proposals$/.test(pathname) || /^\/api\/client-proposals\/[^/]+(\/sign)?$/.test(pathname)) {

@@ -1,37 +1,21 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase, type Session } from "./supabaseClient";
+import { observeSession, type SessionSnapshot } from "./sessionObserver";
 
 /**
  * Tracks the current Supabase Auth session (null when signed out, or when
  * auth isn't configured in this environment — see supabaseClient.ts).
  */
-export function useSession(): { session: Session | null; loading: boolean } {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(supabase !== null);
+export function useSession(): SessionSnapshot<Session> & { retry: () => void } {
+  const [snapshot, setSnapshot] = useState<SessionSnapshot<Session>>({ session: null, loading: supabase !== null, error: null });
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((current) => current + 1), []);
 
   useEffect(() => {
     if (!supabase) return;
-    let active = true;
-    let sessionResolved = false;
-    const timer = setTimeout(() => { if (active) setLoading(false); }, 15_000);
+    setSnapshot((current) => ({ ...current, loading: true, error: null }));
+    return observeSession<Session>(supabase.auth, setSnapshot);
+  }, [attempt]);
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (active && !sessionResolved) {
-        setSession(data.session);
-        setLoading(false);
-      }
-    }).catch(() => { if (active) setLoading(false); }).finally(() => clearTimeout(timer));
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (active) { sessionResolved = true; setSession(next); setLoading(false); clearTimeout(timer); }
-    });
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-      subscription.subscription.unsubscribe();
-    };
-  }, []);
-
-  return { session, loading };
+  return { ...snapshot, retry };
 }

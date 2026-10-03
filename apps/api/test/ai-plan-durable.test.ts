@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PDFDocument } from 'pdf-lib';
 import { handleAiPlanRequest } from '../src/ai-plan/routes.ts';
-import { createDurableAiPlanQueue } from '../src/ai-plan/durable.ts';
+import { createDurableAiPlanQueue, DurableAiPlanReadingService } from '../src/ai-plan/durable.ts';
 
 function makeQuery(resolve: () => { data?: unknown; error?: unknown }) {
   const builder: Record<string, unknown> = {};
@@ -13,14 +14,14 @@ function makeQuery(resolve: () => { data?: unknown; error?: unknown }) {
   return builder;
 }
 
-function fakeDb(existingJob?: Record<string, unknown>) {
+function fakeDb(existingJob?: Record<string, unknown>, platformAdmin = false) {
   return {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }) },
     from(table: string) {
       return makeQuery(() => {
         // Durable customer fixtures are explicitly non-platform-admin so the
         // existing paid/owner-free queue contract remains under test.
-        if (table === 'profiles') return { data: { is_platform_admin: false }, error: null };
+        if (table === 'profiles') return { data: { is_platform_admin: platformAdmin }, error: null };
         if (table === 'workspaces') return { data: { ai_processing_consented_at: '2026-09-01T00:00:00Z' }, error: null };
         if (table === 'projects') return { data: { id: 'project-1' }, error: null };
         if (table === 'project_files') {
@@ -277,4 +278,61 @@ test('durable entitlement requires a provider-specific worker capability as well
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { freeReadingAvailable: false });
   });
+});
+
+
+test('platform admin exhaustive reading reserves durably on the paid worker without a Stripe quote', async () => {
+  const pdf = await PDFDocument.create();
+  pdf.addPage([612, 792]);
+  const bytes = new Uint8Array(await pdf.save());
+  const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  const enqueued: Array<{ jobId: string; entitlement: string }> = [];
+  const writer = {
+    from: () => ({}),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      if (fn === 'ai_plan_worker_available') {
+        assert.deepEqual(args, { p_entitlement: 'paid' });
+        return { data: true, error: null };
+      }
+      if (fn === 'reserve_platform_admin_reading_async') {
+        assert.equal(args.p_project_id, 'project-1');
+        assert.equal(args.p_file_id, 'file-1');
+        assert.equal(args.p_model, 'gpt-5.4');
+        assert.equal(args.p_page_count, 1);
+        assert.ok(Array.isArray(args.p_requested_trades));
+        return {
+          data: {
+            reused: false,
+            job: {
+              id: 'job-admin', workspace_id: 'workspace-1', project_id: 'project-1',
+              file_id: 'file-1', status: 'queued', processing_error: null, output_summary: {},
+            },
+          },
+          error: null,
+        };
+      }
+      throw new Error(`unexpected rpc ${fn}`);
+    },
+  };
+  const service = new DurableAiPlanReadingService(
+    fakeDb(undefined, true) as never,
+    writer as never,
+    { presign: async () => ({ url: 'https://storage.test/source.pdf' }) },
+    {
+      isWorkerAvailable: async (entitlement: string) => entitlement === 'paid',
+      add: async (jobId: string, entitlement: string) => { enqueued.push({ jobId, entitlement }); },
+    } as never,
+    'user-1',
+    'workspace-1',
+    (async () => new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.byteLength) } })) as typeof fetch,
+  );
+
+  const result = await withEnv({ OPENAI_MODEL: 'gpt-5.4' }, () =>
+    service.reservePlatformAdmin('project-1', { file_id: 'file-1', trades: ['Framing'], scope: 'full set' }));
+
+  assert.equal(result.id, 'job-admin');
+  assert.equal(result.status, 'queued');
+  assert.deepEqual(enqueued, [{ jobId: 'job-admin', entitlement: 'paid' }]);
+  assert.deepEqual(rpcCalls.map(call => call.fn), ['ai_plan_worker_available', 'reserve_platform_admin_reading_async']);
 });

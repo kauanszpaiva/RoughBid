@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "projectId": "piasgpciojstjalaqazu",
+  "baseline": {
+    "migrationCount": 44,
+    "lastVersion": "20260919162447",
+    "historyMd5": "946aa68457f650b1446317d7e036fe6b",
+    "commercialVersionAlreadyApplied": "20260910190303"
+  },
+  "hashNormalization": "UTF-8 CRLF/CR normalized to LF",
+  "sequence": [
+    {
+      "order": 1,
+      "name": "20261002110000_durable_owner_workspace_dependency.sql",
+      "sha": "fd171d5e045a532a21a07ed1a85bed449f54d0bddab97c1f9de32de95e14ff2c"
+    },
+    {
+      "order": 2,
+      "name": "0023_durable_ai_plan_jobs.sql",
+      "sha": "57a7ece9fce944a6e16ae1db9f7d805025e83f893d4023700d2dd28822ebc77e"
+    },
+    {
+      "order": 3,
+      "name": "0024_durable_ai_worker_capabilities.sql",
+      "sha": "21fbd3e0e78d95ed7fc31b855ee1c9ddebc02e1658f36a6b936d50a05ac1858c"
+    },
+    {
+      "order": 4,
+      "name": "0025_durable_ai_lease_alignment.sql",
+      "sha": "9d83feffeb0b47397baf5963aa62e02d98d3bb5c6415c4d089ae7558528a8209"
+    },
+    {
+      "order": 5,
+      "name": "20260910225937_takeoff_v2_foundation.sql",
+      "sha": "3c278263e09e8cee8d02132fde169080c44e15a6f074ed2800047260e6201b8d"
+    },
+    {
+      "order": 6,
+      "name": "20260910233003_takeoff_v2_fk_indexes.sql",
+      "sha": "7dbabcd9cd9315730d1897494f0f771c35d3f27cfa8bc07c0870d31c2f4d92f2"
+    },
+    {
+      "order": 7,
+      "name": "20260919142500_low_cost_ai_provider_spend.sql",
+      "sha": "18495264e64b2313618702e50d2205adea166b7abf57fe3a2bacba963fff5763"
+    },
+    {
+      "order": 8,
+      "name": "20260924134500_openai_claude_provider_spend.sql",
+      "sha": "81243d9417d1aec0146839a777f9dc842032bbbf882b10f8782703e578219491"
+    },
+    {
+      "order": 9,
+      "name": "20260925200000_exhaustive_plan_scan.sql",
+      "sha": "0b5f56844c45094ccbfd8f20edda8e60b0141f498815214adb4f5e2589d1629d"
+    },
+    {
+      "order": 10,
+      "name": "20261002120000_full_takeoff_v2_durable.sql",
+      "sha": "f5914237deb156b0e78ae910342069e49148a9568c9903bf9dc1497e47e7cf4a"
+    },
+    {
+      "order": 11,
+      "name": "20261002130000_photo_takeoff.sql",
+      "sha": "e243d940024afe5fa24da72314f60d6d37a15f9be3e179586272180aca1eec3d"
+    },
+    {
+      "order": 12,
+      "name": "20261002140000_takeoff_measurement_review.sql",
+      "sha": "9f5187aa0d3462810bf5df271dd5974c14e7a3872b8657559a0847bb6e3c2f8d"
+    },
+    {
+      "order": 13,
+      "name": "20261002150000_full_takeoff_regions.sql",
+      "sha": "dbf3104c877d9dcfabc48e993dbdd53edc63798d22421348d7c9da9fffec8fac"
+    },
+    {
+      "order": 14,
+      "name": "20261002160000_full_takeoff_run_budgets.sql",
+      "sha": "c01d69a7d0e6c70edbe8a519ce43000c7604500d80a319daa20864b90ddee01b"
+    },
+    {
+      "order": 15,
+      "name": "20261002170000_construction_budget.sql",
+      "sha": "1b0de9c1eb11047b78a016db5d62a083ff8f39b5491de6dd24cff102b9b6384a"
+    },
+    {
+      "order": 16,
+      "name": "20261002180000_geometry_provider_jobs.sql",
+      "sha": "b9f82bca51e893812dd8b55578424746e20873ceb768a17a9c214cb76ebdd213"
+    },
+    {
+      "order": 17,
+      "name": "20261002190000_geometry_construction_budget.sql",
+      "sha": "1b7cae47ea66da2e0c18ab941ea1d4fd3d4963291fcd528de36669692c6fffd2"
+    }
+  ]
+}

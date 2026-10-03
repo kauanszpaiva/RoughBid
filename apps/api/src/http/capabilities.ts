@@ -43,12 +43,16 @@ export function runtimeCapabilities(env: Record<string, string | undefined>) {
     try { gate(env); hasPaidProvider = true; break; } catch { /* Each provider is optional. */ }
   }
     flags.aiReadingAvailable = hasPaidProvider;
+    // This advertises the declared durable deployment only. Account access and
+    // a live compatible worker are checked by the authenticated Full endpoint;
+    // HTTP credentials/Stripe never authorize or fund the worker's model calls.
+    flags.fullTakeoffV2 = env.TAKEOFF_V2_ENABLED === 'true'
+      && env.TAKEOFF_V2_WORKER_ENABLED === 'true'
+      && env.TAKEOFF_V2_SCHEMA_VERSION === 'takeoff-v2-foundation-v1'
+      && isConfiguredValue(env.REDIS_URL);
     if (!flags.aiReadingAvailable || !stripeReady) return flags;
     quoteProject(1, 1, 'standard', env);
     flags.billing = true;
-    flags.fullTakeoffV2 = env.TAKEOFF_V2_ENABLED === 'true'
-      && env.TAKEOFF_V2_WORKER_ENABLED === 'true'
-      && env.TAKEOFF_V2_SCHEMA_VERSION === 'takeoff-v2-foundation-v1';
   } catch {
     // Optional paid features remain unavailable until all their prerequisites exist.
   }

@@ -22,6 +22,7 @@ export interface PlanSetManifest {
   fileSha256: string;
   physicalPageCount: number;
   sheets: PlanSheetManifestEntry[];
+  spendApproval?: import('./user-spend-approval.ts').FullTakeoffSpendApproval;
 }
 
 export interface ScaleEvidence {

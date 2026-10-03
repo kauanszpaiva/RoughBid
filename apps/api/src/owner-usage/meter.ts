@@ -8,11 +8,33 @@ export class UsageAccountingError extends Error {
   constructor() { super('API usage accounting is unavailable. No automatic retry is allowed; contact the platform owner.'); this.name = 'UsageAccountingError'; }
 }
 export class ProviderSpendLimitError extends UsageAccountingError {
-  constructor() { super(); this.message = 'RoughBid reached its company AI spend limit. No provider request was sent; contact support to continue.'; this.name = 'ProviderSpendLimitError'; }
+  readonly scope: 'company' | 'run';
+  constructor(scope: 'company' | 'run' = 'company') { super(); this.scope = scope;
+    this.message = scope === 'run' ? 'RoughBid reached this run/provider spending authorization. No provider request was sent; review its budget before continuing.'
+      : 'RoughBid reached its company AI spend limit. No provider request was sent; contact support to continue.'; this.name = 'ProviderSpendLimitError'; }
 }
 export function withUsageMeter<T>(context: Context, run: () => Promise<T>): Promise<T> { return storage.run(context, run); }
+export interface ProviderSpendRequirement { minimumReservationUsd: number }
+/** New durable providers must never inherit the legacy no-context test shortcut. */
+export function assertUsageMeterContext(expected?: { jobId: string; workspaceId: string; projectId: string }): void {
+  const context = storage.getStore();
+  if (!context?.userId || !context.workspaceId || !context.projectId || !context.jobId || !context.writer.rpc) {
+    throw new UsageAccountingError();
+  }
+  if (expected && (expected.jobId !== context.jobId || expected.workspaceId !== context.workspaceId || expected.projectId !== context.projectId)) {
+    throw new UsageAccountingError();
+  }
+}
+function requireReservation(data: unknown, requirement?: ProviderSpendRequirement): void {
+  if (!requirement) return;
+  const reserved = data && typeof data === 'object' ? (data as Record<string, unknown>).reserved_usd : null;
+  const amount = typeof reserved === 'number' ? reserved : typeof reserved === 'string' && reserved.trim() ? Number(reserved) : NaN;
+  if (!Number.isFinite(requirement.minimumReservationUsd) || requirement.minimumReservationUsd <= 0
+    || !Number.isFinite(amount) || amount < requirement.minimumReservationUsd) throw new UsageAccountingError();
+}
 /** Called at the SDK boundary, before parsing any AI-generated document content. */
-export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'count_tokens', call: () => Promise<T>): Promise<T> {
+export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'count_tokens', call: () => Promise<T>, requirement?: ProviderSpendRequirement): Promise<T> {
+  if (requirement) assertUsageMeterContext();
   const context = storage.getStore();
   // Unit SDK adapters have no request scope. Production services always supply one.
   if (!context) return call();
@@ -40,7 +62,7 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
   };
   if (kind === 'generate') {
     if (!context.writer.rpc) throw new UsageAccountingError();
-    let reservation: { error: { message?: string } | null };
+    let reservation: { data?: unknown; error: { message?: string } | null };
     try {
       reservation = await context.writer.rpc('reserve_provider_spend', {
         p_event_id: id, p_job_id: context.jobId, p_workspace_id: context.workspaceId,
@@ -48,12 +70,13 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
       });
     } catch { throw new UsageAccountingError(); }
     if (reservation.error) {
-      if (/company ai spend limit reached/i.test(reservation.error.message ?? '')) {
+      if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
         await settle({ operation: `${prefix}blocked_spend_limit` });
-        throw new ProviderSpendLimitError();
+        throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
       }
       throw new UsageAccountingError();
     }
+    requireReservation(reservation.data, requirement);
   }
   let response: T;
   try { response = await call(); }
@@ -91,7 +114,8 @@ interface ProviderCallTelemetry { inputTokens: number; outputTokens: number; req
  * installed. In that state the database breaker conservatively retains the
  * configured per-call reservation.
  */
-async function meterProviderCall<T>(provider: string, model: string, call: () => Promise<T>, readTelemetry: (response: T) => ProviderCallTelemetry): Promise<T> {
+async function meterProviderCall<T>(provider: string, model: string, call: () => Promise<T>, readTelemetry: (response: T) => ProviderCallTelemetry, requirement?: ProviderSpendRequirement): Promise<T> {
+  if (requirement) assertUsageMeterContext();
   const context = storage.getStore();
   if (!context) return call();
   if (!context.userId || !context.workspaceId || !context.projectId || !context.jobId) throw new UsageAccountingError();
@@ -125,7 +149,7 @@ async function meterProviderCall<T>(provider: string, model: string, call: () =>
   };
 
   if (!context.writer.rpc) throw new UsageAccountingError();
-  let reservation: { error: { message?: string } | null };
+  let reservation: { data?: unknown; error: { message?: string } | null };
   try {
     reservation = await context.writer.rpc('reserve_provider_spend', {
       p_event_id: id,
@@ -137,12 +161,13 @@ async function meterProviderCall<T>(provider: string, model: string, call: () =>
     });
   } catch { throw new UsageAccountingError(); }
   if (reservation.error) {
-    if (/company ai spend limit reached/i.test(reservation.error.message ?? '')) {
+    if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
       await settle({ operation: `${prefix}blocked_spend_limit` });
-      throw new ProviderSpendLimitError();
+      throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
     }
     throw new UsageAccountingError();
   }
+  requireReservation(reservation.data, requirement);
 
   let response: T;
   try { response = await call(); }
@@ -175,12 +200,13 @@ export async function meterOpenAiCompatibleCall<T extends { usage?: { prompt_tok
   provider: MeteredVisionProvider,
   model: string,
   call: () => Promise<T>,
+  requirement?: ProviderSpendRequirement,
 ): Promise<T> {
   return meterProviderCall(provider, model, call, response => ({
     inputTokens: Number.isSafeInteger(response.usage?.prompt_tokens) ? response.usage!.prompt_tokens! : 0,
     outputTokens: Number.isSafeInteger(response.usage?.completion_tokens) ? response.usage!.completion_tokens! : 0,
     requestId: typeof response.id === 'string' ? response.id : null,
-  }));
+  }), requirement);
 }
 
 /** Anthropic Messages usage is reported per side of the call, not as prompt/completion tokens. */
@@ -188,10 +214,11 @@ export async function meterAnthropicCall<T extends { usage?: { inputTokens?: num
   provider: MeteredMessagesProvider,
   model: string,
   call: () => Promise<T>,
+  requirement?: ProviderSpendRequirement,
 ): Promise<T> {
   return meterProviderCall(provider, model, call, response => ({
     inputTokens: Number.isSafeInteger(response.usage?.inputTokens) ? response.usage!.inputTokens! : 0,
     outputTokens: Number.isSafeInteger(response.usage?.outputTokens) ? response.usage!.outputTokens! : 0,
     requestId: typeof response.id === 'string' ? response.id : null,
-  }));
+  }), requirement);
 }

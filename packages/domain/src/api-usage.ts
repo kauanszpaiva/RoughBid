@@ -16,9 +16,10 @@ export function measureGeminiUsage(usage: unknown, model: string, at = new Date(
   const thoughts = u.thoughtsTokenCount === undefined ? 0 : token(u.thoughtsTokenCount);
   const cached = u.cachedContentTokenCount === undefined ? 0 : token(u.cachedContentTokenCount);
   if (input === null || candidates === null || thoughts === null || cached === null || cached > input || !Number.isSafeInteger(candidates + thoughts)) return null;
-  // Standard Developer API tariff verified from Google's official pricing page.
+  // Standard Developer API tariff verified 2026-10-02:
+  // https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash
   // Fail closed for estimates after review expiry. Cache storage/tools are not used.
-  const tariffKnown = model === 'gemini-3.8-flash' && at >= new Date('2026-09-02T00:00:00Z') && at < new Date('2026-12-01T00:00:00Z');
+  const tariffKnown = model === 'gemini-3.8-flash' && at >= new Date('2026-09-02T00:00:00Z') && at < new Date('2027-01-01T00:00:00Z');
   return { inputTokens: input, outputTokens: candidates + thoughts, thinkingTokens: thoughts,
     estimatedCostUsd: tariffKnown ? rounded(((input - cached) * 0.75 + cached * 0.075 + (candidates + thoughts) * 3.75) / 1e6) : null };
 }

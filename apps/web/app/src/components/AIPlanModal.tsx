@@ -15,16 +15,26 @@ import { Project, QuantityItem, UnitType } from "../types";
 import {
   ApiError,
   getAiPlanReading,
+  getFullTakeoffRun,
+  getFullTakeoffCheckpoint,
+  cancelFullTakeoffRun,
+  restartFullTakeoffRun,
+  type FullTakeoffRun,
+  type FullTakeoffPass,
+  type FullTakeoffCheckpoint,
   setPlanReadingFindingStatus,
   type PlanReadingFinding,
   type PlanReadingJob,
 } from "../services/api";
 import { TakeoffCoverageDashboard } from "./TakeoffCoverageDashboard";
+import { PlanMeasurementPanel } from "./PlanMeasurementPanel";
+import { isAiPlanInFlight, presentFullTakeoffCheckpoint, presentFullTakeoffStatus, presentFullTakeoffRegions, isFullRegionalPass, fullRegionRectangle } from "../utils/aiPlanStatus";
 
 interface AIPlanModalProps {
   project: Project;
   workspaceId: string | null;
   isOpen: boolean;
+  canWrite?: boolean;
   onClose: () => void;
   onAddQuantityItem: (
     item: Omit<QuantityItem, "id" | "itemNumber">,
@@ -41,10 +51,27 @@ const normalizeUnit = (unit: string | null): UnitType => {
 const readableError = (error: unknown, fallback: string) =>
   error instanceof ApiError ? error.message : error instanceof Error ? error.message : fallback;
 
+export const FullRegionalEvidence = ({ saved }: { saved: FullTakeoffCheckpoint }) => {
+  const evidence = presentFullTakeoffCheckpoint(saved.pass.checkpoint), rectangle = fullRegionRectangle(saved.region?.rectangle);
+  return <section aria-label="Selected regional evidence" className="mt-3 rounded border border-blue-200 bg-blue-50 p-3 space-y-2">
+    <h5 className="font-semibold">Region {saved.region?.key ?? 'identity unavailable'} — {saved.region?.status ?? 'status unavailable'}</h5>
+    {rectangle && <p>Row {rectangle.row}, column {rectangle.column} of {rectangle.rows} × {rectangle.columns} regions. Neighboring regions overlap.</p>}
+    {(saved.pass.provider || saved.pass.model) && <p>Saved source: {[saved.pass.provider, saved.pass.model].filter(Boolean).join(' / ')}.</p>}
+    <p>This is persisted reading evidence. Verify the source PDF, scale, physical identity and duplicate elements; no measured quantity or price is certified.</p>
+    {!saved.pass.checkpoint && <p>No regional checkpoint payload has been saved yet. A processing or unknown state does not imply success.</p>}
+    {evidence.observations.map((observation, index) => <div key={index} className="rounded bg-white p-2"><p>{observation.description}</p>
+      {observation.sourceExcerpt ? <blockquote className="mt-1 border-l-2 border-slate-300 pl-2">Source excerpt: {observation.sourceExcerpt}</blockquote> : <p className="text-amber-900">No source excerpt saved. Check the actual source region.</p>}
+    </div>)}
+    {evidence.blockers.length > 0 && <ul className="list-disc pl-4 text-amber-900">{evidence.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul>}
+    {saved.pass.checkpoint && !evidence.observations.length && !evidence.blockers.length && <p>No readable observation or blocker is saved in this regional checkpoint.</p>}
+  </section>;
+};
+
 export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   project,
   workspaceId,
   isOpen,
+  canWrite = false,
   onClose,
   onAddQuantityItem,
   initialTab = "analyze",
@@ -54,12 +81,24 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   );
   const [ignoredItems, setIgnoredItems] = useState<Record<string, boolean>>({});
   const [job, setJob] = useState<PlanReadingJob | null>(null);
+  const [fullRun, setFullRun] = useState<FullTakeoffRun | null>(null);
+  const [runAction, setRunAction] = useState<"cancel" | "restart" | null>(null);
+  const [runActionError, setRunActionError] = useState<string | null>(null);
+  const [checkpoints, setCheckpoints] = useState<Record<string, FullTakeoffPass>>({});
+  const [regionalCheckpoints, setRegionalCheckpoints] = useState<Record<string, FullTakeoffCheckpoint>>({});
+  const [selectedRegions, setSelectedRegions] = useState<Record<string, string>>({});
+  const [checkpointErrors, setCheckpointErrors] = useState<Record<string, string>>({});
+  const [loadingCheckpoints, setLoadingCheckpoints] = useState<Record<string, boolean>>({});
   const [jobError, setJobError] = useState<string | null>(null);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [pendingFindingIds, setPendingFindingIds] = useState<Record<string, boolean>>({});
   const [findingActionError, setFindingActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [measurementPage, setMeasurementPage] = useState<number | null>(null);
   const pendingActions = useRef(new Set<string>());
+  const runActionInFlight = useRef(false);
+  const runActionNeedsRefresh = useRef(false);
+  const checkpointRequests = useRef(new Set<string>());
   const reviewContext = useRef('');
 
   const currentRevision =
@@ -68,15 +107,25 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     ? `${currentRevision.fileName} (Rev ${currentRevision.revisionNumber})`
     : "no uploaded plan";
   const jobId = currentRevision?.aiPlanJobId ?? null;
-  const contextKey = `${isOpen}:${workspaceId}:${project.id}:${jobId}`;
+  const isFullRun = currentRevision?.aiPlanMode === "full_v2";
+  const contextKey = `${isOpen}:${workspaceId}:${project.id}:${jobId}:${isFullRun}`;
   reviewContext.current = contextKey;
   useEffect(() => { reviewContext.current = contextKey; return () => { reviewContext.current = ''; }; }, [contextKey]);
+  useEffect(() => { setMeasurementPage(null); }, [isOpen, workspaceId, jobId, isFullRun]);
 
   // Poll the real plan-reading job while it's open and still in flight —
   // there is no live-update channel, so short-interval polling is how the
   // estimator sees the worker's progress (queued -> processing -> done).
   useEffect(() => {
     setJob(null);
+    setFullRun(null);
+    setRunAction(null);
+    setRunActionError(null);
+    setCheckpoints({});
+    setRegionalCheckpoints({}); setSelectedRegions({});
+    setCheckpointErrors({});
+    setLoadingCheckpoints({});
+    setIsLoadingJob(false);
     setFindingActionError(null);
     setPendingFindingIds({});
     if (!isOpen || !workspaceId || !jobId) {
@@ -89,15 +138,22 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
 
     const poll = async () => {
       try {
-        const result = await getAiPlanReading(workspaceId, jobId);
+        const result = isFullRun ? await getFullTakeoffRun(workspaceId, jobId) : await getAiPlanReading(workspaceId, jobId);
         if (cancelled) return;
-        setJob(result);
+        runActionNeedsRefresh.current = false;
+        if ("mode" in result && result.mode === "full_v2") setFullRun(result);
+        else setJob(result as PlanReadingJob);
         setJobError(null);
-        if (result.status === "queued" || result.status === "processing") {
+        if (isAiPlanInFlight(result.status)) {
           timer = setTimeout(poll, 4000);
         }
       } catch (error) {
-        if (!cancelled) setJobError(readableError(error, "Could not load the AI plan reading job."));
+        if (!cancelled) {
+          setJobError(readableError(error, "Could not load saved plan-reading progress."));
+          // A transport interruption never cancels the durable worker or
+          // imposes an overall reading deadline. Authentication failures stop.
+          if (!(error instanceof ApiError && [401, 403, 404].includes(error.status))) timer = setTimeout(poll, 8000);
+        }
       }
     };
 
@@ -110,9 +166,55 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [isOpen, workspaceId, jobId, reload]);
+  }, [isOpen, workspaceId, jobId, isFullRun, reload]);
 
   if (!isOpen) return null;
+
+  const handleRunAction = async (action: "cancel" | "restart") => {
+    if (!canWrite || !workspaceId || !jobId || !fullRun || runActionInFlight.current || runActionNeedsRefresh.current) return;
+    const presentation = presentFullTakeoffStatus(fullRun);
+    if (action === "cancel" ? !presentation.canCancel : !presentation.canRestart) return;
+    runActionInFlight.current = true;
+    setRunAction(action);
+    setRunActionError(null);
+    try {
+      const result = action === "cancel" ? await cancelFullTakeoffRun(workspaceId, jobId) : await restartFullTakeoffRun(workspaceId, jobId);
+      if (reviewContext.current !== contextKey) return;
+      setFullRun(previous => previous ? { ...previous, status: result.status } : previous);
+      setReload(value => value + 1);
+    } catch (error) {
+      if (reviewContext.current === contextKey) {
+        runActionNeedsRefresh.current = true;
+        setRunActionError(readableError(error, "The requested reading action could not be confirmed. Reload saved progress before trying again."));
+      }
+    } finally {
+      runActionInFlight.current = false;
+      if (reviewContext.current === contextKey) setRunAction(null);
+    }
+  };
+
+  const handleLoadCheckpoint = async (pageNumber: number, passType: string, regionKey?: string) => {
+    if (!workspaceId || !jobId) return;
+    const key = `${pageNumber}:${passType}${regionKey === undefined ? '' : `:region=${regionKey}`}`;
+    const requestKey = `${contextKey}:${key}`;
+    if (checkpointRequests.current.has(requestKey)) return;
+    checkpointRequests.current.add(requestKey);
+    setLoadingCheckpoints(previous => ({ ...previous, [key]: true }));
+    setCheckpointErrors(previous => { const next = { ...previous }; delete next[key]; return next; });
+    try {
+      const result = await getFullTakeoffCheckpoint(workspaceId, jobId, pageNumber, passType, regionKey);
+      if (regionKey !== undefined && (result.id !== jobId || result.sheet.physical_page_number !== pageNumber || result.pass.pass_type !== passType || result.region?.key !== regionKey)) throw new Error('The saved regional evidence identity could not be verified.');
+      if (reviewContext.current === contextKey) {
+        if (regionKey === undefined) setCheckpoints(previous => ({ ...previous, [key]: result.pass }));
+        else setRegionalCheckpoints(previous => ({ ...previous, [key]: result }));
+      }
+    } catch (error) {
+      if (reviewContext.current === contextKey) setCheckpointErrors(previous => ({ ...previous, [key]: readableError(error, "Could not load this saved evidence.") }));
+    } finally {
+      checkpointRequests.current.delete(requestKey);
+      if (reviewContext.current === contextKey) setLoadingCheckpoints(previous => { const next = { ...previous }; delete next[key]; return next; });
+    }
+  };
 
   const applyFindingStatus = (findingId: string, status: "accepted" | "rejected") => {
     setJob((prev) =>
@@ -199,6 +301,101 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const priceableFindings = findings.filter((f) => f.quantity !== null && f.quantity > 0 && f.unit && KNOWN_UNITS.includes(f.unit as UnitType));
   const noteFindings = findings.filter((f) => !priceableFindings.includes(f));
 
+  const renderFullRun = (run: FullTakeoffRun) => {
+    const presentation = presentFullTakeoffStatus(run);
+    const sheets = [...(run.sheets ?? [])].sort((a, b) => a.physical_page_number - b.physical_page_number);
+    return (
+      <div className="space-y-4">
+        <section aria-label="Full Takeoff V2 progress" role="status" className="p-3.5 bg-brand-50 border border-blue-200 rounded-lg text-brand-900 space-y-2">
+          <h4 className="text-sm font-semibold flex items-center gap-2">
+            {isAiPlanInFlight(run.status) && <Loader2 className="w-4 h-4 animate-spin" />}
+            Full Takeoff V2: {run.status.replaceAll("_", " ")}
+          </h4>
+          <p>{presentation.notice}</p>
+          <p className="font-medium">{presentation.savedProgress}</p>
+          {isAiPlanInFlight(run.status) && run.progress?.currentPage && <p>
+            Current physical sheet: {run.progress.currentPage}{run.progress.currentPass ? ` — ${run.progress.currentPass.replaceAll("_", " ")}` : ""}.
+          </p>}
+          <p>Progress counts saved stages, including blocked stages. It does not certify measured quantities or prices.</p>
+          {run.updated_at && <p className="text-slate-600">Last saved update: {new Date(run.updated_at).toLocaleString()}</p>}
+          {canWrite && <div className="flex flex-wrap gap-2 pt-1">
+            {presentation.canCancel && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("cancel")} className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-rose-800 disabled:opacity-50">
+              {runAction === "cancel" ? "Requesting cancellation…" : "Cancel reading"}
+            </button>}
+            {presentation.canRestart && <button disabled={Boolean(runAction) || Boolean(runActionError)} onClick={() => handleRunAction("restart")} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50">
+              {runAction === "restart" ? "Requesting resume…" : "Resume from saved stages"}
+            </button>}
+          </div>}
+        </section>
+        {jobError && <div role="alert" className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+          <p>Saved progress could not be refreshed: {jobError}</p><p>The worker may still be running. Last saved evidence remains below.</p>
+          <button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Reload saved progress</button>
+        </div>}
+        {(run.processing_error || runActionError) && <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800">
+          {run.processing_error && <p>{run.processing_error}</p>}{runActionError && <p>{runActionError}</p>}
+          {runActionError && <button className="mt-2 underline" onClick={() => setReload(value => value + 1)}>Reload saved progress before another action</button>}
+        </div>}
+        <section aria-label="Takeoff review requirements" className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-1">
+          <h4 className="font-semibold">{run.output_summary?.takeoff_v2?.releaseStatus === "review_ready" ? "Evidence ready for human review" : "Release pending evidence and review"}</h4>
+          <p>Check scale, measurement sources, sheet references and ambiguities. Agreement between models does not verify measurements.</p>
+          <p>The budget requires supported quantities, assembly compositions and sourced unit prices. No estimate items are created from these observations.</p>
+          {(run.status === "failed" || run.status === "cancelled") && !presentation.canRestart && <p>An uncertain or failed attempt must be reconciled before this run can resume. No provider call is repeated from this screen.</p>}
+        </section>
+        <section aria-label="Saved evidence by sheet" className="space-y-2">
+          <h4 className="font-semibold text-slate-900">Saved evidence by physical sheet and stage</h4>
+          {!sheets.length && <p className="text-slate-600">No sheet checkpoints are available yet.</p>}
+          {sheets.map(sheet => <details key={sheet.id} className="border border-slate-200 rounded-lg p-3">
+            <summary className="cursor-pointer font-semibold text-slate-800">Physical sheet {sheet.physical_page_number} — {sheet.status.replaceAll("_", " ")} ({sheet.passes.length} saved stage records)</summary>
+            {sheet.status_reason && <p className="mt-2 text-slate-600">{sheet.status_reason}</p>}
+            <button type="button" className="mt-3 rounded border border-blue-300 px-3 py-2 text-blue-800" onClick={() => setMeasurementPage(sheet.physical_page_number)}>Review geometry on this sheet</button>
+            <div className="space-y-2 mt-3">{sheet.passes.map(pass => {
+              const key = `${sheet.physical_page_number}:${pass.pass_type}`;
+              const saved = checkpoints[key];
+              const evidence = presentFullTakeoffCheckpoint(saved?.checkpoint);
+              const regional = presentFullTakeoffRegions(saved?.checkpoint);
+              const selectedKey = selectedRegions[key], regionalCacheKey = `${key}:region=${selectedKey}`;
+              return <details key={`${pass.pass_type}:${pass.attempt}`} className="border border-slate-200 rounded-md p-2.5" onToggle={event => {
+                if (event.currentTarget.open && !saved) void handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type);
+              }}>
+                <summary className="cursor-pointer text-slate-800">{pass.pass_type.replaceAll("_", " ")} — {pass.status} (attempt {pass.attempt})</summary>
+                {(pass.provider || pass.model) && <p className="mt-2 text-slate-500">Evidence source: {[pass.provider, pass.model].filter(Boolean).join(" / ")}</p>}
+                {pass.failure_classification && <p className="text-rose-800">Attempt requires review: {pass.failure_classification.replaceAll("_", " ")}</p>}
+                {loadingCheckpoints[key] && <p role="status" className="mt-2">Loading saved evidence…</p>}
+                {checkpointErrors[key] && <p role="alert" className="mt-2 text-rose-800">{checkpointErrors[key]}</p>}
+                {saved && <div className="mt-2 space-y-2">
+                  {evidence.observations.map((observation, index) => <div key={index} className="p-2 bg-slate-50 rounded">
+                    <p>{observation.description}</p>
+                    {observation.sourceExcerpt ? <blockquote className="mt-1 pl-2 border-l-2 border-slate-300 text-slate-600">Source excerpt: {observation.sourceExcerpt}</blockquote> : <p className="text-amber-800">No source excerpt saved for this observation. Verify it on the source sheet.</p>}
+                  </div>)}
+                  {evidence.blockers.length > 0 && <ul className="list-disc pl-4 text-amber-900">{evidence.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul>}
+                  {evidence.scaleStatus && <p>Scale evidence: {evidence.scaleStatus.replaceAll("_", " ")}{evidence.scaleSources.length ? ` — ${evidence.scaleSources.join("; ")}` : ""}.</p>}
+                  {!evidence.observations.length && !evidence.blockers.length && !evidence.scaleStatus && <p className="text-slate-600">No readable observation or blocker is saved for this attempt yet.</p>}
+                </div>}
+                <button className="mt-2 underline text-brand-700 disabled:opacity-50" disabled={Boolean(loadingCheckpoints[key])} onClick={() => handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type)}>Reload saved evidence</button>
+                {isFullRegionalPass(pass.pass_type) && regional.regions.length > 0 && <div className="mt-3 rounded border border-slate-200 p-3 space-y-2">
+                  <p className="font-semibold">Inspect saved evidence by region</p><p>{regional.progress}. Saved records include blocked regions and do not certify coverage.</p>
+                  <label className="block">Region<select aria-label={`Saved region on sheet ${sheet.physical_page_number} for ${pass.pass_type}`} className="ml-2 rounded border p-2" value={selectedKey ?? ''} onChange={event => {
+                    const regionKey = event.target.value; setSelectedRegions(previous => ({ ...previous, [key]: regionKey }));
+                    if (regionKey && !regionalCheckpoints[`${key}:region=${regionKey}`]) void handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type, regionKey);
+                  }}><option value="">Select a saved region</option>{regional.regions.map(region => <option value={region.key} key={region.key}>{region.key} — {region.status}</option>)}</select></label>
+                  {selectedKey && <><button type="button" className="underline text-brand-700 disabled:opacity-50" disabled={!!loadingCheckpoints[regionalCacheKey]} onClick={() => handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type, selectedKey)}>Reload selected regional evidence</button>
+                    {loadingCheckpoints[regionalCacheKey] && <p role="status">Loading saved regional evidence.</p>}
+                    {checkpointErrors[regionalCacheKey] && <p role="alert" className="text-rose-800">{checkpointErrors[regionalCacheKey]}</p>}
+                    {regionalCheckpoints[regionalCacheKey] && <FullRegionalEvidence saved={regionalCheckpoints[regionalCacheKey]!} />}
+                  </>}
+                </div>}
+              </details>;
+            })}</div>
+          </details>)}
+        </section>
+        {measurementPage !== null && workspaceId && <div className="space-y-2">
+          <button type="button" className="underline text-slate-600" onClick={() => setMeasurementPage(null)}>Close measurement review</button>
+          <PlanMeasurementPanel key={run.id} workspaceId={workspaceId} runId={run.id} pageNumber={measurementPage} canWrite={canWrite} />
+        </div>}
+      </div>
+    );
+  };
+
   const renderAnalyzeTab = () => {
     if (!workspaceId) {
       return (
@@ -215,7 +412,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         </div>
       );
     }
-    if (isLoadingJob && !job) {
+    if (isFullRun && fullRun) return renderFullRun(fullRun);
+    if (isLoadingJob && !job && !fullRun) {
       return (
         <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs flex items-center gap-2">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -500,7 +698,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         {/* Footer */}
         <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
           <span className="text-[10px] sm:text-[11px] text-slate-500 truncate">
-            Additions recalculate financial engine instantly.
+            {isFullRun ? 'Reviewed quantities and sourced prices remain separate evidence gates.' : 'Additions recalculate financial engine instantly.'}
           </span>
           <button
             onClick={onClose}

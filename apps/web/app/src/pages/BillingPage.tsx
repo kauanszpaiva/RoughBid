@@ -1,4 +1,5 @@
 import React from 'react';
+import { SaasPricingPreview } from '../components/SaasPricingPreview';
 import { bootstrapAuth, getCapabilities, getPilotAccess, createBillingCheckout, createBillingPortal, type BillingPriceKey, type PilotAccess } from '../services/api';
 
 export const BillingPage: React.FC = () => {
@@ -51,6 +52,7 @@ export const BillingPage: React.FC = () => {
   if (accessError) return <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-4"><h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Billing & membership</h1><p role="alert" className="text-amber-800">{accessError}</p><button className="rounded-lg border px-4 py-2" onClick={() => setAccessRetry(value => value + 1)}>Check access again</button></div>;
 
   return <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+    {platformAdmin && <SaasPricingPreview isPlatformAdmin={platformAdmin} />}
     <header><h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">Billing & membership</h1><p className="text-slate-600 mt-2">Review plans, enter quantities and costs, and export manually without an AI API.</p></header>
 
     {platformAdmin && <section className="rounded-xl bg-emerald-50 border border-emerald-200 p-5 text-emerald-950 space-y-2">

@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
  * test passes. The entitlement endpoint shipped exactly that way once.
  */
 const bridge = "export { config, default } from '../../_bridge.ts';\n";
-const projectRoutes = ['ai-plan-readings', 'ai-plan-entitlement', 'reading-quote', 'reading-checkout', 'files', 'client-proposals', 'estimate-versions'];
+const projectRoutes = ['ai-plan-readings', 'ai-plan-entitlement', 'reading-quote', 'reading-checkout', 'files', 'client-proposals', 'estimate-versions', 'construction-budget', 'supplier-quotes'];
 
 test('every /api/projects/:id route the handler serves has a deployable function file', () => {
   const handler = readFileSync(new URL('../src/http/handler.ts', import.meta.url), 'utf8');
@@ -38,4 +38,15 @@ test('workspace estimating catalog has a deployable function file', () => {
   assert.ok(existsSync(file), 'the estimating catalog route would 404 on Vercel');
   assert.equal(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), bridge);
   assert.match(handler, /estimating-catalog/);
+});
+
+test('photo/measurement routes and researched catalog have deployable source coverage',()=>{
+  for(const route of ['projects/[id]/photos/uploads','projects/[id]/photos/capability','projects/[id]/photos/runs','projects/[id]/photos/runs/[runId]',
+    'projects/[id]/photos/runs/[runId]/cancel','projects/[id]/photos/runs/[runId]/resume','projects/[id]/photos/runs/[runId]/review','takeoff-runs/[id]/measurements',
+    'projects/[id]/geometry/capability','projects/[id]/geometry/runs','projects/[id]/geometry/runs/[runId]',
+    'projects/[id]/geometry/runs/[runId]/cancel','projects/[id]/geometry/runs/[runId]/resume','projects/[id]/geometry/runs/[runId]/review']){
+    assert.ok(existsSync(new URL(`../../../api/${route}.ts`,import.meta.url)),`Missing deployable route: ${route}`);
+  }
+  const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));
+  assert.ok(vercel.functions['api/**/*.ts'].includeFiles.includes('packages/domain/data/**'),'The API calculation must include its versioned JSON catalog.');
 });

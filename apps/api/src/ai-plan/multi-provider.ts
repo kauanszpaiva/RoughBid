@@ -9,7 +9,7 @@ export interface NamedPlanReader {
   read(input: GeminiPlanReadInput): Promise<PlanReadingResult>;
 }
 
-/** Tries configured providers; all failures produce an error, never invented quantities. */
+/** Uses the selected first provider. Failure never silently switches vendors/cost. */
 export class MultiProviderPlanReader {
   private readonly readers: readonly NamedPlanReader[];
 
@@ -19,22 +19,18 @@ export class MultiProviderPlanReader {
   }
 
   async read(input: GeminiPlanReadInput): Promise<PlanReadingResult> {
-    let lastFailure:ProjectApiError|null=null;
-    for (const { name,read } of this.readers) {
+    const { name, read } = this.readers[0]!;
       const started=Date.now();
       try {
         const result = await read(input);
         if (!result.summary.synthetic && result.findings.length) return result;
       } catch(error) {
         if (error instanceof UsageAccountingError) throw error;
-        if(error instanceof ProjectApiError)lastFailure=error;
-        else {
-          lastFailure=classifyProviderFailure(error,{provider:name,model:'',stage:'generate',durationMs:Date.now()-started});
-          logProviderFailure(lastFailure as ReturnType<typeof classifyProviderFailure>);
-        }
+        if(error instanceof ProjectApiError) throw error;
+        const failure=classifyProviderFailure(error,{provider:name,model:'',stage:'generate',durationMs:Date.now()-started});
+        logProviderFailure(failure);
+        throw failure;
       }
-    }
-    if(lastFailure)throw lastFailure;
-    throw classifyProviderFailure(null,{provider:'other',model:'',stage:'validate',durationMs:0},'provider_empty_output');
+    throw classifyProviderFailure(null,{provider:name,model:'',stage:'validate',durationMs:Date.now()-started},'provider_empty_output');
   }
 }
