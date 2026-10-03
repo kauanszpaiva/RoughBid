@@ -16,7 +16,7 @@ The primary product flow is: add photos, PDF plans, or both; choose services; ap
 
 `npm test`, backend/web TypeScript checks and the production build cover the existing endpoints and contracts. `scripts/test-simple-estimate-browser.mjs` exercises actual product components against isolated local API/storage mocks: PDF-only, photo-only, mixed, upload retry, Full V2 spend approval, repeated clicks, mobile layout and read-only workspaces. It does not call providers or charge users.
 
-Run the local fixture server with `node node_modules/vite/bin/vite.js --config scripts/offline-browser-fixture.vite.ts`, then run the browser script with Playwright installed. Optional `ROUGH_BID_PLAYWRIGHT_MODULE` and `ROUGH_BID_CHROMIUM_EXECUTABLE` select an existing browser runtime.
+Run `node scripts/test-simple-estimate-browser.mjs` with Playwright installed in `.browser-tests`; the script starts and stops its isolated fixture server. The Durable AI Plan Gate runs this check on pull requests. Optional `ROUGH_BID_PLAYWRIGHT_MODULE` and `ROUGH_BID_CHROMIUM_EXECUTABLE` select an existing browser runtime.
 
 ## Production completion criteria
 

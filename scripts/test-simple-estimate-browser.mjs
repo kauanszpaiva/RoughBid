@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-const { chromium } = await import(process.env.ROUGH_BID_PLAYWRIGHT_MODULE ?? 'playwright');
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
+const { chromium } = await import(process.env.ROUGH_BID_PLAYWRIGHT_MODULE ?? new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
+const fixtureServer = await createServer({ configFile: fileURLToPath(new URL('./offline-browser-fixture.vite.ts', import.meta.url)), clearScreen: false });
+await fixtureServer.listen();
 const browser = await chromium.launch({ headless: true, ...(process.env.ROUGH_BID_CHROMIUM_EXECUTABLE ? { executablePath: process.env.ROUGH_BID_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const root = 'http://127.0.0.1:4187';
 const photo = { name: 'bathroom.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=', 'base64') };
@@ -61,4 +65,4 @@ try {
     await context.close();
   }
   console.log(`${passed}/${passed} browser scenarios passed; APIs/storage are local mocks, no paid calls or production data.`);
-} finally { await browser.close(); }
+} finally { await browser.close(); await fixtureServer.close(); }

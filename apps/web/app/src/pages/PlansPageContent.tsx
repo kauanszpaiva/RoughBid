@@ -735,7 +735,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           {!['quoted', 'revoked'].includes(readingQuote.status) && <button onClick={handleStartAiReading} disabled={!canWrite || (!aiReadingAvailable && !['processing', 'complete'].includes(readingQuote.status)) || isStartingAi || isPaying || isUploading || (readingQuote.status === 'failed' && readingQuote.attempts >= readingQuote.max_attempts)} className="rounded-lg border px-4 py-2 disabled:opacity-50">{isStartingAi ? 'Checking / processing…' : ['processing', 'complete'].includes(readingQuote.status) ? 'Open saved reading' : readingQuote.status === 'failed' ? 'Retry paid analysis' : 'Start paid analysis'}</button>}
         </div>
       </section>}
-      <details className="rounded-xl border border-slate-200 bg-white p-4">
+      <details open={needsAiConsent || undefined} className="rounded-xl border border-slate-200 bg-white p-4">
       <summary className="cursor-pointer text-sm font-semibold text-slate-700">Plan viewer and advanced reading tools</summary>
       {/* Title & Subtitle */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

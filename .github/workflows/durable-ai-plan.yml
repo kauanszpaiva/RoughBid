@@ -67,6 +67,8 @@ jobs:
         run: node scripts/test-full-purchase-browser.mjs
       - name: Photo purchase, included access and saved result recovery
         run: node scripts/test-photo-purchase-browser.mjs
+      - name: Simple photo and plan estimate intake
+        run: node scripts/test-simple-estimate-browser.mjs
       - name: Physical page review and safe resume browser checks
         run: node scripts/test-page-review-browser.mjs
       - uses: actions/upload-artifact@v4

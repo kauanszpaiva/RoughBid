@@ -18,7 +18,7 @@ import { createRoot } from 'react-dom/client';
 import { PlansPage } from '../apps/web/app/src/pages/PlansPageContent';
 const params = new URLSearchParams(location.search);
 window.paidReturnHarness = { reads: [], newQuotes: [], jobs: [], unexpected: [], payments: 0, patches: 0, jobReads: 0, status: params.get('status') || 'paid', failLoad: params.has('fail'), aiAvailable: !params.has('offline') };
-const project = { id: 'local-project', remoteId: 'project-1', name: 'SYNTHETIC paid-return test', projectType: 'Changed project type', revisions: [{ id: 'revision', remoteFileId: 'file-1', isCurrent: true, fileName: 'fixture.pdf', revisionNumber: '01', processingStatus: 'ready', ...(params.has('poll') ? { aiPlanJobId: 'saved-job', aiPlanStatus: 'processing' } : {}) }] };
+const project = { id: 'local-project', remoteId: 'project-1', name: 'SYNTHETIC paid-return test', projectType: 'Changed project type', quantities: [], estimateItems: [], overheadPercentage: 12, markupPercentage: 20, revisions: [{ id: 'revision', remoteFileId: 'file-1', isCurrent: true, fileName: 'fixture.pdf', revisionNumber: '01', processingStatus: 'ready', ...(params.has('poll') ? { aiPlanJobId: 'saved-job', aiPlanStatus: 'processing' } : {}) }] };
 createRoot(document.getElementById('root')).render(<PlansPage project={project} workspaceId="workspace-1" canWrite onPatchRevision={() => window.paidReturnHarness.patches++} onAppendRevision={() => {}} onUpdateProject={() => {}} onContinue={() => {}} onOpenAIAssistant={() => {}} />);
 `);
   const stub = `
@@ -77,7 +77,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
   };
   await build(config);
   server = await preview(config);
-  for (const browserName of ['chromium', 'webkit']) {
+  for (const browserName of process.env.PURCHASE_TEST_BROWSERS?.split(',') ?? ['chromium', 'webkit']) {
     const browser = await playwright[browserName].launch({ headless: true,
       ...(browserName === 'chromium' && process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}),
     });
@@ -95,6 +95,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       const navigate = async url => {
         assert.deepEqual(await page.evaluate(() => window.paidReturnHarness?.unexpected ?? []), []);
         await page.goto(url);
+        await page.getByText('Plan viewer and advanced reading tools', { exact: true }).click();
       };
       const assertPassive = async () => {
         const h = await page.evaluate(() => window.paidReturnHarness);
@@ -159,7 +160,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       await retry.waitFor();
       await page.getByText('Optional reading settings', { exact: true }).click();
       assert.equal(await page.getByRole('button', { name: 'Calculate project price', exact: true }).isDisabled(), true);
-      assert.equal(await page.getByRole('checkbox', { name: 'Framing', exact: true }).isDisabled(), true);
+      assert.equal(await page.getByRole('group', { name: 'Analysis scope', exact: true }).getByRole('checkbox', { name: 'Framing', exact: true }).isDisabled(), true);
       await assertPassive();
       await retry.click();
       await page.getByText('Payment confirmed', { exact: true }).waitFor();

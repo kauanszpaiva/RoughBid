@@ -252,6 +252,7 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       assert.equal(state.calls.filter(call => /reading-order|reading-checkout/.test(call.path) && call.method === 'POST').length, 0, 'Uploading cannot create a purchase or call AI');
 
       await navigate();
+      await page.getByText('Plan viewer and advanced reading tools', { exact: true }).click();
       await page.getByRole('button', { name: /^Run AI analysis \(owner workspace\)/ }).waitFor();
       await panel().getByRole('button', { name: 'Purchase full reading', exact: true }).click();
       await clickTwice(panel().getByRole('button', { name: 'Calculate full reading price' }));
