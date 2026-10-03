@@ -215,3 +215,56 @@ test('founder entitlement explains an offline worker without granting processing
     assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:false,fullTakeoffUnavailableReason:'worker_unavailable'});
   }finally {if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(redis===undefined)delete process.env.REDIS_URL;else process.env.REDIS_URL=redis;}
 });
+
+function configurationRetryFixture(overrides: Record<string,unknown> = {}, reservationError: unknown = null) {
+  const manifest = { fileSha256:'a'.repeat(64), physicalPageCount:1, sheets:[{physicalPageNumber:1,pageSha256:'b'.repeat(64)}],
+    spendApproval:{...spendApproval,policyId:'stale-profile'} };
+  const saved = {id:'run',status:'failed',error_code:'reading_configuration_unavailable',payment_kind:'complimentary',
+    project_id:'project',file_id:'file',manifest,...overrides};
+  const calls: Array<{fn:string,args:Record<string,unknown>}> = [], enqueued: string[] = [];
+  const writer = {from:()=>query(saved),rpc:async(fn:string,args:Record<string,unknown>)=>{
+    calls.push({fn,args});
+    if(fn==='full_takeoff_v2_worker_available')return{data:true,error:null};
+    if(fn==='reserve_full_takeoff_v2')return{data:{run:{id:'run',status:'queued'}},error:reservationError};
+    if(fn==='restart_full_takeoff_v2')return{data:{id:'run',status:'queued'},error:null};
+    throw new Error('Unexpected RPC');
+  }};
+  const service = new DurableFullTakeoffV2Service(writer as never,writer as never,
+    {presign:async()=>{throw new Error('Retry must reuse the immutable manifest, not reupload or read source bytes');}},
+    {isWorkerAvailable:async()=>true,add:async(id)=>{enqueued.push(id);}},'user','workspace');
+  return {service,calls,enqueued,manifest};
+}
+
+test('configuration failure retries the same PDF with freshly validated approval and unchanged source identity',async()=>{
+  const {service,calls,enqueued,manifest}=configurationRetryFixture();
+  const result=await service.restart('run',spendInput);
+  assert.equal(result.id,'run');assert.deepEqual(enqueued,['run']);
+  const reserved=calls.find(call=>call.fn==='reserve_full_takeoff_v2')!;
+  assert.deepEqual(reserved.args.p_manifest,{...manifest,spendApproval});
+  assert.equal(reserved.args.p_user_id,'user');assert.equal(reserved.args.p_workspace_id,'workspace');
+  assert.equal(reserved.args.p_project_id,'project');assert.equal(reserved.args.p_file_id,'file');
+  assert.equal(calls.some(call=>call.fn==='restart_full_takeoff_v2'),false,'legacy restart must not reuse stale approval');
+});
+
+test('configuration retry rejects absent/stale/oversized consent before reservation or enqueue',async()=>{
+  for(const approval of [undefined,{...spendInput,policyId:'stale-profile'},{...spendInput,budgetsUsd:{gemini:4}}]){
+    const {service,calls,enqueued}=configurationRetryFixture();
+    await assert.rejects(service.restart('run',approval));
+    assert.deepEqual(calls.map(call=>call.fn),['full_takeoff_v2_worker_available']);assert.deepEqual(enqueued,[]);
+  }
+});
+
+test('database rejection of a touched configuration failure cannot enqueue or fall back to legacy restart',async()=>{
+  const {service,calls,enqueued}=configurationRetryFixture({}, {message:'Saved evidence needs reconciliation'});
+  await assert.rejects(service.restart('run',spendInput),/cannot be retried/);
+  assert.deepEqual(enqueued,[]);assert.equal(calls.some(call=>call.fn==='restart_full_takeoff_v2'),false);
+});
+
+test('normal and paid retries preserve their original authorization and reject replacement approval',async()=>{
+  for(const overrides of [{error_code:'source_unavailable'},{payment_kind:'paid'}]){
+    const denied=configurationRetryFixture(overrides);await assert.rejects(denied.service.restart('run',spendInput),/cannot replace/);
+    assert.deepEqual(denied.enqueued,[]);
+    const normal=configurationRetryFixture(overrides);await normal.service.restart('run');
+    assert.equal(normal.calls.some(call=>call.fn==='reserve_full_takeoff_v2'),false);assert.deepEqual(normal.enqueued,['run']);
+  }
+});

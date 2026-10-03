@@ -42,6 +42,7 @@ import { createGeometryQueue, GEOMETRY_QUEUE, type GeometryJob, type GeometryQue
 import { GeometryProcessor } from '../apps/api/src/geometry/worker.ts';
 import { createAutomaticGeometryCoordinator, loadAutomaticGeometryForSheet } from '../apps/api/src/takeoff-v2/automatic-geometry.ts';
 import { ProviderBridgeClient } from '../apps/api/src/provider-bridge/client.ts';
+import { fullTakeoffApprovalProfile } from '../apps/api/src/takeoff-v2/user-spend-approval.ts';
 import { requireBridgeRuntimeConfig } from '../apps/api/src/provider-bridge/config.ts';
 import { bridgePageImages } from '../apps/api/src/provider-bridge/renderer.ts';
 
@@ -189,13 +190,29 @@ async function main() {
     // A configured bridge failure never falls back to local provider credentials.
     if (bridge) await bridge.handshake();
     const runSpendPolicy = createFullTakeoffRunSpendPolicy(process.env);
+    // Nonsecret diagnostics distinguish stale consent from a failed budget RPC.
+    // Never log environment values, signed URLs, or exception messages.
+    let approvalPolicyId: string | undefined;
+    try { approvalPolicyId = fullTakeoffApprovalProfile(process.env).policyId; } catch { /* Paid-only workers need no complimentary profile. */ }
     const schema = await db.rpc('full_takeoff_stage_schema_ready');
     if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
       ...(bridge ? { evidenceTransport: bridge.evidenceTransport } : {}),
       async prepareRun(input){
-        await configureFullRunSpendLimits(input,runSpendPolicy(input.manifest),rpc);
+        let limits;
+        try { limits = runSpendPolicy(input.manifest); }
+        catch {
+          console.error('[worker] Full Takeoff setup rejected', { phase: 'spending_profile',
+            complimentaryProfileAvailable: Boolean(approvalPolicyId),
+            savedProfileMatches: input.manifest.spendApproval?.policyId === approvalPolicyId });
+          throw new Error('Full Takeoff spending profile validation failed.');
+        }
+        try { await configureFullRunSpendLimits(input,limits,rpc); }
+        catch {
+          console.error('[worker] Full Takeoff setup rejected', { phase: 'budget_persistence' });
+          throw new Error('Full Takeoff budget persistence failed.');
+        }
         if(geometryProfile?.kamai&&geometryQueue){
           const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
             .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();

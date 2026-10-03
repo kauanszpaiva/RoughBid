@@ -114,7 +114,11 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       if (request.method === 'POST' && parts[2] === 'cancel') return json(await full.cancel(parts[1]));
       if (request.method === 'POST' && parts[2] === 'restart') {
         if (process.env.TAKEOFF_V2_ENABLED !== 'true') throw new ProjectApiError(503, 'Full Takeoff V2 is disabled.');
-        return json(await full.restart(parts[1]), 202);
+        const text = await request.text();
+        let body: { spend_approval?: unknown } = {};
+        try { if (text) body = JSON.parse(text); } catch { throw new ProjectApiError(400,'Invalid reading restart request.'); }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ProjectApiError(400,'Invalid reading restart request.');
+        return json(await full.restart(parts[1],body.spend_approval), 202);
       }
     }
 

@@ -429,6 +429,8 @@ export type FullTakeoffRun = {
   mode: "full_v2";
   status: FullTakeoffRunStatus;
   processing_error?: string | null;
+  error_code?: string | null;
+  payment_kind?: 'complimentary' | 'paid';
   cancel_requested_at?: string | null;
   not_before?: string | null;
   waiting_reason?: 'company_budget' | null;
@@ -470,8 +472,9 @@ export function cancelFullTakeoffRun(workspaceId: string, runId: string) {
 }
 
 /** The server denies restart until uncertain provider attempts have been reconciled. */
-export function restartFullTakeoffRun(workspaceId: string, runId: string) {
-  return request<{ id: string; status: FullTakeoffRunStatus }>(`/api/takeoff-runs/${encodeURIComponent(runId)}/restart`, { method: "POST", workspaceId });
+export function restartFullTakeoffRun(workspaceId: string, runId: string, approval?: FullTakeoffSpendInput) {
+  return request<{ id: string; status: FullTakeoffRunStatus }>(`/api/takeoff-runs/${encodeURIComponent(runId)}/restart`, { method: "POST", workspaceId,
+    ...(approval ? { body: { spend_approval: approval } } : {}) });
 }
 
 /** PATCH /api/ai-plan-readings/findings/:id — accept or reject one finding. */
