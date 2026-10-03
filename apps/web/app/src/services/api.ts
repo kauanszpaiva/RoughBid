@@ -378,7 +378,7 @@ export type PlanReadingJob = {
  * receives false, and the POST route re-checks the allowlist server-side.
  */
 export function getAiPlanEntitlement(workspaceId: string, projectId: string) {
-  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean; fullTakeoffPurchaseAvailable?: boolean; fullTakeoffApproval?: FullTakeoffApprovalProfile }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
+  return request<{ freeReadingAvailable: boolean; pilotActive?: boolean; fullTakeoffV2Available?: boolean; fullTakeoffUnavailableReason?: 'worker_unavailable' | 'availability_check_failed' | 'processing_configuration_missing'; fullTakeoffPurchaseAvailable?: boolean; fullTakeoffApproval?: FullTakeoffApprovalProfile }>(`/api/projects/${projectId}/ai-plan-entitlement`, { workspaceId });
 }
 
 export interface FullTakeoffApprovalProfile {

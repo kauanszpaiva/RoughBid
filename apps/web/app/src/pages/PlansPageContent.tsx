@@ -7,6 +7,7 @@ import {
   Trash2,
   ArrowRight,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
@@ -72,6 +73,9 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const readingOrderPanel = useRef<ReadingOrderHandle>(null);
   const initialFilesHandled = useRef<File[] | undefined>(undefined);
   const [processingConsent, setProcessingConsent] = useState(false);
+  const consentInput = useRef<HTMLInputElement>(null);
+  const [readingProgress, setReadingProgress] = useState<string | null>(null);
+  const [readingError, setReadingError] = useState<string | null>(null);
   const services = project.selectedServices ?? [];
   const servicesKey = services.join(',');
   useEffect(() => {
@@ -80,6 +84,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [aiReadingAvailable, setAiReadingAvailable] = useState(false);
   const [fullTakeoffV2, setFullTakeoffV2] = useState(false);
   const [fullTakeoffV2Available, setFullTakeoffV2Available] = useState(false);
+  const [processingUnavailableReason, setProcessingUnavailableReason] = useState<string | null>(null);
   const [fullTakeoffPurchaseAvailable, setFullTakeoffPurchaseAvailable] = useState(false);
   const [fullApprovalProfile, setFullApprovalProfile] = useState<FullTakeoffApprovalProfile | null>(null);
   const [fullBudgetAmounts, setFullBudgetAmounts] = useState<Record<string, string>>({});
@@ -115,7 +120,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setEntitlementContext(null);
     setEntitlementError(false);
     setFreeReadingAvailable(false);
-    setFullTakeoffV2Available(false);
+    setFullTakeoffV2Available(false); setProcessingUnavailableReason(null);
     setFullTakeoffPurchaseAvailable(false);
     setFullTakeoffV2(false);
     setFullApprovalProfile(null);
@@ -124,7 +129,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     setPilotActive(false);
     if (!workspaceId || !remoteId) { setFreeReadingAvailable(false); return () => { active = false; }; }
     getAiPlanEntitlement(workspaceId, remoteId)
-      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setFullTakeoffPurchaseAvailable(value.fullTakeoffPurchaseAvailable === true); setFullApprovalProfile(value.fullTakeoffApproval ?? null); setFullBudgetAmounts(Object.fromEntries((value.fullTakeoffApproval?.providers ?? []).map(provider => [provider.provider, String(provider.minimumUsd)]))); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
+      .then(value => { if (active) { setFreeReadingAvailable(value.freeReadingAvailable); setFullTakeoffV2Available(value.fullTakeoffV2Available === true); setProcessingUnavailableReason(value.fullTakeoffUnavailableReason ?? null); setFullTakeoffPurchaseAvailable(value.fullTakeoffPurchaseAvailable === true); setFullApprovalProfile(value.fullTakeoffApproval ?? null); setFullBudgetAmounts(Object.fromEntries((value.fullTakeoffApproval?.providers ?? []).map(provider => [provider.provider, String(provider.minimumUsd)]))); setPilotActive(value.pilotActive === true); setEntitlementContext(`${workspaceId}:${remoteId}`); } })
       .catch(() => { if (active) setEntitlementError(true); });
     return () => { active = false; };
   }, [workspaceId, project.remoteId, entitlementRetry]);
@@ -186,7 +191,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastObservedStatus = currentRevision?.aiPlanStatus;
     let lastRevisionNote = currentRevision?.notes;
-    setFindings([]);
+    setFindings([]); setReadingProgress(null); setReadingError(null);
     const jobId = currentRevision?.aiPlanJobId;
     if (!workspaceId || !jobId || !currentRevision) {
       return () => { active = false; };
@@ -198,6 +203,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           const polledRun = await getFullTakeoffRun(workspaceId, jobId);
           if (!active) return;
           const presentation = presentFullTakeoffStatus(polledRun);
+          setReadingProgress(presentation.savedProgress);
+          setReadingError(polledRun.processing_error ?? null);
           if (lastObservedStatus !== polledRun.status || (presentation.revisionNote && lastRevisionNote !== presentation.revisionNote)) {
             onPatchRevision(currentRevision.id, {
               aiPlanJobId: polledRun.id, aiPlanStatus: polledRun.status, aiPlanMode: 'full_v2',
@@ -213,6 +220,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         const polledJob = await getAiPlanReading(workspaceId, jobId);
         if (!active) return;
         setFindings(polledJob.plan_reading_findings);
+        setReadingError(polledJob.processing_error ?? null);
         const presentation = presentAiPlanStatus(polledJob.status);
         if (lastObservedStatus !== polledJob.status || (presentation.revisionNote && lastRevisionNote !== presentation.revisionNote)) {
           onPatchRevision(currentRevision.id, {
@@ -237,6 +245,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         }
       } catch (error) {
         if (active) {
+          setReadingError(`Progress could not be refreshed. The worker may still be running. ${readableApiError(error)}`);
           setPlanNotice(`Saved progress could not be refreshed. The worker may still be running. ${readableApiError(error)}`);
           if (!(error instanceof ApiError && [401, 403, 404].includes(error.status))) timer = setTimeout(pollAiPlanReading, 8000);
         }
@@ -361,7 +370,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             ? 'The upload timed out. Retry this file.' : readableApiError(error));
         }
       }
-      if (current()) setPlanNotice(`${savedCount} of ${files.length} PDFs saved. Review your selected files below for one reading price. Photos can be added in the Photos section.`);
+      if (current()) setPlanNotice(`${savedCount} of ${files.length} PDFs saved. Reading has not started. Confirm processing and select Generate estimate to continue.`);
     } finally {
       paidActionInFlight.current = false;
       if (current()) setIsUploading(false);
@@ -394,8 +403,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   }, [initialFiles, canWrite, workspaceId, project.remoteId]);
 
   const handleGenerateEstimate = async () => {
-    if (!processingConsent || !canWrite || !entitlementReady || !workspaceId || !project.remoteId || paidActionInFlight.current || isUploading || isStartingAi || isPaying || photoIntakeState.busy) return;
+    if (!canWrite || !entitlementReady || !workspaceId || !project.remoteId || paidActionInFlight.current || isUploading || isStartingAi || isPaying || photoIntakeState.busy) return;
+    if (!services.length) { setPlanNotice('Choose the work to estimate before starting the reading.'); return; }
+    if (!processingConsent) { setPlanNotice('Your files are saved, but reading has not started. Confirm AI processing below, then select Generate estimate.'); consentInput.current?.focus(); consentInput.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     const selected = estimateServiceScope(services);
+    setReadingError(null);
     const captured = `${workspaceId}:${project.remoteId}`;
     const relevant = project.revisions.filter(revision => revision.remoteFileId && selectedFileIds.includes(revision.remoteFileId));
     if (!relevant.length && !photoIntakeState.count) { setPlanNotice('Add photos or select a saved PDF to generate your estimate.'); return; }
@@ -434,7 +446,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           if (revision.id === currentRevision?.id && 'plan_reading_findings' in job) setFindings(job.plan_reading_findings);
         }
       } else if (relevant.length) {
-        if (!aiReadingAvailable) throw new Error('Plan processing is unavailable. Your saved files remain accessible.');
+        if (!aiReadingAvailable) throw new Error(processingUnavailableReason === 'worker_unavailable' ? 'Plan reading is temporarily offline. Your files are saved. Check processing availability again after the service restarts.' : 'Plan processing is unavailable. Your saved files remain accessible.');
         if (relevant.length > 1) {
           setPlanNotice('Review the saved multi-file processing fee below before starting.');
         } else {
@@ -657,9 +669,34 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     }
   };
 
+  const pendingPhotoUpload = Boolean(photoUploadRequest?.files.length && !photoIntakeState.ready && !photoIntakeState.error && !photoIntakeState.runStatus);
+  const uploading = isUploading || photoIntakeState.activity === 'upload' || pendingPhotoUpload;
+  const starting = isStartingAi || photoIntakeState.activity === 'start';
+  const updatingPhotos = photoIntakeState.busy && !uploading && !starting;
+  const savedPdfCount = uploadBatch.filter(item => item.status === 'saved').length;
+  const uploadFailure = uploadBatch.some(item => item.status === 'failed') || Boolean(photoIntakeState.error);
+  const selectedReadingStatus = currentRevision?.aiPlanJobId ? currentRevision.aiPlanStatus : undefined;
+  const photoReadingStatus = photoIntakeState.runStatus;
+  const readingInFlight = (selectedReadingStatus && isAiPlanInFlight(selectedReadingStatus)) || (photoReadingStatus && isAiPlanInFlight(photoReadingStatus));
+  const hasSources = project.revisions.some(item => Boolean(item.remoteFileId)) || photoIntakeState.count > 0;
+  const readingServiceOffline = entitlementReady && processingUnavailableReason === 'worker_unavailable' && !freeReadingAvailable && !fullTakeoffV2Available;
+  const statusTitle = uploading ? 'Uploading your files…' : starting ? 'Starting your reading…' : updatingPhotos ? 'Updating photo reading…' : readingServiceOffline ? 'Plan reading is temporarily offline' : uploadFailure ? 'Some files need attention' : readingError ? 'Reading needs attention' : readingInFlight ? (selectedReadingStatus === 'waiting_budget' || photoReadingStatus === 'waiting_budget' ? 'Waiting for processing capacity' : selectedReadingStatus === 'queued' || photoReadingStatus === 'queued' ? 'Reading queued' : 'Reading your files…') : ['failed', 'cancelled', 'blocked'].includes(selectedReadingStatus ?? photoReadingStatus ?? '') ? 'Reading stopped — review saved progress' : selectedReadingStatus || photoReadingStatus ? 'Reading results are ready to review' : hasSources ? 'Files saved — reading has not started' : 'Add files to begin';
+  const statusBusy = !readingError && !readingServiceOffline && (uploading || starting || updatingPhotos || Boolean(readingInFlight));
+
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-6xl mx-auto space-y-6 select-none font-sans">
       <header><h2 className="text-xl font-bold text-slate-900">Your estimate</h2><p className="mt-1 text-sm text-slate-600">Upload photos and plans. Choose the service. Generate your estimate.</p></header>
+      <section aria-label="Estimate progress" className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+        <div role="status" aria-live="polite" className="flex items-center gap-2 font-semibold text-blue-950">{statusBusy && <Loader2 aria-label="Estimate is working" className="h-5 w-5 shrink-0 animate-spin" />}{statusTitle}</div>
+        {isUploading && <p className="break-words text-sm text-blue-900">{savedPdfCount} of {uploadBatch.length} PDFs saved. {uploadBatch.find(item => item.status === 'uploading')?.file.name}</p>}
+        {isUploading && uploadBatch.length > 0 && <progress aria-label="PDF upload progress" value={savedPdfCount} max={uploadBatch.length} className="w-full" />}
+        {readingProgress && !uploading && <p className="text-sm text-blue-900">{readingProgress}</p>}
+        {photoIntakeState.progress && !uploading && <p className="text-sm text-blue-900">{photoIntakeState.progress}</p>}
+        {readingServiceOffline && <div className="text-sm text-blue-900 space-y-2"><p>Your PDFs are saved. Reading cannot start until the processing service is back online.</p><button type="button" onClick={() => setEntitlementRetry(value => value + 1)} className="font-semibold underline">Check processing availability</button></div>}
+        {readingError && <p role="alert" className="break-words text-sm text-amber-950">{readingError}</p>}
+        {!uploading && !isStartingAi && !selectedReadingStatus && !photoReadingStatus && !readingServiceOffline && hasSources && <p className="text-sm text-blue-900">{!services.length ? 'Choose the service, then start the reading.' : !processingConsent ? 'Confirm AI processing below, then select Generate estimate.' : 'Select Generate estimate to start reading the saved files.'} <a href="#generate-estimate" className="font-semibold underline">Go to Generate estimate</a></p>}
+        {statusBusy && <p className="text-xs text-blue-900">{uploading ? 'Keep this page open until the upload finishes.' : 'Saved reading progress remains available when you return. Uploading a file alone does not start AI processing.'}</p>}
+      </section>
       <section aria-label="Generate an estimate" className="grid gap-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6 lg:grid-cols-2">
         <div className="space-y-3"><h3 className="text-sm font-semibold">1. Photos and/or PDF plans</h3>
           <label className="block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold">
@@ -680,8 +717,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
             <details><summary className="cursor-pointer">Change processing limits</summary><div className="mt-2 space-y-2">{fullApprovalProfile.providers.map(provider => <label key={provider.provider} className="block">{provider.provider} (${provider.minimumUsd}–${provider.maximumUsd} per PDF)<input aria-label={`Estimate ${provider.provider} processing limit USD`} type="number" min={provider.minimumUsd} max={provider.maximumUsd} step="0.000001" value={fullBudgetAmounts[provider.provider] ?? ''} disabled={!canWrite || isStartingAi || isPaying} onChange={event => { setFullBudgetAmounts(previous => ({ ...previous, [provider.provider]: event.target.value })); setProcessingConsent(false); }} className="mt-1 block w-full rounded border p-2" /></label>)}</div></details>
             <p>These limits fund processing, not construction work. A run pauses if its limit is reached.</p>
           </div>}
-          <label className="flex items-start gap-2 text-xs text-slate-600"><input type="checkbox" checked={processingConsent} disabled={!canWrite || isStartingAi || isPaying} onChange={event => setProcessingConsent(event.target.checked)} /><span>I agree to AI processing of these files and authorize the processing limits shown above, if applicable. Any customer processing fee must be confirmed before payment.</span></label>
-          <button type="button" onClick={() => void handleGenerateEstimate()} disabled={!canWrite || !entitlementReady || !services.length || !processingConsent || isUploading || isStartingAi || isPaying || photoIntakeState.busy} aria-busy={isStartingAi} className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"><Sparkles className="h-4 w-4" />{isStartingAi ? 'Preparing your estimate…' : '3. Generate estimate'}</button>
+          <label className="flex items-start gap-2 text-xs text-slate-600"><input ref={consentInput} type="checkbox" checked={processingConsent} disabled={!canWrite || isStartingAi || isPaying} onChange={event => setProcessingConsent(event.target.checked)} /><span>I agree to AI processing of these files and authorize the processing limits shown above, if applicable. Any customer processing fee must be confirmed before payment.</span></label>
+          <button id="generate-estimate" type="button" onClick={() => void handleGenerateEstimate()} disabled={!canWrite || !entitlementReady || isUploading || isStartingAi || isPaying || photoIntakeState.busy} aria-busy={isStartingAi} className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"><Sparkles className="h-4 w-4" />{isStartingAi ? <><Loader2 className="h-4 w-4 animate-spin" />Starting your reading…</> : '3. Generate estimate'}</button>
           {!entitlementReady && <p role="status" className="text-xs text-slate-600">{entitlementError ? <button type="button" onClick={() => setEntitlementRetry(value => value + 1)}>Check processing access again</button> : 'Checking processing access…'}</p>}
           {photoIntakeState.error && <p role="alert" className="text-xs text-amber-900">{photoIntakeState.error}</p>}
         </div>

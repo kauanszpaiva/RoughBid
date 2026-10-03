@@ -13,7 +13,7 @@ type UploadSelection = { file: File; asset?: PhotoSourceAsset; status: 'selected
 const message = (error: unknown) => error instanceof Error ? error.message : 'Photo operation could not be confirmed. Reload saved state.';
 const retryRead = (error: unknown) => !(error instanceof ApiError && [401, 403, 404].includes(error.status));
 
-export type PhotoIntakeState = { busy: boolean; ready: boolean; count: number; error: string | null };
+export type PhotoIntakeState = { busy: boolean; ready: boolean; count: number; error: string | null; runStatus?: string | undefined; progress?: string | undefined; activity?: string | undefined };
 export type PhotoTakeoffHandle = { generate: () => Promise<void> };
 export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
   workspaceId: string | null; projectId: string | undefined; canWrite: boolean;
@@ -184,9 +184,11 @@ export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
   }, [uploadRequest, capability, canWrite, busy]);
 
   useEffect(() => {
-    onIntakeState?.({ busy: Boolean(busy), ready: selection.length > 0 && selection.every(item => Boolean(item.asset)),
-      count: Math.max(selection.length, uploadRequest?.files.length ?? 0), error: actionError ?? readError });
-  }, [busy, selection, uploadRequest, actionError, readError, onIntakeState]);
+    onIntakeState?.({ busy: Boolean(busy), activity: busy ?? undefined, ready: selection.length > 0 && selection.every(item => Boolean(item.asset)),
+      count: Math.max(selection.length, uploadRequest?.files.length ?? 0), error: actionError ?? readError,
+      runStatus: detail?.run.status ?? history.find(item => item.id === runId)?.status,
+      progress: detail ? photoCheckpointProgress(detail) : undefined });
+  }, [busy, selection, uploadRequest, actionError, readError, detail, history, runId, onIntakeState]);
 
   const handleConsent = async () => {
     if (!canWrite || !workspaceId || actionLock.current) return;

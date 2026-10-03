@@ -10,7 +10,8 @@ const workspaceId = 'offline-workspace';
 const projectId = 'offline-project';
 const user = { id: 'offline-user', email: 'estimator@example.test', aud: 'authenticated', role: 'authenticated', created_at: '2026-10-02T00:00:00Z', app_metadata: {}, user_metadata: {} };
 const view = new URLSearchParams(location.search).get('view') ?? 'plans';
-const fullIntake = new URLSearchParams(location.search).get('reading') === 'full';
+const readingMode = new URLSearchParams(location.search).get('reading');
+const fullIntake = readingMode === 'full' || readingMode === 'offline';
 if (view === 'reset') { localStorage.removeItem(projectKey); localStorage.removeItem(stateKey); }
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const fixture: any = JSON.parse(localStorage.getItem(stateKey) ?? 'null') ?? { requests: [], fullRun: null, photoRun: null, assets: [] };
@@ -43,10 +44,12 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const path = url.pathname;
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
   fixture.requests.push({ method, path, query: url.search, body });
+  if (fixture.uploadDelayMs && (path.endsWith('/documents/upload-url') || path.endsWith('/photos/uploads'))) await new Promise(resolve => setTimeout(resolve, fixture.uploadDelayMs));
   if (view === 'intake' && path === '/api/projects' && method === 'POST') return json({ id: projectId, name: body.name, app_state: body.appState }, 201);
   if (view === 'intake' && path.endsWith('/ai-consent')) return json({ approved: true });
   if (view === 'intake' && path.endsWith('/photos/quote')) return json({ quote: null });
   if (view === 'intake' && fixture.failNextPhotoUpload && path.endsWith('/photos/uploads') && method === 'POST') { fixture.failNextPhotoUpload = false; return json({ error: 'Synthetic upload interrupted' }, 503); }
+  if (view === 'intake' && path.endsWith('/ai-plan-entitlement') && (fixture.fullWorkerOffline ?? readingMode === 'offline')) return json({ freeReadingAvailable: false, fullTakeoffV2Available: false, fullTakeoffUnavailableReason: 'worker_unavailable' });
   if (view === 'intake' && path.endsWith('/ai-plan-entitlement')) return json({ freeReadingAvailable: !fullIntake, fullTakeoffV2Available: fullIntake, pilotActive: false, ...(fullIntake ? { fullTakeoffApproval: { version: 'full-user-spend-v1', policyId: 'offline-policy', providers: [{ provider: 'gemini', models: ['offline-model'], minimumUsd: 0.25, maximumUsd: 3, maximumCalls: 12 }] } } : {}) });
   if (view === 'intake' && !fullIntake && path.endsWith('/ai-plan-readings') && method === 'POST') {
     fixture.quickJob = { id: 'offline-quick-job', status: 'needs_review', processing_error: null, output_summary: {}, plan_reading_findings: [] };
@@ -121,7 +124,7 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   if (path.includes('/offline-supabase/auth/v1/user')) return json(user);
   if (path.includes('/offline-supabase/auth/v1/logout')) return json({});
   if (path === '/api/auth/magic-link') return json({ accepted: true }, 202);
-  if (path === '/api/capabilities') return json({ aiReadingAvailable: true, billing: false, fullTakeoffV2Available: true });
+  if (path === '/api/capabilities') return json({ aiReadingAvailable: readingMode !== 'offline', billing: false, fullTakeoffV2Available: true });
   if (path.endsWith('/ai-plan-entitlement')) return json({ freeReadingAvailable: false, fullTakeoffV2Available: true, pilotActive: false });
   if (path.endsWith('/documents/upload-url')) return json({ file: { id: 'offline-pdf', original_name: body.name, byte_size: body.byteSize, processing_status: 'uploading' }, upload: { url: `${location.origin}/offline-storage/pdf`, method: 'PUT', headers: {} } });
   if (path === '/offline-storage/pdf' && method === 'PUT') { fixture.pdfBytes = Array.from(new Uint8Array(await new Response(init.body).arrayBuffer())); persist(); return new Response('', { status: 200 }); }
