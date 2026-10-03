@@ -8,7 +8,10 @@ export class UsageAccountingError extends Error {
   constructor() { super('API usage accounting is unavailable. No automatic retry is allowed; contact the platform owner.'); this.name = 'UsageAccountingError'; }
 }
 export class ProviderSpendLimitError extends UsageAccountingError {
-  constructor() { super(); this.message = 'RoughBid reached its company AI spend limit. No provider request was sent; contact support to continue.'; this.name = 'ProviderSpendLimitError'; }
+  readonly scope: 'company' | 'run';
+  constructor(scope: 'company' | 'run' = 'company') { super(); this.scope = scope;
+    this.message = scope === 'run' ? 'RoughBid reached this run/provider spending authorization. No provider request was sent; review its budget before continuing.'
+      : 'RoughBid reached its company AI spend limit. No provider request was sent; contact support to continue.'; this.name = 'ProviderSpendLimitError'; }
 }
 export function withUsageMeter<T>(context: Context, run: () => Promise<T>): Promise<T> { return storage.run(context, run); }
 export interface ProviderSpendRequirement { minimumReservationUsd: number }
@@ -67,9 +70,9 @@ export async function meterGeminiCall<T>(model: string, kind: 'generate' | 'coun
       });
     } catch { throw new UsageAccountingError(); }
     if (reservation.error) {
-      if (/company ai spend limit reached/i.test(reservation.error.message ?? '')) {
+      if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
         await settle({ operation: `${prefix}blocked_spend_limit` });
-        throw new ProviderSpendLimitError();
+        throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
       }
       throw new UsageAccountingError();
     }
@@ -158,9 +161,9 @@ async function meterProviderCall<T>(provider: string, model: string, call: () =>
     });
   } catch { throw new UsageAccountingError(); }
   if (reservation.error) {
-    if (/company ai spend limit reached/i.test(reservation.error.message ?? '')) {
+    if (/(?:company ai spend limit|provider run spend limit) reached/i.test(reservation.error.message ?? '')) {
       await settle({ operation: `${prefix}blocked_spend_limit` });
-      throw new ProviderSpendLimitError();
+      throw new ProviderSpendLimitError(/provider run spend limit/i.test(reservation.error.message ?? '') ? 'run' : 'company');
     }
     throw new UsageAccountingError();
   }

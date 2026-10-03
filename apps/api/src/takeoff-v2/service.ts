@@ -22,6 +22,10 @@ export interface FullTakeoffV2ProviderFactory {
     workspaceId: string;
     projectId: string;
     fileId: string;
+    /** Only durable consumers receive a lease; HTTP never dispatches regions. */
+    leaseId?: string;
+    /** Lease loss/user cancellation aborts local transport; remote spending may remain uncertain. */
+    signal?: AbortSignal;
   }): DeepPassProvider | Promise<DeepPassProvider>;
 }
 

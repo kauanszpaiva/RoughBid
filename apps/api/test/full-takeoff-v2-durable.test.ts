@@ -9,7 +9,7 @@ import { DurableFullTakeoffV2Processor, DurableFullTakeoffV2Service, createFullT
 function query(data: unknown, selected?: (columns: string) => void) {
   const result: any = {};
   result.select = (columns: string) => { selected?.(columns); return result; };
-  for (const method of ['eq','maybeSingle']) result[method] = () => result;
+  for (const method of ['eq','maybeSingle','limit']) result[method] = () => result;
   result.then = (resolve: any) => Promise.resolve({ data, error: null }).then(resolve);
   return result;
 }
@@ -119,8 +119,42 @@ test('worker reuse skips completed calls; uncertain claims and cancellation neve
 
 test('progress summary excludes source checkpoints; selected detail is limited to one pass',async()=>{
   const selected:string[]=[];
-  const readDb={from:(table:string)=>query(table==='takeoff_runs'?{id:'run',project_id:'project'}:table==='plan_sheets'?[{id:'sheet',physical_page_number:1}]:[{plan_sheet_id:'sheet',pass_type:'geometry',status:'blocked'}],columns=>selected.push(columns))};
+  const readDb={from:(table:string)=>query(table==='takeoff_runs'?{id:'run',project_id:'project'}:table==='plan_sheets'?[{id:'sheet',physical_page_number:1}]:table==='takeoff_measurement_reviews'?[{review_status:'accepted'},{review_status:'blocked'}]:[{plan_sheet_id:'sheet',pass_type:'geometry',status:'blocked'}],columns=>selected.push(columns))};
   const service=new DurableFullTakeoffV2Service(readDb as never,{from:()=>{}},{presign:async()=>({url:'https://test'})},undefined,'user','workspace');
   const result=await service.get('run');assert.equal(result.sheets[0].passes[0].status,'blocked');assert.ok(selected.every(columns=>!columns.split(',').includes('checkpoint')));
+  assert.equal(result.measurementReview.acceptedCount,1);assert.equal(result.measurementReview.pendingCount,1);
+  assert.equal(result.measurementReview.scopeCoverage,'selected_elements_only');assert.equal(result.measurementReview.humanReviewRequired,true);
   await assert.rejects(service.checkpoint('run',201,'geometry'),(e:any)=>e.status===400);
+});
+
+test('a lost lease aborts the active factory transport signal and cannot finalize or retry',async()=>{
+  const bytes=await pdf(),manifest=await createPlanSetManifest(bytes);let canceled=false,aborted=false,retry:any,finished=false;
+  const writer={from:()=>{},rpc:async(fn:string,args:any)=>{
+    if(fn==='claim_full_takeoff_v2')return{data:{lease_id:'lease',manifest,workspace_id:'workspace',project_id:'project',file_id:'file',storage_path:'workspace/project/file/source.pdf',requested_by:'user'},error:null};
+    if(fn==='heartbeat_full_takeoff_v2')return{data:!canceled,error:null};
+    if(fn==='begin_full_takeoff_v2_pass')return{data:'run',error:null};
+    if(fn==='release_full_takeoff_v2'){retry=args.p_allow_retry;return{data:true,error:null};}
+    if(fn==='finish_full_takeoff_v2'){finished=true;return{data:true,error:null};}
+    throw new Error('Unexpected offline lease RPC');
+  }};
+  const processor=new DurableFullTakeoffV2Processor(writer,{presign:async()=>({url:'https://storage.test/fixture.pdf'})},
+    {create:input=>({runPass:async()=>{canceled=true;assert.ok(input.signal);return new Promise((_resolve,reject)=>{
+      input.signal!.addEventListener('abort',()=>{aborted=true;reject(new Error('Offline canceled'));},{once:true});
+    });}})},'worker',(async()=>new Response(bytes)) as typeof fetch,{heartbeatMs:5});
+  await assert.rejects(processor.process({data:{runId:'run'},attemptsMade:0,opts:{attempts:3}}));
+  assert.equal(aborted,true);assert.equal(finished,false);assert.equal(retry,false);
+});
+
+test('individual persisted regions are readable without provider dispatch and remain bound to page/pass/project',async()=>{
+  const tables:string[]=[],filters:unknown[]=[];
+  const readDb={from:(table:string)=>{
+    tables.push(table);const result=query(table==='takeoff_runs'?{id:'run',project_id:'project'}:table==='plan_sheets'?{id:'sheet',physical_page_number:2}:
+      {region_key:'r2c1g2',region:{x:0,y:50,width:100,height:50},status:'blocked',result:{provider:'openai',model:'gpt-6-astra',checkpoint:{observations:[],blockers:['No calibrated scale.']}}});
+    result.eq=(key:string,value:unknown)=>{filters.push([key,value]);return result;};return result;
+  }};
+  const service=new DurableFullTakeoffV2Service(readDb as never,{from:()=>{throw new Error('Read-only');}},{presign:async()=>{throw new Error('No document required');}},undefined,'user','workspace');
+  const value=await service.checkpoint('run',2,'discipline','r2c1g2');assert.equal(value.pass.status,'blocked');assert.equal(value.region!.key,'r2c1g2');
+  assert.deepEqual(value.pass.checkpoint!.blockers,['No calibrated scale.']);assert.ok(tables.includes('takeoff_region_checkpoints'));
+  for(const filter of [['workspace_id','workspace'],['project_id','project'],['plan_sheet_id','sheet'],['physical_page_number',2],['region_key','r2c1g2']])assert.ok(filters.some(value=>JSON.stringify(value)===JSON.stringify(filter)));
+  await assert.rejects(service.checkpoint('run',2,'geometry','r2c1g2'),(error:any)=>error.status===400);
 });

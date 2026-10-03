@@ -162,3 +162,46 @@ test('successful reads and anonymous requests never initiate forced refresh', as
   assert.equal(f.sent[1].token, null);
   assert.equal(f.refreshCount(), 0);
 });
+
+test('a successful response for an earlier account is discarded after account switch or logout', async () => {
+  for (const next of [null, { access_token: 'different-token', user: { id: 'different-user' } }]) {
+    const f = fixture();
+    f.hooks.respond = async () => { f.setSession(next); return new Response('previous private workspace', { status: 200 }); };
+    await assert.rejects(f.request('/api/projects'), { status: 401 });
+    assert.equal(f.sent.length, 1); assert.equal(f.refreshCount(), 0);
+    assert.deepEqual(f.signOutScopes, []);
+  }
+});
+
+test('an already canceled request never loads credentials or dispatches a mutation', async () => {
+  let reads = 0; let sends = 0;
+  const request = createAuthenticatedFetch({
+    getSession: async () => { reads++; return { data: { session: original }, error: null }; },
+    refreshSession: async () => { throw new Error('must not refresh'); },
+    signOut: async () => ({ error: null }),
+  }, async () => { sends++; return new Response(''); });
+  await assert.rejects(request('/api/projects', { method: 'POST', signal: AbortSignal.abort() }), { name: 'AbortError' });
+  assert.equal(reads, 0); assert.equal(sends, 0);
+});
+
+test('canceling while the cached session loads prevents dispatch', async () => {
+  const controller = new AbortController(); let sends = 0;
+  const request = createAuthenticatedFetch({
+    getSession: async () => { controller.abort(); return { data: { session: original }, error: null }; },
+    refreshSession: async () => { throw new Error('must not refresh'); },
+    signOut: async () => ({ error: null }),
+  }, async () => { sends++; return new Response(''); });
+  await assert.rejects(request('/api/projects', { method: 'POST', signal: controller.signal }), { name: 'AbortError' });
+  assert.equal(sends, 0);
+});
+
+test('a successful retried response is discarded if its user changes during the read', async () => {
+  const f = fixture();
+  f.hooks.respond = async (token) => {
+    if (token === original.access_token) return new Response('', { status: 401 });
+    f.setSession({ access_token: 'different-token', user: { id: 'different-user' } });
+    return new Response('previous private workspace', { status: 200 });
+  };
+  await assert.rejects(f.request('/api/projects'), { status: 401 });
+  assert.equal(f.sent.length, 2); assert.equal(f.refreshCount(), 1); assert.deepEqual(f.signOutScopes, []);
+});

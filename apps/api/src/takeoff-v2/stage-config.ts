@@ -56,6 +56,8 @@ export interface ConfiguredEvidenceStage {
 export interface StageDeepPassConfig {
   stages: Partial<Record<DeepPassType, ConfiguredEvidenceStage>>;
   requestTimeoutMs: number;
+  /** A reviewed fanout policy, never enabled merely by a credential. */
+  regionalReview: { enabled: boolean; grid: 2 | 3 };
 }
 
 function unavailable(message: string): never { throw new ProjectApiError(503, `Full Takeoff stage configuration: ${message}`); }
@@ -133,5 +135,10 @@ export function requireStageDeepPassConfig(env: Record<string, string | undefine
       attestation: attestationFor(attestations, model as StageModelId) });
   }
   if (!Object.keys(stages).length) unavailable('at least one evidence stage must be explicitly configured.');
-  return Object.freeze({ stages: Object.freeze(stages), requestTimeoutMs: timeout });
+  const regionalFlag = env.TAKEOFF_V2_REGIONAL_REVIEW_ENABLED;
+  if (regionalFlag !== undefined && !['true', 'false', ''].includes(regionalFlag)) unavailable('regional review flag must be true or false.');
+  const grid = Number(env.TAKEOFF_V2_REGION_GRID ?? 2);
+  if (grid !== 2 && grid !== 3) unavailable('regional review grid must be 2 or 3.');
+  return Object.freeze({ stages: Object.freeze(stages), requestTimeoutMs: timeout,
+    regionalReview: Object.freeze({ enabled: regionalFlag === 'true', grid: grid as 2 | 3 }) });
 }

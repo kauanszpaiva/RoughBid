@@ -52,7 +52,7 @@ type RequestOptions = {
   contentType?: string;
 };
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", workspaceId, body, rawBody, contentType = "application/json" } = options;
 
   const headers: Record<string, string> = { "Content-Type": contentType };
@@ -414,6 +414,9 @@ export type FullTakeoffSheet = {
   status_reason: string | null;
   passes: FullTakeoffPass[];
 };
+export type FullTakeoffRegionRectangle = { row: number; column: number; rows: number; columns: number; x: number; y: number; width: number; height: number };
+export type FullTakeoffCheckpoint = { id: string; mode: "full_v2"; sheet: Omit<FullTakeoffSheet, "passes">; pass: FullTakeoffPass;
+  region?: { key: string; rectangle: FullTakeoffRegionRectangle | null; status: string } };
 export type FullTakeoffRun = {
   id: string;
   mode: "full_v2";
@@ -447,9 +450,9 @@ export function getFullTakeoffRun(workspaceId: string, runId: string) {
 }
 
 /** Load one saved checkpoint on demand; progress never downloads the entire evidence set. */
-export function getFullTakeoffCheckpoint(workspaceId: string, runId: string, pageNumber: number, passType: string) {
-  return request<{ id: string; mode: "full_v2"; sheet: Omit<FullTakeoffSheet, "passes">; pass: FullTakeoffPass }>(
-    `/api/takeoff-runs/${encodeURIComponent(runId)}?page_number=${pageNumber}&pass_type=${encodeURIComponent(passType)}`, { workspaceId },
+export function getFullTakeoffCheckpoint(workspaceId: string, runId: string, pageNumber: number, passType: string, regionKey?: string) {
+  return request<FullTakeoffCheckpoint>(
+    `/api/takeoff-runs/${encodeURIComponent(runId)}?page_number=${pageNumber}&pass_type=${encodeURIComponent(passType)}${regionKey === undefined ? '' : `&region_key=${encodeURIComponent(regionKey)}`}`, { workspaceId },
   );
 }
 

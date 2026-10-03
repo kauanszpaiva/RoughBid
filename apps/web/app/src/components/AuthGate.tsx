@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ArrowRight,
   BrainCircuit,
@@ -15,38 +15,56 @@ import {
 } from "lucide-react";
 import { isAuthConfigured } from "../services/supabaseClient";
 import { requestMagicLink } from "../services/api";
+import { authCallbackNotice, clearAuthCallbackError, normalizeAuthEmail } from "../services/authForm";
 
 type AuthMode = "sign-in" | "create-account";
 type SendState = "idle" | "sending" | "sent" | "error";
 
-export const AuthGate: React.FC = () => {
+interface AuthGateProps { sessionError?: string | null; onRetrySession?: () => void }
+
+export const AuthGate: React.FC<AuthGateProps> = ({ sessionError, onRetrySession }) => {
   const search = new URLSearchParams(window.location.search);
   const hasAccountInvite = search.has("pilot_invite") || search.has("invite");
   const [mode, setMode] = useState<AuthMode>(hasAccountInvite ? "create-account" : "sign-in");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [callbackNotice, setCallbackNotice] = useState(() => authCallbackNotice(window.location.href));
+  const [sentEmail, setSentEmail] = useState("");
+  const submitting = useRef(false);
   const [reviewDecision, setReviewDecision] = useState<"pending" | "approved" | "rejected">("pending");
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitting.current) return;
     if (!isAuthConfigured) {
       setState("error");
       setError("Sign-in is not configured in this environment. Production needs Supabase Auth variables before app access.");
       return;
     }
 
+    let normalizedEmail: string;
+    try { normalizedEmail = normalizeAuthEmail(email); }
+    catch (error) {
+      setState("error");
+      setError(error instanceof Error ? error.message : "Enter a valid email address.");
+      return;
+    }
+    submitting.current = true;
     setState("sending");
     setError(null);
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
     const pilotInviteToken = new URLSearchParams(window.location.search).get("pilot_invite");
     try {
-      await requestMagicLink({ email: email.trim(), inviteToken, pilotInviteToken, mode });
+      await requestMagicLink({ email: normalizedEmail, inviteToken, pilotInviteToken, mode });
+      setSentEmail(normalizedEmail);
+      setCallbackNotice(null);
+      window.history.replaceState(window.history.state, "", clearAuthCallbackError(window.location.href));
       setState("sent");
     } catch (error) {
       setState("error");
       setError(error instanceof Error ? error.message : "We could not send your sign-in link. Try again.");
-    }
+    } finally { submitting.current = false; }
   };
 
   return (
@@ -61,10 +79,17 @@ export const AuthGate: React.FC = () => {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4 sm:p-5 max-w-[440px] mx-auto">
+          {sessionError && <div role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            <p>{sessionError}</p>
+            {onRetrySession && <button type="button" onClick={onRetrySession} className="mt-2 rounded border border-amber-300 px-3 py-2 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2">Retry saved session</button>}
+          </div>}
+          {callbackNotice && <p role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{callbackNotice}</p>}
           {new URLSearchParams(window.location.search).has('pilot_invite') && <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">You have an access invitation. Sign in or create your account using the exact email that received it. Your private workspace and access period activate after your email is verified.</p>}
           <div className={`${hasAccountInvite ? "grid grid-cols-2" : "grid grid-cols-1"} bg-slate-100 rounded-lg p-1 mb-5`}>
             <button
               type="button"
+              disabled={state === "sending"}
+              aria-pressed={mode === "sign-in"}
               onClick={() => {
                 setMode("sign-in");
                 setState("idle");
@@ -76,6 +101,8 @@ export const AuthGate: React.FC = () => {
             </button>
             {hasAccountInvite && <button
               type="button"
+              disabled={state === "sending"}
+              aria-pressed={mode === "create-account"}
               onClick={() => {
                 setMode("create-account");
                 setState("idle");
@@ -88,13 +115,13 @@ export const AuthGate: React.FC = () => {
           </div>
 
           {state === "sent" ? (
-            <div className="border border-blue-200 bg-blue-50 rounded-lg p-4 text-sm">
+            <div role="status" aria-live="polite" className="border border-blue-200 bg-blue-50 rounded-lg p-4 text-sm">
               <div className="flex items-center gap-2 font-bold text-blue-950">
                 <Mail className="w-4 h-4 text-blue-600" />
                 Check your email
               </div>
               <p className="text-blue-800 text-xs leading-relaxed mt-2">
-                Check the inbox and spam folder for <strong>{email}</strong>. If your request can be completed, a secure RoughBid link will arrive. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
+                Check the inbox and spam folder for <strong>{sentEmail}</strong>. If your request can be completed, a secure RoughBid link will arrive. Open it on this device to {mode === "create-account" ? "finish creating your account" : "enter your workspace"}.
               </p>
               <button
                 type="button"
@@ -105,7 +132,7 @@ export const AuthGate: React.FC = () => {
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} aria-busy={state === "sending"} className="space-y-4">
               {!isAuthConfigured && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                   App access is locked until Supabase Auth is configured for this environment.
@@ -118,6 +145,12 @@ export const AuthGate: React.FC = () => {
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
                     type="email"
+                    name="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    maxLength={254}
+                    disabled={state === "sending"}
                     required
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}

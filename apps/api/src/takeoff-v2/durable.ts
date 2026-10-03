@@ -122,11 +122,18 @@ export class DurableFullTakeoffV2Service {
     const sheets = dbValue<any[]>(await this.db.from('plan_sheets')
       .select('id,physical_page_number,status,status_reason')
       .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id), 'Could not read Full Takeoff sheets.');
+    const reviewed = dbValue<any[]>(await this.db.from('takeoff_measurement_reviews').select('review_status')
+      .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id).limit(501), 'Could not read Full Takeoff measurement coverage.');
     return { ...run, mode: FULL_TAKEOFF_V2_MODE, sheets: sheets.map(sheet => ({ ...sheet,
-      passes: passes.filter(pass => pass.plan_sheet_id === sheet.id) })) };
+      passes: passes.filter(pass => pass.plan_sheet_id === sheet.id) })), measurementReview: {
+        acceptedCount: reviewed.slice(0,500).filter(value=>value.review_status==='accepted').length,
+        pendingCount: reviewed.slice(0,500).filter(value=>['candidate','blocked'].includes(value.review_status)).length,
+        countsPartial: reviewed.length>500, endpoint:`/api/takeoff-runs/${encodeURIComponent(runId)}/measurements`,
+        scopeCoverage:'selected_elements_only', humanReviewRequired:true,
+      } };
   }
 
-  async checkpoint(runId: string, page: number, passType: string) {
+  async checkpoint(runId: string, page: number, passType: string, regionKey?: string) {
     if (!Number.isSafeInteger(page) || page < 1 || page > 200 || !DEEP_PASS_ORDER.includes(passType as any)) {
       throw new ProjectApiError(400, 'Select one physical page and one valid pass to read its checkpoint.');
     }
@@ -138,6 +145,16 @@ export class DurableFullTakeoffV2Service {
       .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id)
       .eq('physical_page_number', page).maybeSingle(), 'Could not read Full Takeoff sheet.');
     if (!sheet) throw new ProjectApiError(404, 'Full Takeoff sheet not found.');
+    if(regionKey!==undefined){
+      if(!/^r[1-3]c[1-3]g[23]$/.test(regionKey)||!['discipline','conflict_detection','completeness'].includes(passType))throw new ProjectApiError(400,'Select one persisted visual region and an applicable pass.');
+      const region=dbValue<any>(await this.db.from('takeoff_region_checkpoints').select('region_key,region,status,result,started_at,completed_at')
+        .eq('takeoff_run_id',runId).eq('workspace_id',this.workspaceId).eq('project_id',run.project_id).eq('plan_sheet_id',sheet.id)
+        .eq('physical_page_number',page).eq('pass_type',passType).eq('region_key',regionKey).maybeSingle(),'Could not read the persisted regional evidence.');
+      if(!region)throw new ProjectApiError(404,'Regional checkpoint not found.');
+      return {id:runId,mode:FULL_TAKEOFF_V2_MODE,sheet,region:{key:region.region_key,rectangle:region.region,status:region.status},
+        pass:{pass_type:passType,status:region.status,provider:region.result?.provider??null,model:region.result?.model??null,
+          checkpoint:region.result?.checkpoint??null,started_at:region.started_at,completed_at:region.completed_at}};
+    }
     const pass = dbValue<any>(await this.db.from('takeoff_passes')
       .select('pass_type,attempt,status,provider,model,checkpoint,failure_classification,started_at,completed_at')
       .eq('takeoff_run_id', runId).eq('workspace_id', this.workspaceId).eq('project_id', run.project_id)
@@ -237,6 +254,7 @@ export class DurableFullTakeoffV2Processor {
     const leaseId = typeof context?.lease_id === 'string' ? context.lease_id : '';
     if (!leaseId) throw new Error('Full Takeoff V2 claim did not return a lease.');
     let stopped = false;
+    const controller = new AbortController();
     const heartbeat = async () => {
       try {
         const touched = await rpc('heartbeat_full_takeoff_v2', {
@@ -244,6 +262,7 @@ export class DurableFullTakeoffV2Processor {
         });
         if (touched.error || touched.data !== true) stopped = true;
       } catch { stopped = true; }
+      if(stopped && !controller.signal.aborted)controller.abort(new Error('Full Takeoff execution authorization ended.'));
       return !stopped;
     };
     const assertActive = async () => {
@@ -266,7 +285,7 @@ export class DurableFullTakeoffV2Processor {
       const summary = await withUsageMeter({ writer: this.writer, userId: context.requested_by,
         workspaceId: context.workspace_id, projectId: context.project_id, jobId: job.data.runId, billing: 'paid' }, async () => {
         const provider = await this.factory.create({ fileBytes, manifest, runId: job.data.runId,
-          workspaceId: context.workspace_id, projectId: context.project_id, fileId: context.file_id });
+          workspaceId: context.workspace_id, projectId: context.project_id, fileId: context.file_id, leaseId,signal:controller.signal });
         await assertActive();
         return runDeepTakeoff(job.data.runId, manifest, provider, checkpoints);
       });

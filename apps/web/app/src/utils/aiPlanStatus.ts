@@ -1,4 +1,4 @@
-import type { FullTakeoffRun } from '../services/api.ts';
+import type { FullTakeoffRun, FullTakeoffRegionRectangle } from '../services/api.ts';
 
 export type AiPlanPresentationStatus = 'queued' | 'processing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
 
@@ -75,6 +75,36 @@ export function presentFullTakeoffStatus(run: Pick<FullTakeoffRun, 'status' | 'p
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const texts = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : [];
+
+export function isFullRegionalPass(passType: string): boolean {
+  return ['discipline', 'conflict_detection', 'completeness'].includes(passType);
+}
+export function fullRegionRectangle(value: unknown): FullTakeoffRegionRectangle | null {
+  if (!isRecord(value)) return null;
+  const { row, column, rows, columns, x, y, width, height } = value;
+  if (![row, column, rows, columns].every(item => Number.isSafeInteger(item) && (item as number) >= 1 && (item as number) <= 3)
+    || (row as number) > (rows as number) || (column as number) > (columns as number)
+    || ![x, y, width, height].every(item => typeof item === 'number' && Number.isFinite(item))
+    || (x as number) < 0 || (y as number) < 0 || (width as number) <= 0 || (height as number) <= 0) return null;
+  return { row, column, rows, columns, x, y, width, height } as FullTakeoffRegionRectangle;
+}
+/** Region records locate saved evidence; they never establish measured coverage. */
+export function presentFullTakeoffRegions(checkpoint: unknown) {
+  const saved = isRecord(checkpoint) ? checkpoint : {}, coverage = isRecord(saved.source_coverage) ? saved.source_coverage : {};
+  const regions: Array<{ key: string; rectangle: FullTakeoffRegionRectangle | null; status: string }> = [];
+  const seen = new Set<string>();
+  for (const value of Array.isArray(coverage.regions) ? coverage.regions : []) {
+    if (!isRecord(value) || typeof value.region_key !== 'string' || !/^r[1-3]c[1-3]g[23]$/.test(value.region_key)) continue;
+    const [, row, column, grid] = /^r([1-3])c([1-3])g([23])$/.exec(value.region_key)!;
+    if (Number(row) > Number(grid) || Number(column) > Number(grid) || seen.has(value.region_key)) continue;
+    seen.add(value.region_key);
+    regions.push({ key: value.region_key, rectangle: fullRegionRectangle(value.region), status: typeof value.status === 'string' && value.status.trim() ? value.status : 'status unavailable' });
+  }
+  const completed = coverage.completed_regions, total = coverage.total_regions;
+  const progress = Number.isSafeInteger(completed) && (completed as number) >= 0 && Number.isSafeInteger(total) && (total as number) > 0 && (completed as number) <= (total as number)
+    ? `${completed}/${total} regions with saved stage records${(completed as number) < (total as number) ? '; remaining regions are pending' : ''}` : 'Regional totals are not available';
+  return { regions, progress };
+}
 
 /** Render only evidence fields; do not turn model observations into measured quantities. */
 export function presentFullTakeoffCheckpoint(checkpoint: unknown) {

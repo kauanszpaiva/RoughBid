@@ -15,6 +15,11 @@ import {
 import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
 import { DurableFullTakeoffV2Processor, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
 import { createStageDeepPassProviderFactory } from '../apps/api/src/takeoff-v2/stage-provider.ts';
+import { requireStageDeepPassConfig } from '../apps/api/src/takeoff-v2/stage-config.ts';
+import { SqlRegionCheckpointStore } from '../apps/api/src/takeoff-v2/stage-regions.ts';
+import { createLocalRegionRenderer } from '../apps/api/src/takeoff-v2/local-region-renderer.ts';
+import { configureFullRunSpendLimits, requireFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
+import { loadAcceptedGeometryMeasurements } from '../apps/api/src/takeoff-v2/measurement-review.ts';
 import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
 import { buildConfiguredPlanReaders } from '../apps/api/src/ai-plan/readers.ts';
@@ -24,6 +29,10 @@ import { assertNoPaidFallback } from '../apps/api/src/ai-plan/owner-free.ts';
 import type { PlanReader, PlanReadingFindingsWriter } from '../apps/api/src/ai-plan/service.ts';
 import { loadObjectStorageConfig, S3ObjectStorage } from '../apps/api/src/storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../apps/api/src/storage/vercel-blob-storage.ts';
+import { PHOTO_TAKEOFF_VERSION, requirePhotoTakeoffConfig } from '../apps/api/src/photos/config.ts';
+import { PHOTO_TAKEOFF_QUEUE, type PhotoTakeoffJob } from '../apps/api/src/photos/queue.ts';
+import { HttpPhotoReader } from '../apps/api/src/photos/provider.ts';
+import { PhotoTakeoffProcessor } from '../apps/api/src/photos/worker.ts';
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -82,6 +91,7 @@ async function main() {
 
   const aiWorkers: Worker[] = [];
   let fullTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
+  let photoTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
     const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
@@ -133,10 +143,30 @@ async function main() {
   }
 
   if (process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.TAKEOFF_V2_WORKER_ENABLED === 'true') {
-    // Construction validates the configured model identities and attestations;
-    // this starts no provider request. Fifty minutes is a sizing reference,
-    // never a delay or a claim that every plan completes within that time.
+    // Validate exact capabilities and separately approved exposure before a
+    // consumer is advertised. This starts no provider request and no spending.
+    const rpc = async (name: string, args: Record<string, unknown>) => await db.rpc(name, args);
+    const spendLimits = requireFullRunSpendLimits(process.env, requireStageDeepPassConfig(process.env));
+    const schema = await db.rpc('full_takeoff_stage_schema_ready');
+    if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
+    const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
+      prepareRun: input => configureFullRunSpendLimits(input, spendLimits, rpc),
+      regionCheckpoints: new SqlRegionCheckpointStore(rpc),
+      ...(renderRegion ? { renderRegion } : {}),
+      async loadPriorEvidence(input) {
+        const stored = await db.from('takeoff_passes').select('status,checkpoint,provider,model')
+          .eq('takeoff_run_id', input.runId).eq('workspace_id', input.workspaceId).eq('project_id', input.projectId)
+          .in('pass_type', ['classification', 'legends_schedules']).in('status', ['succeeded','blocked']).limit(400);
+        if (stored.error) throw new Error('Saved source inventory could not be recovered.');
+        return (stored.data ?? []).map(value => ({ status: value.status as 'succeeded' | 'blocked', checkpoint: value.checkpoint,
+          ...(value.provider ? { provider: value.provider } : {}), ...(value.model ? { model: value.model } : {}) }));
+      },
+      async loadGeometryMeasurements(input, request) {
+        return loadAcceptedGeometryMeasurements(db, { runId: input.runId, workspaceId: input.workspaceId,
+          projectId: input.projectId, fileId: input.fileId, fileSha256: input.manifest.fileSha256,
+          physicalPageNumber: request.sheet.physicalPageNumber, pageSha256: request.sheet.pageSha256 });
+      },
       async loadPageImages(input, page) {
         const prefix = `${input.workspaceId}/${input.projectId}/${input.fileId}/pages/`;
         const images = await loadPlanPageImages({ db, fileId: input.fileId, pageNumbers: [page], maxImages: 1,
@@ -169,6 +199,28 @@ async function main() {
     console.log('[worker] Full Takeoff V2 queue attached', { queue: FULL_TAKEOFF_V2_QUEUE, workerId });
   }
 
+  if (process.env.PHOTO_TAKEOFF_ENABLED === 'true' && process.env.PHOTO_TAKEOFF_WORKER_ENABLED === 'true') {
+    // Photos use their own private-data approval, verified maximum-quality
+    // profile and spend authorization. A provider balance never opens this path.
+    const config = requirePhotoTakeoffConfig(process.env);
+    const workerId = `${process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || 'roughbid'}-photo-${crypto.randomUUID()}`.slice(0, 160);
+    const processor = new PhotoTakeoffProcessor(db as unknown as DocumentDb, storage,
+      new HttpPhotoReader(config), config, workerId);
+    await processor.touch();
+    const worker = new Worker(PHOTO_TAKEOFF_QUEUE, job => processor.process(job as unknown as { data: PhotoTakeoffJob }), {
+      connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1,
+      lockDuration: 30_000, stalledInterval: 30_000, maxStalledCount: 1,
+    });
+    worker.on('failed', job => console.error('[worker] photo takeoff stopped', { runId: job?.data?.runId }));
+    worker.on('error', () => console.error('[worker] photo takeoff queue connection failed'));
+    await worker.waitUntilReady();
+    aiWorkers.push(worker);
+    photoTakeoffHeartbeat = setInterval(() => {
+      void processor.touch().catch(() => console.error('[worker] photo takeoff capability heartbeat unavailable'));
+    }, 30_000);
+    console.log('[worker] photo takeoff queue attached', { queue: PHOTO_TAKEOFF_QUEUE, version: PHOTO_TAKEOFF_VERSION, workerId });
+  }
+
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
@@ -176,6 +228,7 @@ async function main() {
     console.log(`[worker] received ${signal}, shutting down`);
     if (workerHeartbeat) clearInterval(workerHeartbeat);
     if (fullTakeoffHeartbeat) clearInterval(fullTakeoffHeartbeat);
+    if (photoTakeoffHeartbeat) clearInterval(photoTakeoffHeartbeat);
     await Promise.allSettled([
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
       ...aiWorkers.map((worker) => worker.close()),

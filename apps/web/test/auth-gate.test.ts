@@ -7,7 +7,7 @@ const app = readFileSync(new URL('../app/src/App.tsx', import.meta.url), 'utf8')
 
 test('signed-out RoughBid users must pass the login gate before the app loads', () => {
   assert.match(app, /if \(!session\)/);
-  assert.match(app, /<AuthGate \/>/);
+  assert.match(app, /<AuthGate sessionError=\{sessionError\} onRetrySession=\{retrySession\} \/>/);
 });
 
 test('auth gate offers sign-in and account creation without password storage', () => {

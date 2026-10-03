@@ -1,5 +1,7 @@
 # RoughBid: motor por etapas — implementação isolada
 
+> Este documento registra o primeiro marco `b8be810`. A entrega integrada de fotos, geometria revisada, orçamento, login, preços SaaS e QA está em [roughbid-delivery-2026-10-02.md](roughbid-delivery-2026-10-02.md); consulte esse relatório para o estado final e as lacunas atuais.
+
 ## Base e autorização
 
 Branch local `agent/roughbid-stage-engine-20261002`, worktree separado do checkout do dono. Base: PR98 draft, commit `7dfb9c8edba456a19dcd1b964c1d1837319ebc80`; main remoto confirmado em `808e0b99a14477cb4a6525267e494c894e568766`. O checkout do dono estava em `3ce9947ab7ef8362ecd529db74cc9528e8731cf7`, com dois arquivos não versionados de segurança. Não foram copiados, removidos ou alterados. A PR99 altera somente a landing; esta branch não inclui essas mudanças.

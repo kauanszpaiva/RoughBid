@@ -55,7 +55,8 @@ function validatedPassResult(value: unknown): DeepPassResult {
 }
 
 /**
- * Bounded, resumable FULL orchestration. A sheet/pass failure is persisted and
+ * Resumable FULL orchestration. Inventory all sheets before semantic joins.
+ * A sheet/pass failure is persisted and
  * does not discard earlier checkpoints. Provider content is untrusted data;
  * the provider cannot change pass order, retry limits, or reasoning policy.
  */
@@ -68,6 +69,7 @@ export async function runDeepTakeoff(
   if (!runId) throw new TypeError('runId is required.');
   if (manifest.physicalPageCount !== manifest.sheets.length) throw new Error('Manifest page count does not reconcile.');
   const summary: DeepRunSummary = { attempted: 0, succeeded: 0, blocked: 0, failed: 0, sheets: [] };
+  const summaries = new Map<number, DeepSheetSummary>();
   for (const sheet of manifest.sheets) {
     const sheetSummary: DeepSheetSummary = {
       physicalPageNumber: sheet.physicalPageNumber,
@@ -77,7 +79,18 @@ export async function runDeepTakeoff(
       blockers: [],
     };
     summary.sheets.push(sheetSummary);
-    for (const passType of DEEP_PASS_ORDER) {
+    summaries.set(sheet.physicalPageNumber, sheetSummary);
+  }
+  const inventory = ['classification', 'legends_schedules'] as const;
+  const tasks = [
+    ...inventory.flatMap(passType => manifest.sheets.map(sheet => ({ sheet, passType }))),
+    ...manifest.sheets.flatMap(sheet => DEEP_PASS_ORDER.filter(passType => !inventory.includes(passType as typeof inventory[number]))
+      .map(passType => ({ sheet, passType }))),
+  ];
+  const failedSheets = new Set<number>();
+  for (const { sheet, passType } of tasks) {
+      if (failedSheets.has(sheet.physicalPageNumber)) continue;
+      const sheetSummary = summaries.get(sheet.physicalPageNumber)!;
       const request: DeepPassRequest = {
         runId, sheet, passType, attempt: 1,
         idempotencyKey: await idempotencyKey(runId, sheet.physicalPageNumber, passType, 1),
@@ -120,9 +133,10 @@ export async function runDeepTakeoff(
           : 'The Full Takeoff pass could not be completed. Reconciliation is required before another attempt.';
         sheetSummary.blockers.push(`${passType}: ${message}`);
         await repository.fail(request, { classification, message });
-        break;
+        failedSheets.add(sheet.physicalPageNumber);
       }
-    }
+  }
+  for (const sheetSummary of summary.sheets) {
     if (sheetSummary.passesCompleted === sheetSummary.passesTotal && sheetSummary.blockers.length === 0) {
       sheetSummary.status = 'reviewed';
     }

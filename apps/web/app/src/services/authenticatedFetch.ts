@@ -66,13 +66,22 @@ export function createAuthenticatedFetch(auth: Auth | null, fetcher: typeof fetc
   }
 
   return async (input: string, init: RequestInit = {}): Promise<Response> => {
+    init.signal?.throwIfAborted();
     const initial = await currentSession();
     const send = (session: Session | null) => {
+      init.signal?.throwIfAborted();
       const headers = new Headers(init.headers);
       if (session) headers.set('Authorization', `Bearer ${session.access_token}`);
       return fetcher(input, { ...init, headers });
     };
     const response = await send(initial);
+    init.signal?.throwIfAborted();
+    // A response for a previous user cannot be consumed after an account switch.
+    if (auth && initial) {
+      const confirmed = await currentSession();
+      init.signal?.throwIfAborted();
+      if (!confirmed || confirmed.user.id !== initial.user.id) throw signInAgain();
+    }
     if (response.status !== 401 || (init.method ?? 'GET').toUpperCase() !== 'GET' || !auth || !initial) return response;
 
     let latest = await currentSession();
@@ -93,6 +102,9 @@ export function createAuthenticatedFetch(auth: Auth | null, fetcher: typeof fetc
       if (!latest || latest.user.id !== initial.user.id) throw signInAgain();
     }
     const retried = await send(latest);
+    init.signal?.throwIfAborted();
+    const confirmed = await currentSession();
+    if (!confirmed || confirmed.user.id !== initial.user.id) throw signInAgain();
     if (retried.status === 401) throw new ApiError(401, 'Your session could not be verified. Open Account, sign out, and sign in again.');
     return retried;
   };

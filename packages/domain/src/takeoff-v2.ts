@@ -55,9 +55,13 @@ export interface EstimateLineV2Input {
   materialFreight?: string | number;
   materialTaxPercent?: string | number;
   materialTaxable?: boolean;
+  /** Documented, already calculated material cost in exact cents; excludes rate/freight/tax inputs. */
+  materialDirectTotal?: string | number;
   laborProductionRate?: string | number;
   laborHourlyCost?: string | number;
   laborProductivityModifier?: string | number;
+  /** Documented, already calculated labor cost in exact cents; does not invent labor hours. */
+  laborTotal?: string | number;
   equipmentTotal?: string | number;
   subcontractTotal?: string | number;
   otherDirectTotal?: string | number;
@@ -131,6 +135,11 @@ const ceilToPackage = (quantity: bigint, size: bigint) => ((quantity + size - 1n
 const money = (v: bigint) => Number(((v + CENT / 2n) / CENT) * CENT) / Number(SCALE);
 const quantity = (v: bigint) => Number(v) / Number(SCALE);
 const ratioPercent = (num: bigint, den: bigint) => den === ZERO ? 0 : Number((num * 100n * SCALE) / den) / Number(SCALE);
+function directMoney(value: string | number, field: string): bigint {
+  const amount = decimal(value, field);
+  if (amount % CENT !== ZERO) throw new RangeError(`${field} must be expressed in exact cents.`);
+  return amount;
+}
 
 export function isCanonicalUnit(value: string): value is CanonicalUnit {
   return Object.hasOwn(UNIT_REGISTRY, value);
@@ -156,7 +165,9 @@ export function calculateEstimateV2(input: EstimateV2Input): EstimateV2Result {
 
     const materialRate = decimal(line.materialUnitRate, `lineItems[${index}].materialUnitRate`);
     const freight = decimal(line.materialFreight, `lineItems[${index}].materialFreight`);
-    const materialSubtotal = mul(purchasing, materialRate);
+    if (line.materialDirectTotal !== undefined && [line.materialUnitRate, line.materialFreight, line.materialTaxPercent, line.materialTaxable].some(value => value !== undefined)) throw new RangeError(`lineItems[${index}].materialDirectTotal excludes material rate, freight and tax inputs.`);
+    if (line.laborTotal !== undefined && [line.laborProductionRate, line.laborHourlyCost, line.laborProductivityModifier].some(value => value !== undefined)) throw new RangeError(`lineItems[${index}].laborTotal excludes labor rate and productivity inputs.`);
+    const materialSubtotal = line.materialDirectTotal === undefined ? mul(purchasing, materialRate) : directMoney(line.materialDirectTotal, `lineItems[${index}].materialDirectTotal`);
     const materialTax = line.materialTaxable ? percentOf(materialSubtotal + freight, decimal(line.materialTaxPercent, `lineItems[${index}].materialTaxPercent`)) : ZERO;
     const material = materialSubtotal + freight + materialTax;
 
@@ -164,14 +175,14 @@ export function calculateEstimateV2(input: EstimateV2Input): EstimateV2Result {
     const hourly = decimal(line.laborHourlyCost, `lineItems[${index}].laborHourlyCost`);
     const productivity = decimal(line.laborProductivityModifier, `lineItems[${index}].laborProductivityModifier`, SCALE);
     const laborHours = production === ZERO ? ZERO : mul(div(raw, production, `lineItems[${index}].laborProductionRate`), productivity);
-    const labor = mul(laborHours, hourly);
+    const labor = line.laborTotal === undefined ? mul(laborHours, hourly) : directMoney(line.laborTotal, `lineItems[${index}].laborTotal`);
     const equipment = decimal(line.equipmentTotal, `lineItems[${index}].equipmentTotal`);
     const subcontract = decimal(line.subcontractTotal, `lineItems[${index}].subcontractTotal`);
     const other = decimal(line.otherDirectTotal, `lineItems[${index}].otherDirectTotal`);
     const direct = material + labor + equipment + subcontract + other;
     totals.material += material; totals.labor += labor; totals.equipment += equipment; totals.subcontract += subcontract; totals.other += other;
 
-    const hasRate = materialRate > ZERO || hourly > ZERO || equipment > ZERO || subcontract > ZERO || other > ZERO;
+    const hasRate = line.materialDirectTotal !== undefined || line.laborTotal !== undefined || materialRate > ZERO || hourly > ZERO || equipment > ZERO || subcontract > ZERO || other > ZERO;
     const pricingStatus = !hasRate ? 'unpriced' : line.priceSource?.sourceType === 'provisional_assumption' ? 'provisional' : 'priced';
     if (raw > ZERO && !hasRate) blockers.push(`${line.id}: quantity has no price source.`);
     if (hasRate && !line.priceSource) blockers.push(`${line.id}: applied price is missing provenance.`);

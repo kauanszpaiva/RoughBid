@@ -12,6 +12,8 @@ import { Project, PlanRevision } from "../types";
 import type { RevisionPatch } from "../utils/projectRevisions";
 import { isAiPlanInFlight, presentAiPlanStatus, presentFullTakeoffStatus } from "../utils/aiPlanStatus";
 import { BlueprintViewer } from "../components/BlueprintViewer";
+import { PhotoTakeoffPanel } from "../components/PhotoTakeoffPanel";
+import { ConstructionBudgetPanel } from "../components/ConstructionBudgetPanel";
 import { getAiPlanEntitlement, getAiPlanReading, getFullTakeoffRun, createFullTakeoffRun, type PlanReadingFinding, getCapabilities, getReadingQuote, getSavedReadingQuote, payForReading, type ReadingQuote, ApiError, beginDocumentUpload, completeDocumentUpload, createAiPlanReading, createDocumentDownloadUrl, createDocumentPreviewObjectUrl, grantWorkspaceAiConsent } from "../services/api";
 
 interface PlansPageProps {
@@ -827,6 +829,10 @@ export const PlansPage: React.FC<PlansPageProps> = ({
           </div>
         </div>
       </div>
+
+      <PhotoTakeoffPanel key={`${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} />
+
+      {workspaceId && project.remoteId && <ConstructionBudgetPanel key={`budget:${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} />}
 
       {/* Bottom Next Step Button */}
       <div className="flex justify-end pt-4 border-t border-slate-200">

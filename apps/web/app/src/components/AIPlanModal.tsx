@@ -21,12 +21,14 @@ import {
   restartFullTakeoffRun,
   type FullTakeoffRun,
   type FullTakeoffPass,
+  type FullTakeoffCheckpoint,
   setPlanReadingFindingStatus,
   type PlanReadingFinding,
   type PlanReadingJob,
 } from "../services/api";
 import { TakeoffCoverageDashboard } from "./TakeoffCoverageDashboard";
-import { isAiPlanInFlight, presentFullTakeoffCheckpoint, presentFullTakeoffStatus } from "../utils/aiPlanStatus";
+import { PlanMeasurementPanel } from "./PlanMeasurementPanel";
+import { isAiPlanInFlight, presentFullTakeoffCheckpoint, presentFullTakeoffStatus, presentFullTakeoffRegions, isFullRegionalPass, fullRegionRectangle } from "../utils/aiPlanStatus";
 
 interface AIPlanModalProps {
   project: Project;
@@ -49,6 +51,22 @@ const normalizeUnit = (unit: string | null): UnitType => {
 const readableError = (error: unknown, fallback: string) =>
   error instanceof ApiError ? error.message : error instanceof Error ? error.message : fallback;
 
+export const FullRegionalEvidence = ({ saved }: { saved: FullTakeoffCheckpoint }) => {
+  const evidence = presentFullTakeoffCheckpoint(saved.pass.checkpoint), rectangle = fullRegionRectangle(saved.region?.rectangle);
+  return <section aria-label="Selected regional evidence" className="mt-3 rounded border border-blue-200 bg-blue-50 p-3 space-y-2">
+    <h5 className="font-semibold">Region {saved.region?.key ?? 'identity unavailable'} — {saved.region?.status ?? 'status unavailable'}</h5>
+    {rectangle && <p>Row {rectangle.row}, column {rectangle.column} of {rectangle.rows} × {rectangle.columns} regions. Neighboring regions overlap.</p>}
+    {(saved.pass.provider || saved.pass.model) && <p>Saved source: {[saved.pass.provider, saved.pass.model].filter(Boolean).join(' / ')}.</p>}
+    <p>This is persisted reading evidence. Verify the source PDF, scale, physical identity and duplicate elements; no measured quantity or price is certified.</p>
+    {!saved.pass.checkpoint && <p>No regional checkpoint payload has been saved yet. A processing or unknown state does not imply success.</p>}
+    {evidence.observations.map((observation, index) => <div key={index} className="rounded bg-white p-2"><p>{observation.description}</p>
+      {observation.sourceExcerpt ? <blockquote className="mt-1 border-l-2 border-slate-300 pl-2">Source excerpt: {observation.sourceExcerpt}</blockquote> : <p className="text-amber-900">No source excerpt saved. Check the actual source region.</p>}
+    </div>)}
+    {evidence.blockers.length > 0 && <ul className="list-disc pl-4 text-amber-900">{evidence.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul>}
+    {saved.pass.checkpoint && !evidence.observations.length && !evidence.blockers.length && <p>No readable observation or blocker is saved in this regional checkpoint.</p>}
+  </section>;
+};
+
 export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   project,
   workspaceId,
@@ -67,6 +85,8 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const [runAction, setRunAction] = useState<"cancel" | "restart" | null>(null);
   const [runActionError, setRunActionError] = useState<string | null>(null);
   const [checkpoints, setCheckpoints] = useState<Record<string, FullTakeoffPass>>({});
+  const [regionalCheckpoints, setRegionalCheckpoints] = useState<Record<string, FullTakeoffCheckpoint>>({});
+  const [selectedRegions, setSelectedRegions] = useState<Record<string, string>>({});
   const [checkpointErrors, setCheckpointErrors] = useState<Record<string, string>>({});
   const [loadingCheckpoints, setLoadingCheckpoints] = useState<Record<string, boolean>>({});
   const [jobError, setJobError] = useState<string | null>(null);
@@ -74,6 +94,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const [pendingFindingIds, setPendingFindingIds] = useState<Record<string, boolean>>({});
   const [findingActionError, setFindingActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [measurementPage, setMeasurementPage] = useState<number | null>(null);
   const pendingActions = useRef(new Set<string>());
   const runActionInFlight = useRef(false);
   const runActionNeedsRefresh = useRef(false);
@@ -90,6 +111,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
   const contextKey = `${isOpen}:${workspaceId}:${project.id}:${jobId}:${isFullRun}`;
   reviewContext.current = contextKey;
   useEffect(() => { reviewContext.current = contextKey; return () => { reviewContext.current = ''; }; }, [contextKey]);
+  useEffect(() => { setMeasurementPage(null); }, [isOpen, workspaceId, jobId, isFullRun]);
 
   // Poll the real plan-reading job while it's open and still in flight —
   // there is no live-update channel, so short-interval polling is how the
@@ -100,6 +122,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     setRunAction(null);
     setRunActionError(null);
     setCheckpoints({});
+    setRegionalCheckpoints({}); setSelectedRegions({});
     setCheckpointErrors({});
     setLoadingCheckpoints({});
     setIsLoadingJob(false);
@@ -170,17 +193,21 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
     }
   };
 
-  const handleLoadCheckpoint = async (pageNumber: number, passType: string) => {
+  const handleLoadCheckpoint = async (pageNumber: number, passType: string, regionKey?: string) => {
     if (!workspaceId || !jobId) return;
-    const key = `${pageNumber}:${passType}`;
+    const key = `${pageNumber}:${passType}${regionKey === undefined ? '' : `:region=${regionKey}`}`;
     const requestKey = `${contextKey}:${key}`;
     if (checkpointRequests.current.has(requestKey)) return;
     checkpointRequests.current.add(requestKey);
     setLoadingCheckpoints(previous => ({ ...previous, [key]: true }));
     setCheckpointErrors(previous => { const next = { ...previous }; delete next[key]; return next; });
     try {
-      const result = await getFullTakeoffCheckpoint(workspaceId, jobId, pageNumber, passType);
-      if (reviewContext.current === contextKey) setCheckpoints(previous => ({ ...previous, [key]: result.pass }));
+      const result = await getFullTakeoffCheckpoint(workspaceId, jobId, pageNumber, passType, regionKey);
+      if (regionKey !== undefined && (result.id !== jobId || result.sheet.physical_page_number !== pageNumber || result.pass.pass_type !== passType || result.region?.key !== regionKey)) throw new Error('The saved regional evidence identity could not be verified.');
+      if (reviewContext.current === contextKey) {
+        if (regionKey === undefined) setCheckpoints(previous => ({ ...previous, [key]: result.pass }));
+        else setRegionalCheckpoints(previous => ({ ...previous, [key]: result }));
+      }
     } catch (error) {
       if (reviewContext.current === contextKey) setCheckpointErrors(previous => ({ ...previous, [key]: readableError(error, "Could not load this saved evidence.") }));
     } finally {
@@ -320,10 +347,13 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
           {sheets.map(sheet => <details key={sheet.id} className="border border-slate-200 rounded-lg p-3">
             <summary className="cursor-pointer font-semibold text-slate-800">Physical sheet {sheet.physical_page_number} — {sheet.status.replaceAll("_", " ")} ({sheet.passes.length} saved stage records)</summary>
             {sheet.status_reason && <p className="mt-2 text-slate-600">{sheet.status_reason}</p>}
+            <button type="button" className="mt-3 rounded border border-blue-300 px-3 py-2 text-blue-800" onClick={() => setMeasurementPage(sheet.physical_page_number)}>Review geometry on this sheet</button>
             <div className="space-y-2 mt-3">{sheet.passes.map(pass => {
               const key = `${sheet.physical_page_number}:${pass.pass_type}`;
               const saved = checkpoints[key];
               const evidence = presentFullTakeoffCheckpoint(saved?.checkpoint);
+              const regional = presentFullTakeoffRegions(saved?.checkpoint);
+              const selectedKey = selectedRegions[key], regionalCacheKey = `${key}:region=${selectedKey}`;
               return <details key={`${pass.pass_type}:${pass.attempt}`} className="border border-slate-200 rounded-md p-2.5" onToggle={event => {
                 if (event.currentTarget.open && !saved) void handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type);
               }}>
@@ -342,10 +372,26 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
                   {!evidence.observations.length && !evidence.blockers.length && !evidence.scaleStatus && <p className="text-slate-600">No readable observation or blocker is saved for this attempt yet.</p>}
                 </div>}
                 <button className="mt-2 underline text-brand-700 disabled:opacity-50" disabled={Boolean(loadingCheckpoints[key])} onClick={() => handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type)}>Reload saved evidence</button>
+                {isFullRegionalPass(pass.pass_type) && regional.regions.length > 0 && <div className="mt-3 rounded border border-slate-200 p-3 space-y-2">
+                  <p className="font-semibold">Inspect saved evidence by region</p><p>{regional.progress}. Saved records include blocked regions and do not certify coverage.</p>
+                  <label className="block">Region<select aria-label={`Saved region on sheet ${sheet.physical_page_number} for ${pass.pass_type}`} className="ml-2 rounded border p-2" value={selectedKey ?? ''} onChange={event => {
+                    const regionKey = event.target.value; setSelectedRegions(previous => ({ ...previous, [key]: regionKey }));
+                    if (regionKey && !regionalCheckpoints[`${key}:region=${regionKey}`]) void handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type, regionKey);
+                  }}><option value="">Select a saved region</option>{regional.regions.map(region => <option value={region.key} key={region.key}>{region.key} — {region.status}</option>)}</select></label>
+                  {selectedKey && <><button type="button" className="underline text-brand-700 disabled:opacity-50" disabled={!!loadingCheckpoints[regionalCacheKey]} onClick={() => handleLoadCheckpoint(sheet.physical_page_number, pass.pass_type, selectedKey)}>Reload selected regional evidence</button>
+                    {loadingCheckpoints[regionalCacheKey] && <p role="status">Loading saved regional evidence.</p>}
+                    {checkpointErrors[regionalCacheKey] && <p role="alert" className="text-rose-800">{checkpointErrors[regionalCacheKey]}</p>}
+                    {regionalCheckpoints[regionalCacheKey] && <FullRegionalEvidence saved={regionalCheckpoints[regionalCacheKey]!} />}
+                  </>}
+                </div>}
               </details>;
             })}</div>
           </details>)}
         </section>
+        {measurementPage !== null && workspaceId && <div className="space-y-2">
+          <button type="button" className="underline text-slate-600" onClick={() => setMeasurementPage(null)}>Close measurement review</button>
+          <PlanMeasurementPanel key={run.id} workspaceId={workspaceId} runId={run.id} pageNumber={measurementPage} canWrite={canWrite} />
+        </div>}
       </div>
     );
   };
@@ -652,7 +698,7 @@ export const AIPlanModal: React.FC<AIPlanModalProps> = ({
         {/* Footer */}
         <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
           <span className="text-[10px] sm:text-[11px] text-slate-500 truncate">
-            Additions recalculate financial engine instantly.
+            {isFullRun ? 'Reviewed quantities and sourced prices remain separate evidence gates.' : 'Additions recalculate financial engine instantly.'}
           </span>
           <button
             onClick={onClose}

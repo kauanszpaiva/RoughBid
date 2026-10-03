@@ -103,7 +103,7 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
         deps.fullTakeoffV2Queue, data.user.id, workspaceId);
       if (request.method === 'GET' && parts.length === 2) {
         if (url.searchParams.has('page_number') || url.searchParams.has('pass_type')) {
-          return json(await full.checkpoint(parts[1], Number(url.searchParams.get('page_number')), url.searchParams.get('pass_type') ?? ''));
+          return json(await full.checkpoint(parts[1], Number(url.searchParams.get('page_number')), url.searchParams.get('pass_type') ?? '',url.searchParams.get('region_key')??undefined));
         }
         return json(await full.get(parts[1]));
       }

@@ -34,6 +34,13 @@ import type { SupabaseLike } from '../projects/service.ts';
 import { handleMarketplaceCatalog } from '../marketplace/catalog.ts';
 import { handleSupplierPriceImport } from '../marketplace/supplier-import.ts';
 import { handleWorkspaceCatalogRequest } from '../catalogs/routes.ts';
+import { handleConstructionBudgetRequest } from '../construction-budget/routes.ts';
+import { handlePhotoRequest } from '../photos/routes.ts';
+import { requirePhotoTakeoffProfile } from '../photos/config.ts';
+import { createPhotoTakeoffQueue, type PhotoTakeoffQueue } from '../photos/queue.ts';
+import type { PhotoRequestDependencies } from '../photos/service.ts';
+import type { DocumentDb } from '../documents/service.ts';
+import { handleMeasurementReviewRequest, type MeasurementReviewDependencies } from '../takeoff-v2/measurement-routes.ts';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -205,6 +212,47 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     } finally {
       await queue?.close?.().catch(() => {});
     }
+  }
+  if (/^\/api\/projects\/[^/]+\/(?:construction-budget|supplier-quotes)$/.test(pathname)) {
+    const key=loadSupabaseServiceRoleKey(),url=process.env.SUPABASE_URL?.trim();
+    if(!key||!url)return json({error:'Documented construction budgeting persistence is not configured.'},503);
+    const writer=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+    return handleConstructionBudgetRequest(request,client as unknown as SupabaseLike,writer);
+  }
+  if (/^\/api\/projects\/[^/]+\/photos\/(?:capability|uploads|runs)(?:\/[^/]+(?:\/(?:complete|download-url|cancel|resume|review))?)?$/.test(pathname)) {
+    const writerKey = loadSupabaseServiceRoleKey();
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    if (!writerKey || !supabaseUrl) return json({ error: 'Private photo processing is not configured.' }, 503);
+    let photoQueue: PhotoTakeoffQueue | undefined;
+    try {
+      const storage = process.env.BLOB_READ_WRITE_TOKEN
+        ? new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env))
+        : new S3ObjectStorage(loadObjectStorageConfig(process.env));
+      // Only public model/profile attestations are needed on HTTP. Credentials
+      // and image-provider requests belong to the isolated photo worker.
+      let config: PhotoRequestDependencies['config'];
+      try { config = requirePhotoTakeoffProfile(process.env); }
+      catch { /* Existing private results/cancellation remain accessible while disabled. */ }
+      const needsQueue = request.method === 'POST' && /\/runs(?:\/[^/]+\/resume)?$/.test(pathname);
+      if (config && needsQueue && process.env.REDIS_URL) {
+        try { photoQueue = await createPhotoTakeoffQueue(process.env.REDIS_URL); }
+        catch { /* Reservation/resume fails closed without its dedicated queue. */ }
+      }
+      const writer = createClient(supabaseUrl, writerKey, { auth: { persistSession: false, autoRefreshToken: false } }) as unknown as DocumentDb;
+      return await handlePhotoRequest(request, client as unknown as SupabaseLike, {
+        writer, storage, ...(config ? { config } : {}), ...(photoQueue ? { queue: photoQueue } : {}),
+      });
+    } catch { return json({ error: 'Private photo processing is not configured.' }, 503); }
+    finally { await photoQueue?.close?.().catch(() => {}); }
+  }
+  if (/^\/api\/takeoff-runs\/[^/]+\/measurements$/.test(pathname)) {
+    const writerKey=loadSupabaseServiceRoleKey(),supabaseUrl=process.env.SUPABASE_URL?.trim();
+    if(!writerKey||!supabaseUrl)return json({error:'Measurement review persistence is not configured.'},503);
+    let storage:MeasurementReviewDependencies['storage'];
+    try { storage=process.env.BLOB_READ_WRITE_TOKEN?new VercelBlobObjectStorage(loadVercelBlobStorageConfig(process.env)):new S3ObjectStorage(loadObjectStorageConfig(process.env)); }
+    catch { /* Existing manual measurements can be reviewed without vector extraction/storage. */ }
+    const writer=createClient(supabaseUrl,writerKey,{auth:{persistSession:false,autoRefreshToken:false}}) as unknown as PlanReadingFindingsWriter;
+    return handleMeasurementReviewRequest(request,client as unknown as SupabaseLike,{writer,...(storage?{storage}:{})});
   }
   if (/^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname) || /^\/api\/projects\/[^/]+\/ai-plan-entitlement$/.test(pathname) || /^\/api\/ai-plan-readings\/[^/]+$/.test(pathname) || /^\/api\/ai-plan-readings\/findings\/[^/]+$/.test(pathname) || /^\/api\/takeoff-runs\/[^/]+(?:\/(?:cancel|restart))?$/.test(pathname)) {
     const supabaseServiceRoleKey = loadSupabaseServiceRoleKey();

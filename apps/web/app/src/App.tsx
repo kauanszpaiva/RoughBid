@@ -69,7 +69,7 @@ export default function App() {
 
   // Real Supabase Auth session. The product app is gated behind this session;
   // public access stays limited to the landing page and client proposal links.
-  const { session, loading: sessionLoading } = useSession();
+  const { session, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [isPlatformOwner, setIsPlatformOwner] = useState(false);
@@ -498,7 +498,7 @@ export default function App() {
   }
 
   if (!session) {
-    return <AuthGate />;
+    return <AuthGate sessionError={sessionError} onRetrySession={retrySession} />;
   }
 
   if (loadedUserId !== session.user.id || workspaceState !== "ready") {
