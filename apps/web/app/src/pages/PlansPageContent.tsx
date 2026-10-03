@@ -20,7 +20,7 @@ import { calculateProjectFinancials, formatCurrency } from "../utils/calculation
 import { ConstructionBudgetPanel } from "../components/ConstructionBudgetPanel";
 import { FullPurchasePanel } from "../components/FullPurchasePanel";
 import { PlanFilesPanel } from "../components/PlanFilesPanel";
-import { ReadingOrderPanel } from "../components/ReadingOrderPanel";
+import { ReadingOrderPanel, type ReadingOrderHandle } from "../components/ReadingOrderPanel";
 import { readFullPurchaseReturn, readReadingOrderReturn } from "../utils/fullPurchaseReturn";
 import { fullTakeoffSpendInput } from "../utils/fullTakeoffApproval";
 import type { FullTakeoffApprovalProfile, ReadingOrder } from "../services/api";
@@ -69,6 +69,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [photoUploadRequest, setPhotoUploadRequest] = useState<{ id: string; files: File[] }>();
   const [photoIntakeState, setPhotoIntakeState] = useState<PhotoIntakeState>({ busy: false, ready: false, count: 0, error: null });
   const photoPanel = useRef<PhotoTakeoffHandle>(null);
+  const readingOrderPanel = useRef<ReadingOrderHandle>(null);
   const initialFilesHandled = useRef<File[] | undefined>(undefined);
   const [processingConsent, setProcessingConsent] = useState(false);
   const services = project.selectedServices ?? [];
@@ -399,6 +400,17 @@ export const PlansPage: React.FC<PlansPageProps> = ({
     const relevant = project.revisions.filter(revision => revision.remoteFileId && selectedFileIds.includes(revision.remoteFileId));
     if (!relevant.length && !photoIntakeState.count) { setPlanNotice('Add photos or select a saved PDF to generate your estimate.'); return; }
     if (uploadBatch.some(item => item.status === 'failed')) { setPlanNotice('Complete the pending uploads before generating the estimate.'); return; }
+    // Let the purchase panel own its shared lock and saved order recovery. The
+    // main intake action prepares a quote; payment still needs price approval.
+    if (relevant.length && fullTakeoffPurchaseAvailable && !freeReadingAvailable && !fullTakeoffV2Available) {
+      setPlanNotice(null);
+      try {
+        if (!readingOrderPanel.current) throw new Error('Your saved purchase is still loading. Try again when its status is ready.');
+        await readingOrderPanel.current.prepare();
+        if (uploadScope.current === captured && photoIntakeState.count) await photoPanel.current?.generate();
+      } catch (error) { if (uploadScope.current === captured) setPlanNotice(readableApiError(error)); }
+      return;
+    }
     paidActionInFlight.current = true; setIsStartingAi(true); setPlanNotice(null);
     try {
       await grantWorkspaceAiConsent(workspaceId);
@@ -697,13 +709,20 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         {uploadBatch.some(item => item.status === 'failed') && <button type="button" disabled={isUploading || isStartingAi || isPaying} onClick={() => void uploadFiles(uploadBatch.filter(item => item.status === 'failed').map(item => item.file), true)} className="underline disabled:opacity-50">Retry failed uploads</button>}
       </section>}
       {entitlementReady && workspaceId && project.remoteId && (selectedFileIds.length > 0 || returnOrderId) && <ReadingOrderPanel key={`order:${workspaceId}:${project.remoteId}:${[...selectedFileIds].sort().join(',')}:${returnOrderId ?? ''}`}
-        workspaceId={workspaceId} projectId={project.remoteId} fileIds={selectedFileIds} revisions={project.revisions} returnOrderId={returnOrderId}
+        ref={readingOrderPanel} workspaceId={workspaceId} projectId={project.remoteId} fileIds={selectedFileIds} revisions={project.revisions} returnOrderId={returnOrderId}
         recoverLatest={recoverLatestOrder}
         returned={returnOrderId ? orderReturn?.payment : undefined} available={fullTakeoffPurchaseAvailable} billingAvailable={fullBillingAvailable}
         canWrite={canWrite} externallyBusy={isUploading || isStartingAi || isPaying} actionLock={paidActionInFlight} onBusy={setIsPaying}
         onConsentRequired={() => setNeedsAiConsent(true)} onRestoreSelection={setSelectedFileIds}
         onOrderLoaded={setSelectedOrder}
-        beforeCheckout={onBeforeOrderCheckout ?? (async () => { throw new Error('Save this project before opening checkout.'); })}
+        beforeCheckout={async fileIds => {
+          const captured = `${workspaceId}:${project.remoteId}`;
+          if (!onBeforeOrderCheckout) throw new Error('Save this project before opening checkout.');
+          await onBeforeOrderCheckout(fileIds);
+          if (uploadScope.current !== captured) throw new Error('The active project changed. Review its purchase before continuing.');
+          await grantWorkspaceAiConsent(workspaceId);
+          if (uploadScope.current !== captured) throw new Error('The active project changed. Review its purchase before continuing.');
+        }}
         onOpen={(fileId, run) => {
           onUpdateProject({ ...project, revisions: project.revisions.map(item => ({ ...item, isCurrent: item.remoteFileId === fileId,
             ...(item.remoteFileId === fileId ? { aiPlanJobId: run.id, aiPlanMode: 'full_v2' as const, aiPlanStatus: run.status } : {}) })) });

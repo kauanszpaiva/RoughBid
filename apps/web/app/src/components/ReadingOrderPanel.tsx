@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ApiError, createReadingOrder, getReadingOrder, getFullTakeoffRun, payForReadingOrder, type ReadingOrder, type FullTakeoffRun } from '../services/api';
 import type { PlanRevision } from '../types';
 import { planFileCoverage, planFileStatus } from '../utils/planFileCoverage';
@@ -7,14 +7,15 @@ import { presentFullTakeoffStatus } from '../utils/aiPlanStatus';
 const message = (error: unknown) => { if (error instanceof ApiError) { try { return JSON.parse(error.message).error ?? error.message; } catch { return error.message; } } return error instanceof Error ? error.message : 'The purchase could not be loaded.'; };
 const labels = { quoted: 'Review your price', starting: 'Payment confirmed. Preparing your reading…', processing: 'Reading your files', waiting: 'Waiting for processing capacity', ready_for_review: 'Your results are ready to review', needs_attention: 'Results have pending items', revoked: 'This purchase is closed' };
 
-export function ReadingOrderPanel(props: {
+export type ReadingOrderHandle = { prepare: () => Promise<void> };
+export const ReadingOrderPanel = forwardRef<ReadingOrderHandle, {
   workspaceId: string; projectId: string; fileIds: string[]; revisions: PlanRevision[]; returnOrderId?: string | null;
   returned?: 'returned' | 'canceled' | undefined; available: boolean; billingAvailable: boolean; canWrite: boolean; externallyBusy: boolean;
   recoverLatest: boolean;
   actionLock: React.MutableRefObject<boolean>; onBusy: (busy: boolean) => void; beforeCheckout: (fileIds: string[]) => Promise<void>;
   onConsentRequired: () => void; onRestoreSelection: (fileIds: string[]) => void; onOpen: (fileId: string, run: FullTakeoffRun) => void;
   onOrderLoaded: (order: ReadingOrder | null) => void;
-}) {
+}>((props, ref) => {
   const [order, setOrder] = useState<ReadingOrder | null>(null), [runs, setRuns] = useState<Record<string, FullTakeoffRun>>({});
   const [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
@@ -101,10 +102,15 @@ export function ReadingOrderPanel(props: {
     finally { if (!leavingForCheckout) { props.actionLock.current = false; propsRef.current.onBusy(false); if (current()) { setBusy(false); setRefresh(value => value + 1); } } }
   };
   const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: order?.currency ?? 'usd' }).format(cents / 100);
+  useImperativeHandle(ref, () => ({ prepare: async () => {
+    if (!loaded) throw new Error('Your saved purchase is still loading. Try again when its status is ready.');
+    await act('quote');
+    document.getElementById('selected-files-purchase')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } }));
   const disabled = !props.canWrite || busy || props.externallyBusy || !loaded;
   const expired = order?.status === 'quoted' && Date.parse(order.expires_at) <= Date.now();
   const contractKey = order ? `${order.id}:${order.contract_hash}` : '';
-  return <section aria-label="Selected files purchase" className="rounded-xl border border-blue-200 bg-white p-4 space-y-3">
+  return <section id="selected-files-purchase" aria-label="Selected files purchase" className="rounded-xl border border-blue-200 bg-white p-4 space-y-3">
     <div className="flex flex-wrap justify-between gap-2"><h3 className="font-bold">Read selected PDFs</h3>{order && <strong className="text-xl">{money(order.amount_cents)}</strong>}</div>
     <p className="text-sm text-slate-600">{props.fileIds.length} selected PDFs · Every page · One payment. Reading starts automatically after Stripe confirms payment.</p>
     {order && <>
@@ -138,4 +144,4 @@ export function ReadingOrderPanel(props: {
     {!props.available && <p className="text-sm text-amber-800">New readings are temporarily unavailable. Saved results remain accessible.</p>}
     {(error || readError) && <p role="alert" className="text-sm text-amber-800">{error || readError}</p>}
   </section>;
-}
+});
