@@ -748,7 +748,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         <h3 className="font-semibold">PDF uploads</h3><ul className="space-y-1">{uploadBatch.map((item, index) => <li key={index} className="break-words"><strong>{item.file.name}</strong> — {item.status === 'saved' ? 'Saved' : item.status === 'failed' ? 'Upload pending' : item.status}{item.error ? `: ${item.error}` : ''}</li>)}</ul>
         {uploadBatch.some(item => item.status === 'failed') && <button type="button" disabled={isUploading || isStartingAi || isPaying} onClick={() => void uploadFiles(uploadBatch.filter(item => item.status === 'failed').map(item => item.file), true)} className="underline disabled:opacity-50">Retry failed uploads</button>}
       </section>}
-      {entitlementReady && workspaceId && project.remoteId && (selectedFileIds.length > 0 || returnOrderId) && <ReadingOrderPanel key={`order:${workspaceId}:${project.remoteId}:${[...selectedFileIds].sort().join(',')}:${returnOrderId ?? ''}`}
+      {entitlementReady && (paidReading || returnOrderId) && workspaceId && project.remoteId && (selectedFileIds.length > 0 || returnOrderId) && <ReadingOrderPanel key={`order:${workspaceId}:${project.remoteId}:${[...selectedFileIds].sort().join(',')}:${returnOrderId ?? ''}`}
         ref={readingOrderPanel} workspaceId={workspaceId} projectId={project.remoteId} fileIds={selectedFileIds} revisions={project.revisions} returnOrderId={returnOrderId}
         recoverLatest={recoverLatestOrder}
         returned={returnOrderId ? orderReturn?.payment : undefined} available={fullTakeoffPurchaseAvailable} billingAvailable={fullBillingAvailable}
