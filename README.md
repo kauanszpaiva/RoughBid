@@ -4,6 +4,10 @@ RoughBid is a tenant-isolated estimating platform backed by Supabase. Authentica
 workspace RBAC, and configurable RoughBid access/invite provisioning are documented in
 [`docs/integrations/auth-access.md`](docs/integrations/auth-access.md).
 
+## Simple estimate flow
+
+Start with photos, PDF plans, or both; select services and generate from the authenticated workspace’s available processing access. Draft details are optional. See [implemented behavior and verification](docs/product/simple-estimate-flow.md) and the [product/API blueprint](docs/product/RoughBid_API_Blueprint.md).
+
 ## Layout
 
 - `apps/web/` — static marketing landing page, plus the product app at `apps/web/app/` (served at `/app/`).

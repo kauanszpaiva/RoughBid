@@ -10,6 +10,7 @@ const workspaceId = 'offline-workspace';
 const projectId = 'offline-project';
 const user = { id: 'offline-user', email: 'estimator@example.test', aud: 'authenticated', role: 'authenticated', created_at: '2026-10-02T00:00:00Z', app_metadata: {}, user_metadata: {} };
 const view = new URLSearchParams(location.search).get('view') ?? 'plans';
+const fullIntake = new URLSearchParams(location.search).get('reading') === 'full';
 if (view === 'reset') { localStorage.removeItem(projectKey); localStorage.removeItem(stateKey); }
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const fixture: any = JSON.parse(localStorage.getItem(stateKey) ?? 'null') ?? { requests: [], fullRun: null, photoRun: null, assets: [] };
@@ -42,6 +43,16 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const path = url.pathname;
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : null;
   fixture.requests.push({ method, path, query: url.search, body });
+  if (view === 'intake' && path === '/api/projects' && method === 'POST') return json({ id: projectId, name: body.name, app_state: body.appState }, 201);
+  if (view === 'intake' && path.endsWith('/ai-consent')) return json({ approved: true });
+  if (view === 'intake' && path.endsWith('/photos/quote')) return json({ quote: null });
+  if (view === 'intake' && fixture.failNextPhotoUpload && path.endsWith('/photos/uploads') && method === 'POST') { fixture.failNextPhotoUpload = false; return json({ error: 'Synthetic upload interrupted' }, 503); }
+  if (view === 'intake' && path.endsWith('/ai-plan-entitlement')) return json({ freeReadingAvailable: !fullIntake, fullTakeoffV2Available: fullIntake, pilotActive: false, ...(fullIntake ? { fullTakeoffApproval: { version: 'full-user-spend-v1', policyId: 'offline-policy', providers: [{ provider: 'gemini', models: ['offline-model'], minimumUsd: 0.25, maximumUsd: 3, maximumCalls: 12 }] } } : {}) });
+  if (view === 'intake' && !fullIntake && path.endsWith('/ai-plan-readings') && method === 'POST') {
+    fixture.quickJob = { id: 'offline-quick-job', status: 'needs_review', processing_error: null, output_summary: {}, plan_reading_findings: [] };
+    persist(); return json(fixture.quickJob, 201);
+  }
+  if (view === 'intake' && path === '/api/ai-plan-readings/offline-quick-job') return json(fixture.quickJob);
   if (path.startsWith('/api/projects/offline-project/geometry/')) {
     geometryContext ??= await (await nativeFetch('/offline-fixture/geometry-context')).json();
     fixture.geometryRun ??= { id: 'offline-auto-geometry', provider: 'kamai', file_id: fixture.automatic ? 'offline-pdf' : geometryContext.fileId, physical_page_number: 1,
@@ -127,7 +138,7 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     if (url.searchParams.has('page_number')) return json({ id: fixture.fullRun.id, mode: 'full_v2', sheet: savedSheets()[0], pass: { ...initialPass, checkpoint: { observations: [{ description: 'Fixture sheet A1 shows a rectangular room with an explicit 12 ft × 10 ft dimension.', source_excerpt: 'A1: room reference dimensions 12 ft × 10 ft; independent verification pending.' }], blockers: ['geometry_cross_sheet_review_pending', 'missing_price'], deterministic_scale: { calibration: { verificationStatus: 'unverified' }, evidence: [] } } } });
     return json(fixture.fullRun);
   }
-  if (path.endsWith('/photos/capability')) return json({ enabled: fixture.photoEnabled !== false, ownerAccess: true, workerReady: true, provider: 'offline_mock', model: 'fixture' });
+  if (path.endsWith('/photos/capability')) return json({ enabled: fixture.photoEnabled !== false, ownerAccess: true, includedAvailable: true, workerReady: true, provider: 'offline_mock', model: 'fixture' });
   if (path.endsWith('/photos/uploads') && method === 'POST') {
     const id = `offline-photo-${fixture.assets.length + 1}`;
     fixture.pendingAsset = { id, workspaceId, projectId, sha256: 'a'.repeat(64), revision: `fixture-revision-${fixture.assets.length + 1}`, mimeType: body.contentType, byteSize: body.byteSize, widthPixels: 800, heightPixels: 600, storageVerified: true }; persist();
@@ -180,15 +191,23 @@ const { PlansPage } = await import('../apps/web/app/src/pages/PlansPageContent')
 const { AIPlanModal } = await import('../apps/web/app/src/components/AIPlanModal');
 const { PlanMeasurementPanel } = await import('../apps/web/app/src/components/PlanMeasurementPanel');
 const { SaasPricingPreview } = await import('../apps/web/app/src/components/SaasPricingPreview');
+const { NewProjectModal } = await import('../apps/web/app/src/components/NewProjectModal');
+const { createProject } = await import('../apps/web/app/src/services/api');
 const emptyProject: Project = { id: 'offline-local-project', remoteId: projectId, name: 'Offline synthetic floor plan', clientName: 'Offline fixture', address: 'No real location', projectType: 'New Construction', status: 'Planning', updatedAt: '2026-10-02', overheadPercentage: 0, markupPercentage: 0, revisions: [], quantities: [], estimateItems: [] };
 function FixtureApp() {
   const [project, setProject] = useState<Project>(() => JSON.parse(localStorage.getItem(projectKey) ?? 'null') ?? emptyProject);
   const [open, setOpen] = useState(false);
+  const [newEstimate, setNewEstimate] = useState(view === 'intake' && !localStorage.getItem(projectKey));
+  const [initialFiles, setInitialFiles] = useState<File[] | undefined>();
   const update = useCallback((next: Project) => { localStorage.setItem(projectKey, JSON.stringify(next)); setProject(next); }, []);
   const append = useCallback((revision: PlanRevision) => setProject(current => { const next = { ...current, revisions: [...current.revisions.map(item => ({ ...item, isCurrent: false })), revision] }; localStorage.setItem(projectKey, JSON.stringify(next)); return next; }), []);
   const patch = useCallback((id: string, change: Partial<PlanRevision>) => setProject(current => { const next = { ...current, revisions: current.revisions.map(item => item.id === id ? { ...item, ...change } : item) }; localStorage.setItem(projectKey, JSON.stringify(next)); return next; }), []);
+  if (newEstimate) return <NewProjectModal isOpen onClose={() => setNewEstimate(false)} onCreate={async (draft, files) => {
+    const remote = await createProject(workspaceId, { ...draft, status: 'draft', appState: draft });
+    update({ ...draft, remoteId: remote.id }); setInitialFiles(files); setNewEstimate(false);
+  }} />;
   return <><aside role="note" className="sticky top-0 z-[100] bg-amber-100 text-amber-950 p-3 text-sm font-semibold">OFFLINE FIXTURE — synthetic sources, mocked APIs and browser-only saved state. No production login, worker or paid provider call.</aside>
-    {view === 'geometry' || view === 'geometry-viewer' ? <div className="max-w-6xl mx-auto p-4"><PlanMeasurementPanel workspaceId={workspaceId} runId="offline-geometry-run" pageNumber={1} canWrite={view === 'geometry'} /></div> : view === 'pricing' || view === 'pricing-viewer' ? <div className="max-w-6xl mx-auto p-4"><SaasPricingPreview isPlatformAdmin={view === 'pricing'} /></div> : view === 'auth' ? <AuthGate /> : <><PlansPage canWrite={view !== 'viewer'} workspaceId={workspaceId} project={project} onAppendRevision={append} onPatchRevision={patch} onUpdateProject={update} onContinue={() => undefined} onOpenAIAssistant={() => setOpen(true)} />
+    {view === 'geometry' || view === 'geometry-viewer' ? <div className="max-w-6xl mx-auto p-4"><PlanMeasurementPanel workspaceId={workspaceId} runId="offline-geometry-run" pageNumber={1} canWrite={view === 'geometry'} /></div> : view === 'pricing' || view === 'pricing-viewer' ? <div className="max-w-6xl mx-auto p-4"><SaasPricingPreview isPlatformAdmin={view === 'pricing'} /></div> : view === 'auth' ? <AuthGate /> : <><PlansPage initialFiles={initialFiles} onInitialFilesHandled={() => setInitialFiles(undefined)} canWrite={view !== 'viewer'} workspaceId={workspaceId} project={project} onAppendRevision={append} onPatchRevision={patch} onUpdateProject={update} onContinue={() => undefined} onOpenAIAssistant={() => setOpen(true)} />
       <AIPlanModal project={project} workspaceId={workspaceId} isOpen={open} canWrite={view !== 'viewer'} onClose={() => setOpen(false)} onAddQuantityItem={() => { throw new Error('Fixture must never create estimate quantities from Full V2 observations.'); }} /></>}
   </>;
 }
