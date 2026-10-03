@@ -3,295 +3,272 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="RoughBid turns construction plans, quantities, costs and margins into estimates people can actually understand." />
-  <meta name="theme-color" content="#1764E8" />
-  <title>RoughBid — Construction estimating made understandable</title>
+  <meta name="description" content="RoughBid is a construction estimating workspace that connects plan sets, reviewed quantities, cost buildup and client proposals." />
+  <meta name="theme-color" content="#0a1220" />
+  <title>RoughBid — Construction estimating from plan set to proposal</title>
   <link rel="icon" href="/brand/roughbid-mark.png" type="image/png" />
   <link rel="apple-touch-icon" href="/brand/roughbid-mark.png" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
+
   <header class="site-header-wrap">
     <div class="site-header">
       <a class="brand" href="#top" aria-label="RoughBid home">
         <img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" />
       </a>
       <nav aria-label="Primary navigation">
+        <a href="#workspace">Workspace</a>
         <a href="#workflow">Workflow</a>
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
+        <a href="#review">Review controls</a>
       </nav>
       <div class="header-actions">
         <a class="sign-in-link" href="/app/">Sign in</a>
-        <button class="nav-cta" type="button" data-open-access>Request Access <span aria-hidden="true">→</span></button>
+        <button class="nav-cta" type="button" data-open-access>Request access</button>
       </div>
     </div>
   </header>
 
   <main id="main">
-    <section id="top" class="hero" aria-labelledby="hero-title">
+    <section id="top" class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">KSP Ventures · Construction software</p>
-        <h1 id="hero-title">Construction estimates without the spreadsheet chaos.</h1>
-        <p class="hero-lede">Upload the plans. See your project price and pay before AI starts. Review findings. Organize quantities. Add real costs. See overhead, markup and margin clearly — then build an estimate you can explain.</p>
+        <div class="hero-index">ROUGH / 01</div>
+        <p class="eyebrow">CONSTRUCTION ESTIMATING SOFTWARE</p>
+        <h1>From plan set<br>to proposal.</h1>
+        <p class="hero-lede">RoughBid keeps the drawings, quantities, costs, markup and client output in one estimating workspace. Fewer disconnected spreadsheets. Fewer hidden assumptions.</p>
         <div class="hero-actions">
-          <a class="button primary" href="/app/">Open the app</a>
-          <a class="button secondary" href="#workflow">See the workflow</a>
+          <a class="button primary" href="/app/">Open RoughBid <span>↗</span></a>
+          <a class="button secondary" href="#workspace">View the workspace</a>
         </div>
-        <div class="social-proof" aria-label="RoughBid customer activity">
-          <div class="proof-card">
-            <span class="proof-icon" aria-hidden="true">↗</span>
-            <div><strong>1,200+</strong><span>plan sheets read this month</span></div>
-          </div>
-          <div class="proof-card">
-            <span class="proof-icon" aria-hidden="true">⏱</span>
-            <div><strong>&lt; 2 mins</strong><span>average estimate export time</span></div>
-          </div>
-        </div>
-        <div class="hero-proof" aria-label="Product principles">
-          <span>No accounting degree required</span>
-          <span>Independent SaaS workspace</span>
-          <span>Built for real project numbers</span>
+        <div class="hero-meta">
+          <div><span>ESTIMATOR CONTROL</span><strong>Every finding is reviewable before it affects the estimate.</strong></div>
+          <div><span>CLIENT SAFE</span><strong>Internal costs stay separate from proposal output.</strong></div>
         </div>
       </div>
 
-      <div class="estimate-panel" aria-label="Estimate example">
-        <div class="panel-topline">
-          <div>
-            <span class="micro-label">PROJECT</span>
-            <strong>Deck renovation · 24 × 16</strong>
+      <div class="hero-sheet" aria-label="RoughBid estimating workspace preview">
+        <div class="sheet-header">
+          <div class="sheet-brand"><span>ROUGH</span><b>BID</b></div>
+          <div class="sheet-project">
+            <span>PROJECT</span>
+            <strong>Deck renovation / RB-1042</strong>
           </div>
-          <span class="status">DRAFT</span>
-        </div>
-        <div class="blueprint-viewer" aria-label="Interactive blueprint preview">
-          <div class="sheet-tabs" aria-label="Plan pages">
-            <button class="sheet-thumb active" type="button" data-sheet="A-101" aria-pressed="true"><span class="mini-plan"></span><b>A-101</b></button>
-            <button class="sheet-thumb" type="button" data-sheet="A-102" aria-pressed="false"><span class="mini-plan alternate"></span><b>A-102</b></button>
-          </div>
-          <div class="plan-sheet" tabindex="0" aria-label="Blueprint; drag to pan">
-            <svg class="blueprint-drawing" viewBox="0 0 520 300" role="img" aria-label="Deck floor plan with highlighted dimensions">
-              <g class="blueprint-pan">
-                <g class="technical-lines">
-                  <path d="M55 35H465V253H55z M75 55H286V145H75z M286 55H445V145H286z M75 145H196V233H75z M196 145H445V233H196z"/>
-                  <path d="M95 55v90m30-90v90m30-90v90m30-90v90m30-90v90m30-90v90M95 233v-88m30 88v-88m30 88v-88M216 233v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88"/>
-                  <path d="M42 35v218m0-218h13m-13 218h13M55 270h410m-410 0v-17m410 17v-17"/>
-                </g>
-                <path class="highlight-zone" d="M286 55H445V145H286z"/>
-                <g class="dimension-lines">
-                  <path d="M55 22h410M55 16v12m410-12v12M28 35v218M22 35h12m-12 218h12"/>
-                  <text x="226" y="17">24′-0″</text><text transform="translate(18 174) rotate(-90)">16′-0″</text>
-                </g>
-                <text class="room-label" x="330" y="104">DECK</text>
-                <text class="sheet-note" x="62" y="289">DECK PLAN / A-101 · SCALE 1/4″ = 1′</text>
-              </g>
-            </svg>
-            <span class="vector-tag">AI VECTOR · 384 SQ FT</span>
-            <div class="zoom-controls" aria-label="Blueprint zoom controls">
-              <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
-              <output id="zoom-level" aria-live="polite">100%</output>
-              <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-              <button type="button" data-zoom="reset" aria-label="Reset view">↺</button>
-            </div>
-          </div>
-        </div>
-        <dl class="estimate-lines">
-          <div><dt>Materials</dt><dd>$6,420</dd></div>
-          <div><dt>Labor</dt><dd>$4,800</dd></div>
-          <div><dt>Equipment + other</dt><dd>$680</dd></div>
-          <div class="adjustment-row"><dt><label for="overhead">Overhead <output id="overhead-value">12%</output></label><input id="overhead" type="range" min="0" max="25" value="12" /></dt><dd id="overhead-cost">$1,428.00</dd></div>
-          <div class="adjustment-row"><dt><label for="markup">Markup <output id="markup-value">20%</output></label><input id="markup" type="range" min="0" max="35" value="20" /></dt><dd id="markup-cost">$2,665.60</dd></div>
-        </dl>
-        <div class="estimate-total">
-          <span>ESTIMATED PRICE</span>
-          <strong id="estimate-price" aria-live="polite">$15,993.60</strong>
-        </div>
-      </div>
-    </section>
-
-    <section id="workflow" class="workflow" aria-labelledby="workflow-title">
-      <div class="section-heading">
-        <p class="eyebrow">One clear path</p>
-        <h2 id="workflow-title">Plans → Quantities → Estimate → Export</h2>
-        <p>Each step answers one question. Nothing important is hidden behind technical language.</p>
-      </div>
-      <div class="workflow-shell">
-        <div class="workflow-grid" role="tablist" aria-label="RoughBid workflow steps">
-          <button class="workflow-card is-active" id="workflow-tab-1" type="button" role="tab" aria-selected="true" aria-controls="workflow-panel-1" data-step="1">
-            <span class="step-topline"><span class="step-number">01</span><span class="step-state">Start here</span></span>
-            <span class="step-title">Upload plans</span>
-            <span class="step-copy">Drop in a PDF and keep every plan revision organized with the project.</span>
-            <span class="step-action">Try PDF Reader <span aria-hidden="true">→</span></span>
-          </button>
-          <button class="workflow-card" id="workflow-tab-2" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-2" data-step="2" tabindex="-1">
-            <span class="step-topline"><span class="step-number">02</span><span class="step-state">Review</span></span>
-            <span class="step-title">Confirm quantities</span>
-            <span class="step-copy">Review AI-assisted findings, then approve only the quantities you trust.</span>
-            <span class="step-action">Explore AI Review <span aria-hidden="true">→</span></span>
-          </button>
-          <button class="workflow-card" id="workflow-tab-3" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-3" data-step="3" tabindex="-1">
-            <span class="step-topline"><span class="step-number">03</span><span class="step-state">Build</span></span>
-            <span class="step-title">Price the work</span>
-            <span class="step-copy">Add labor and materials, then see overhead, markup, and margin clearly.</span>
-            <span class="step-action">Open Estimator <span aria-hidden="true">→</span></span>
-          </button>
-          <button class="workflow-card" id="workflow-tab-4" type="button" role="tab" aria-selected="false" aria-controls="workflow-panel-4" data-step="4" tabindex="-1">
-            <span class="step-topline"><span class="step-number">04</span><span class="step-state">Deliver</span></span>
-            <span class="step-title">Share the estimate</span>
-            <span class="step-copy">Turn approved numbers into a polished, client-ready proposal and export.</span>
-            <span class="step-action">See Sample Export <span aria-hidden="true">→</span></span>
-          </button>
+          <div class="sheet-revision"><span>REV</span><strong>03</strong></div>
         </div>
 
-        <div class="workflow-preview" aria-live="polite">
-          <div class="preview-copy">
-            <p class="preview-kicker"><span class="preview-dot"></span> LIVE WORKFLOW PREVIEW</p>
-            <div class="workflow-panel is-active" id="workflow-panel-1" role="tabpanel" aria-labelledby="workflow-tab-1">
-              <span class="preview-step">STEP 01 · PLANS</span><h3>Bring the drawings. We’ll keep them straight.</h3>
-              <p>Start with the actual source of truth. Upload a plan set, label the revision, and keep the original close at hand throughout the estimate.</p>
-              <a href="/app/">Try PDF Reader <span aria-hidden="true">→</span></a>
+        <div class="sheet-grid">
+          <div class="sheet-plan">
+            <div class="panel-topline">
+              <div><span class="micro-label">PLAN SET</span><strong>A-101 · Deck plan</strong></div>
+              <span class="status">REVIEWED</span>
             </div>
-            <div class="workflow-panel" id="workflow-panel-2" role="tabpanel" aria-labelledby="workflow-tab-2" hidden>
-              <span class="preview-step">STEP 02 · QUANTITIES</span><h3>Review every finding before it counts.</h3>
-              <p>AI-assisted plan reading surfaces possible quantities with sheet references. You decide what is accepted, edited, or dismissed.</p>
-              <a href="/app/">Explore AI Review <span aria-hidden="true">→</span></a>
-            </div>
-            <div class="workflow-panel" id="workflow-panel-3" role="tabpanel" aria-labelledby="workflow-tab-3" hidden>
-              <span class="preview-step">STEP 03 · ESTIMATE</span><h3>See where every dollar goes.</h3>
-              <p>Build line items with real unit costs and instantly understand the effect of labor, overhead, and markup on your price.</p>
-              <a href="/app/">Open Estimator <span aria-hidden="true">→</span></a>
-            </div>
-            <div class="workflow-panel" id="workflow-panel-4" role="tabpanel" aria-labelledby="workflow-tab-4" hidden>
-              <span class="preview-step">STEP 04 · EXPORT</span><h3>Send a quote you’re proud to stand behind.</h3>
-              <p>Choose what the client sees, add your company details, and produce a clear proposal without exposing your internal math.</p>
-              <a href="/app/">See Sample Export <span aria-hidden="true">→</span></a>
+
+            <div class="blueprint-viewer">
+              <div class="sheet-tabs" aria-label="Plan pages">
+                <button class="sheet-thumb active" type="button" data-sheet="A-101" aria-pressed="true"><span class="mini-plan"></span><b>A-101</b></button>
+                <button class="sheet-thumb" type="button" data-sheet="A-102" aria-pressed="false"><span class="mini-plan alternate"></span><b>A-102</b></button>
+              </div>
+              <div class="plan-sheet" tabindex="0" aria-label="Blueprint; drag to pan">
+                <svg class="blueprint-drawing" viewBox="0 0 520 300" role="img" aria-label="Deck floor plan with highlighted dimensions">
+                  <g class="blueprint-pan">
+                    <g class="technical-lines">
+                      <path d="M55 35H465V253H55z M75 55H286V145H75z M286 55H445V145H286z M75 145H196V233H75z M196 145H445V233H196z"/>
+                      <path d="M95 55v90m30-90v90m30-90v90m30-90v90m30-90v90m30-90v90M95 233v-88m30 88v-88m30 88v-88M216 233v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88m30 88v-88"/>
+                      <path d="M42 35v218m0-218h13m-13 218h13M55 270h410m-410 0v-17m410 17v-17"/>
+                    </g>
+                    <path class="highlight-zone" d="M286 55H445V145H286z"/>
+                    <g class="dimension-lines">
+                      <path d="M55 22h410M55 16v12m410-12v12M28 35v218M22 35h12m-12 218h12"/>
+                      <text x="226" y="17">24′-0″</text><text transform="translate(18 174) rotate(-90)">16′-0″</text>
+                    </g>
+                    <text class="room-label" x="330" y="104">DECK</text>
+                    <text class="sheet-note" x="62" y="289">DECK PLAN / A-101 · SCALE 1/4″ = 1′</text>
+                  </g>
+                </svg>
+                <span class="vector-tag">384 SQ FT · REVIEWED</span>
+                <div class="zoom-controls" aria-label="Blueprint zoom controls">
+                  <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+                  <output id="zoom-level" aria-live="polite">100%</output>
+                  <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+                  <button type="button" data-zoom="reset" aria-label="Reset view">↺</button>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="preview-stage" aria-hidden="true">
-            <div class="micro-demo demo-upload is-active" data-demo="1">
-              <div class="demo-windowbar"><i></i><i></i><i></i><span>NEW PROJECT / PLANS</span></div>
-              <div class="dropzone"><div class="file-icon">PDF</div><strong>Drop your plans here</strong><small>or browse from your computer</small><span>CHOOSE PDF</span></div>
-              <div class="upload-file"><span class="tiny-file">PDF</span><div><strong>oak-street-renovation.pdf</strong><small>32 sheets · 18.4 MB</small></div><b>100%</b></div>
+          <div class="sheet-cost">
+            <div class="cost-heading">
+              <span>ESTIMATE SUMMARY</span>
+              <strong>Direct cost buildup</strong>
             </div>
-            <div class="micro-demo demo-review" data-demo="2">
-              <div class="demo-windowbar"><i></i><i></i><i></i><span>AI PLAN REVIEW</span></div>
-              <div class="review-head"><div><small>SHEET A-201</small><strong>3 findings ready</strong></div><span>REVIEWING</span></div>
-              <div class="finding"><em>01</em><div><strong>Exterior wall framing</strong><small>128 linear ft · A-201</small></div><button>✓</button></div>
-              <div class="finding"><em>02</em><div><strong>Insulated wall area</strong><small>1,024 sq ft · A-201</small></div><button>✓</button></div>
-              <div class="finding muted-finding"><em>03</em><div><strong>Door openings</strong><small>6 count · A-601</small></div><button>+</button></div>
-            </div>
-            <div class="micro-demo demo-estimate" data-demo="3">
-              <div class="demo-windowbar"><i></i><i></i><i></i><span>ESTIMATE BUILDER</span></div>
-              <div class="calc-heading"><div><small>LINE ITEM</small><strong>Exterior wall framing</strong></div><span>EDITING</span></div>
-              <div class="calc-row"><label>QUANTITY<strong>128</strong></label><b>×</b><label>UNIT COST<strong>$14.80</strong></label><b>=</b><label>TOTAL<strong>$1,894.40</strong></label></div>
-              <div class="calc-summary"><span>Material <b>$1,254.40</b></span><span>Labor <b>$640.00</b></span><span class="calc-total">CLIENT PRICE <b>$2,424.83</b></span></div>
-            </div>
-            <div class="micro-demo demo-export" data-demo="4">
-              <div class="demo-windowbar"><i></i><i></i><i></i><span>PROPOSAL PREVIEW</span></div>
-              <div class="paper"><header><div><small>PROPOSAL</small><strong>Oak Street Renovation</strong></div><b>ROUGH<span>BID</span></b></header><div class="paper-meta"><span>PREPARED FOR<br><b>Jordan Homeowners</b></span><span>ESTIMATE #<br><b>RB-1042</b></span></div><div class="paper-line"><span>Scope of work</span><b>$18,420.00</b></div><div class="paper-line"><span>Materials &amp; installation</span><b>Included</b></div><div class="paper-total"><span>PROJECT TOTAL</span><strong>$18,420.00</strong></div></div>
-            </div>
+            <dl class="estimate-lines">
+              <div><dt>Materials</dt><dd>$6,420</dd></div>
+              <div><dt>Labor</dt><dd>$4,800</dd></div>
+              <div><dt>Equipment + other</dt><dd>$680</dd></div>
+              <div class="adjustment-row"><dt><label for="overhead">Overhead <output id="overhead-value">12%</output></label><input id="overhead" type="range" min="0" max="25" value="12" /></dt><dd id="overhead-cost">$1,428.00</dd></div>
+              <div class="adjustment-row"><dt><label for="markup">Markup <output id="markup-value">20%</output></label><input id="markup" type="range" min="0" max="35" value="20" /></dt><dd id="markup-cost">$2,665.60</dd></div>
+            </dl>
+            <div class="estimate-total"><span>PROPOSAL TOTAL</span><strong id="estimate-price" aria-live="polite">$15,993.60</strong></div>
           </div>
+        </div>
+
+        <div class="sheet-footer">
+          <span>PLAN SOURCE ATTACHED</span>
+          <span>QUANTITIES REVIEWED</span>
+          <span>CLIENT OUTPUT SEPARATE</span>
         </div>
       </div>
     </section>
 
-    <section id="features" class="class-access" aria-labelledby="platform-title">
+    <section class="discipline-bar" aria-label="RoughBid workflow">
+      <div><span>01</span><strong>Plans</strong></div>
+      <div><span>02</span><strong>Quantities</strong></div>
+      <div><span>03</span><strong>Estimate</strong></div>
+      <div><span>04</span><strong>Review</strong></div>
+      <div><span>05</span><strong>Proposal</strong></div>
+    </section>
+
+    <section id="workspace" class="workspace-section">
+      <div class="section-rule">
+        <span>ROUGH / 02</span>
+        <b>ESTIMATING WORKSPACE</b>
+      </div>
+
+      <div class="workspace-intro">
+        <h2>The estimate stays tied to the work.</h2>
+        <p>Instead of treating plans, takeoff, pricing and delivery as separate jobs, RoughBid keeps them in one project record.</p>
+      </div>
+
+      <div class="estimate-table" aria-label="Estimate line items example">
+        <div class="table-head">
+          <span>CSI</span><span>Scope</span><span>Qty</span><span>Unit</span><span>Material</span><span>Labor</span><span>Total</span>
+        </div>
+        <div class="table-row">
+          <span>06 10 00</span><strong>Deck framing lumber</strong><span>384</span><span>SF</span><span>$3,840</span><span>$2,160</span><b>$6,000</b>
+        </div>
+        <div class="table-row">
+          <span>06 73 00</span><strong>Composite decking</strong><span>384</span><span>SF</span><span>$2,180</span><span>$1,420</span><b>$3,600</b>
+        </div>
+        <div class="table-row">
+          <span>05 52 00</span><strong>Guardrail system</strong><span>42</span><span>LF</span><span>$1,240</span><span>$780</span><b>$2,020</b>
+        </div>
+        <div class="table-row muted-row">
+          <span>—</span><strong>Equipment + disposal</strong><span>1</span><span>LS</span><span>$680</span><span>—</span><b>$680</b>
+        </div>
+      </div>
+
+      <div class="workspace-notes">
+        <article><span>A</span><div><h3>Plan context stays visible.</h3><p>The source drawing and revision stay connected to the estimate instead of disappearing into a file folder.</p></div></article>
+        <article><span>B</span><div><h3>Cost buildup stays explicit.</h3><p>Materials, labor, equipment, overhead and markup remain visible while the client total is being built.</p></div></article>
+        <article><span>C</span><div><h3>Proposal output stays clean.</h3><p>Client-facing documents show the scope and price without exposing the internal cost model.</p></div></article>
+      </div>
+    </section>
+
+    <section id="workflow" class="workflow-section">
+      <div class="section-rule light">
+        <span>ROUGH / 03</span>
+        <b>PROJECT SEQUENCE</b>
+      </div>
+      <div class="workflow-intro">
+        <h2>One project. Five checkpoints.</h2>
+        <p>RoughBid is organized around the decisions an estimator actually needs to make before a number is ready to send.</p>
+      </div>
+      <ol class="workflow-list">
+        <li><span>01</span><div><small>PLANS</small><h3>Load the current drawing set.</h3><p>Keep the source documents and revisions with the project.</p></div></li>
+        <li><span>02</span><div><small>QUANTITIES</small><h3>Review what counts.</h3><p>Confirm, edit or dismiss findings before they enter the estimate.</p></div></li>
+        <li><span>03</span><div><small>ESTIMATE</small><h3>Build the price.</h3><p>Add actual unit costs and understand the effect of overhead and markup.</p></div></li>
+        <li><span>04</span><div><small>REVIEW</small><h3>Catch incomplete work.</h3><p>Check readiness before anything is released to the client.</p></div></li>
+        <li><span>05</span><div><small>PROPOSAL</small><h3>Send the right version.</h3><p>Export the client-safe proposal while retaining the internal estimate.</p></div></li>
+      </ol>
+    </section>
+
+    <section id="review" class="review-section">
+      <div class="section-rule">
+        <span>ROUGH / 04</span>
+        <b>REVIEW CONTROLS</b>
+      </div>
+      <div class="review-layout">
+        <div class="review-copy">
+          <p class="eyebrow">ASSISTED PLAN READING</p>
+          <h2>Software can find it.<br>The estimator decides.</h2>
+          <p>RoughBid can surface possible scope and quantities from plan sets. Those findings remain separate until a person reviews them.</p>
+          <a href="/data-use.html">Read about data and plan analysis <span>↗</span></a>
+        </div>
+
+        <div class="review-ledger">
+          <div class="review-ledger-head">
+            <span>SHEET</span><strong>A-201</strong><span>STATUS</span><strong>REVIEW REQUIRED</strong>
+          </div>
+          <div class="review-row approved"><span>01</span><div><strong>Exterior wall framing</strong><small>128 LF · A-201</small></div><b>APPROVED</b></div>
+          <div class="review-row approved"><span>02</span><div><strong>Insulated wall area</strong><small>1,024 SF · A-201</small></div><b>APPROVED</b></div>
+          <div class="review-row"><span>03</span><div><strong>Door openings</strong><small>6 EA · A-601</small></div><b>REVIEW</b></div>
+          <div class="review-ledger-foot"><span>Nothing is added to the estimate automatically.</span><strong>3 findings / 2 approved</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="delivery-section">
+      <div class="delivery-copy">
+        <div class="section-rule light"><span>ROUGH / 05</span><b>CLIENT DELIVERY</b></div>
+        <h2>Show the client the price.<br>Keep the cost model.</h2>
+        <p>RoughBid separates internal estimating detail from the client-facing proposal so the customer sees what they need to approve — not how you run the job.</p>
+        <a class="button light-button" href="/app/">Open RoughBid <span>↗</span></a>
+      </div>
+
+      <div class="proposal-wrap">
+        <div class="proposal-paper">
+          <header><div><small>PROPOSAL</small><strong>Oak Street Renovation</strong></div><span>ROUGH<b>BID</b></span></header>
+          <div class="proposal-meta"><p>PREPARED FOR<strong>Jordan Homeowners</strong></p><p>ESTIMATE<strong>RB-1042</strong></p></div>
+          <div class="proposal-line"><span>Deck renovation scope</span><strong>$15,993.60</strong></div>
+          <div class="proposal-line"><span>Materials & installation</span><strong>Included</strong></div>
+          <div class="proposal-line"><span>Professional cleanup</span><strong>Included</strong></div>
+          <div class="proposal-total"><span>PROJECT TOTAL</span><strong>$15,993.60</strong></div>
+        </div>
+        <div class="internal-note">INTERNAL COST DETAIL NOT SHOWN TO CLIENT</div>
+      </div>
+    </section>
+
+    <section class="access-section">
       <div>
-        <p class="eyebrow inverse">Independent SaaS platform</p>
-        <h2 id="platform-title">A dedicated RoughBid workspace for contractors and estimators.</h2>
-        <p>RoughBid is its own estimating product for managing projects, plan revisions, takeoff quantities, pricing assumptions, review, and exports.</p>
+        <div class="section-rule"><span>ROUGH / 06</span><b>ACCESS</b></div>
+        <h2>Construction estimating should feel controlled, not complicated.</h2>
       </div>
-      <div class="access-card">
-        <span class="access-label">ROUGHBID SAAS</span>
-        <strong>Estimating workspace</strong>
-        <ul>
-          <li>Project workspace access</li>
-          <li>Estimate math and revisions</li>
-          <li>Plan and quantity workflow</li>
-          <li>Proposal and data exports</li>
-          <li>Optional workspace Marketplace add-ons</li>
-        </ul>
+      <div class="access-copy">
+        <p>RoughBid is available through controlled customer access while the product continues to mature. Request access for your company, or sign in if your workspace is already active.</p>
+        <div class="access-actions">
+          <button class="button primary" type="button" data-open-access>Request access</button>
+          <a class="text-link" href="/app/">Sign in to RoughBid <span>↗</span></a>
+        </div>
       </div>
-    </section>
-
-    <section class="assist" aria-labelledby="assist-title">
-      <div class="assist-tag">AI PLAN READING</div>
-      <div>
-        <h2 id="assist-title">AI reads plans for review — your estimate math stays under your control.</h2>
-        <p>RoughBid can read uploaded plan PDFs, surface quantities and scope findings, and require human review before findings feed the estimating workflow. AI suggestions never silently rewrite your estimate.</p>
-      </div>
-    </section>
-
-    <section id="pricing" class="early-access" aria-labelledby="early-title">
-      <p class="eyebrow">Controlled customer access</p>
-      <h2 id="early-title">Simple enough to learn in one sitting.</h2>
-      <p>RoughBid is a standalone construction estimating SaaS built by KSP Ventures. Approved customers can buy a server-priced plan reading per project and subscribe to available workspace Marketplace add-ons.</p>
-      <button class="button primary" type="button" data-open-access>Request access</button>
     </section>
   </main>
 
   <footer class="site-footer">
+    <div class="footer-top">
+      <a class="brand footer-brand" href="#top"><img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" /></a>
+      <p>Construction estimating from plan set to proposal.</p>
+    </div>
     <div class="footer-grid">
-      <div class="footer-intro">
-        <a class="brand footer-brand" href="#top"><img class="brand-logo" src="/brand/roughbid-logo.png" alt="RoughBid" /></a>
-        <p>Clearer construction estimates, from first plan to final proposal.</p>
-        <span>A KSP Ventures product</span>
-      </div>
-      <div class="footer-column"><h3>Product</h3><a href="#workflow">Workflow</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="/app/">Sign in</a></div>
-      <div class="footer-column"><h3>Legal</h3><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a><a href="/data-use.html">Data &amp; AI</a><a href="/refunds.html">Refunds</a></div>
-      <div class="footer-column"><h3>Contact</h3><a href="mailto:hello@kspdominion.group">Sales</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20support">Support</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20partnership">Partnerships</a></div>
+      <div><h3>Product</h3><a href="#workspace">Workspace</a><a href="#workflow">Workflow</a><a href="#review">Review controls</a><a href="/app/">Sign in</a></div>
+      <div><h3>Legal</h3><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a><a href="/data-use.html">Data & AI</a><a href="/refunds.html">Refunds</a></div>
+      <div><h3>Contact</h3><a href="mailto:hello@kspdominion.group">Sales</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20support">Support</a><a href="mailto:hello@kspdominion.group?subject=RoughBid%20partnership">Partnerships</a></div>
     </div>
     <div class="footer-bottom">
-      <p>© 2026 RoughBid. AI findings require human review.</p>
-      <div class="footer-badges"><a href="/app/" aria-label="Open RoughBid documentation"><span>↗</span> Documentation</a><a href="/api/health" aria-label="View RoughBid system status"><i></i> All systems operational</a></div>
+      <p>© 2026 RoughBid · A KSP Ventures product</p>
+      <a href="/api/health"><i></i> System status</a>
     </div>
   </footer>
-  <script>
-    (() => {
-      const tabs = [...document.querySelectorAll('.workflow-card')];
-      const panels = [...document.querySelectorAll('.workflow-panel')];
-      const demos = [...document.querySelectorAll('.micro-demo')];
-      const activate = (tab) => {
-        const step = tab.dataset.step;
-        tabs.forEach((item) => {
-          const active = item === tab;
-          item.classList.toggle('is-active', active);
-          item.setAttribute('aria-selected', String(active));
-          item.tabIndex = active ? 0 : -1;
-        });
-        panels.forEach((panel) => {
-          const active = panel.id === `workflow-panel-${step}`;
-          panel.classList.toggle('is-active', active);
-          panel.hidden = !active;
-        });
-        demos.forEach((demo) => demo.classList.toggle('is-active', demo.dataset.demo === step));
-      };
-      tabs.forEach((tab, index) => {
-        tab.addEventListener('click', () => activate(tab));
-        tab.addEventListener('keydown', (event) => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-          event.preventDefault();
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-          tabs[next].focus(); activate(tabs[next]);
-        });
-      });
-    })();
-  </script>
-  <script src="./hero.js"></script>
 
-  <aside class="sticky-cta" aria-label="Request RoughBid access">
-    <div><strong>Ready to leave spreadsheet chaos behind?</strong><span>Join contractors building faster, clearer estimates.</span></div>
-    <button type="button" data-open-access>Request Access <span aria-hidden="true">→</span></button>
-  </aside>
+  <script src="./hero.js"></script>
 
   <div class="modal-shell" id="access-modal" hidden>
     <div class="modal-backdrop" data-close-access></div>
     <section class="access-modal" role="dialog" aria-modal="true" aria-labelledby="access-title">
       <button class="modal-close" type="button" aria-label="Close access request" data-close-access>×</button>
-      <span class="modal-kicker">EARLY ACCESS</span>
-      <h2 id="access-title">Build better bids with RoughBid.</h2>
-      <p>Tell us a little about your team. We’ll follow up with access details tailored to your workflow.</p>
+      <span class="modal-kicker">ROUGHBID ACCESS</span>
+      <h2 id="access-title">Request a workspace.</h2>
+      <p>Tell us about your team and we’ll follow up with current access details.</p>
       <form id="access-form" novalidate>
         <label for="access-email">Work email</label>
         <input id="access-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required />
@@ -301,12 +278,13 @@
           <option value="">Select your team size</option><option>Just me</option><option>2–10 people</option><option>11–50 people</option><option>51–200 people</option><option>201+ people</option>
         </select>
         <span class="field-error" id="size-error" aria-live="polite"></span>
-        <button class="modal-submit" type="submit">Request my access <span>→</span></button>
+        <button class="modal-submit" type="submit">Request access <span>→</span></button>
         <small>By continuing, you agree to our <a href="/terms.html">Terms</a> and <a href="/privacy.html">Privacy Policy</a>.</small>
       </form>
     </section>
   </div>
-  <div class="success-toast" id="success-toast" role="status" aria-live="polite"><span>✓</span><div><strong>You're on the list!</strong><small>We’ll be in touch with next steps shortly.</small></div></div>
+
+  <div class="success-toast" id="success-toast" role="status" aria-live="polite"><span>✓</span><div><strong>Request received.</strong><small>We’ll follow up with next steps.</small></div></div>
   <script src="./landing.js" defer></script>
 </body>
 </html>
