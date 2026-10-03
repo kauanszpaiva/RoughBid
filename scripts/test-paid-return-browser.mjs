@@ -6,7 +6,7 @@ import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Actual Plans UI with isolated synthetic API responses. No auth, PDF, AI or payment calls.
-const playwright = await import(new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
+const playwright = await import(process.env.PLAYWRIGHT_MODULE_PATH || new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const root = await mkdtemp(path.join(repo, '.paid-return-check-'));
 let server;
@@ -17,7 +17,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { PlansPage } from '../apps/web/app/src/pages/PlansPageContent';
 const params = new URLSearchParams(location.search);
-window.paidReturnHarness = { reads: [], newQuotes: [], jobs: [], payments: 0, patches: 0, jobReads: 0, status: params.get('status') || 'paid', failLoad: params.has('fail'), aiAvailable: !params.has('offline') };
+window.paidReturnHarness = { reads: [], newQuotes: [], jobs: [], unexpected: [], payments: 0, patches: 0, jobReads: 0, status: params.get('status') || 'paid', failLoad: params.has('fail'), aiAvailable: !params.has('offline') };
 const project = { id: 'local-project', remoteId: 'project-1', name: 'SYNTHETIC paid-return test', projectType: 'Changed project type', revisions: [{ id: 'revision', remoteFileId: 'file-1', isCurrent: true, fileName: 'fixture.pdf', revisionNumber: '01', processingStatus: 'ready', ...(params.has('poll') ? { aiPlanJobId: 'saved-job', aiPlanStatus: 'processing' } : {}) }] };
 createRoot(document.getElementById('root')).render(<PlansPage project={project} workspaceId="workspace-1" canWrite onPatchRevision={() => window.paidReturnHarness.patches++} onAppendRevision={() => {}} onUpdateProject={() => {}} onContinue={() => {}} onOpenAIAssistant={() => {}} />);
 `);
@@ -36,6 +36,8 @@ export async function getSavedReadingQuote(workspace, project, file, id) {
 export async function getReadingQuote(...args) { window.paidReturnHarness.newQuotes.push(args); return quote(); }
 export async function createAiPlanReading(workspace, project, input) { window.paidReturnHarness.jobs.push({ workspace, project, input }); return job(); }
 export async function getAiPlanReading() { window.paidReturnHarness.jobReads++; await new Promise(resolve => setTimeout(resolve, 250)); return job(); }
+export async function getFullTakeoffRun() { window.paidReturnHarness.unexpected.push('full-read'); throw new Error('Unexpected Full Takeoff read in legacy paid-return check'); }
+export async function createFullTakeoffRun() { window.paidReturnHarness.unexpected.push('full-mutation'); throw new Error('Unexpected Full Takeoff mutation in legacy paid-return check'); }
 export async function payForReading() { window.paidReturnHarness.payments++; throw new Error('Unexpected payment'); }
 export async function createDocumentPreviewObjectUrl() { return URL.createObjectURL(new Blob(['synthetic fixture'])); }
 export async function beginDocumentUpload() { throw new Error('Unexpected upload'); }
@@ -52,10 +54,14 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
         if (!importer?.replaceAll('\\', '/').endsWith('/pages/PlansPageContent.tsx')) return;
         if (source === '../services/api') return '\0paid-return-fixture-api';
         if (source === '../components/BlueprintViewer') return '\0paid-return-fixture-viewer';
+        if (source === '../components/PhotoTakeoffPanel') return '\0paid-return-fixture-photos';
+        if (source === '../components/ConstructionBudgetPanel') return '\0paid-return-fixture-budget';
       },
       load(id) {
         if (id === '\0paid-return-fixture-api') return stub;
         if (id === '\0paid-return-fixture-viewer') return 'export function BlueprintViewer() { return null; }';
+        if (id === '\0paid-return-fixture-photos') return 'export function PhotoTakeoffPanel() { return null; }';
+        if (id === '\0paid-return-fixture-budget') return 'export function ConstructionBudgetPanel() { return null; }';
       },
     }],
     build: { outDir: path.join(root, 'dist'), emptyOutDir: true },
@@ -70,10 +76,21 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
     try {
       const page = await browser.newPage({ viewport: browserName === 'webkit' ? { width: 390, height: 844 } : { width: 1365, height: 900 } });
       const errors = [];
+      const external = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
+      await page.route('**/*', route => {
+        const hostname = new URL(route.request().url()).hostname;
+        if (hostname === '127.0.0.1') return route.continue();
+        external.push(hostname);
+        return route.abort();
+      });
+      const navigate = async url => {
+        assert.deepEqual(await page.evaluate(() => window.paidReturnHarness?.unexpected ?? []), []);
+        await page.goto(url);
+      };
       const assertPassive = async () => {
         const h = await page.evaluate(() => window.paidReturnHarness);
+        assert.deepEqual(h.unexpected, []);
         assert.deepEqual(h.newQuotes, []);
         assert.deepEqual(h.jobs, []);
         assert.equal(h.payments, 0);
@@ -81,7 +98,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
         assert.equal(h.jobReads, 0);
       };
 
-      await page.goto('http://127.0.0.1:4182/?payment=returned');
+      await navigate('http://127.0.0.1:4182/?payment=returned');
       await page.getByText('Payment confirmed', { exact: true }).waitFor();
       await assertPassive();
       assert.equal(await page.getByRole('checkbox', { name: 'Framing', exact: true }).isChecked(), true);
@@ -95,7 +112,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       assert.deepEqual(started.newQuotes, []);
 
       // An upstream payment becomes visible on an explicit read-only refresh.
-      await page.goto('http://127.0.0.1:4182/?status=quoted&payment=returned');
+      await navigate('http://127.0.0.1:4182/?status=quoted&payment=returned');
       await page.getByText('Awaiting payment', { exact: true }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Start paid analysis', exact: true }).count(), 0);
       await page.evaluate(() => { window.paidReturnHarness.status = 'paid'; });
@@ -105,14 +122,14 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       assert.equal(await page.evaluate(() => window.paidReturnHarness.reads.at(-1).id), 'paid-quote');
 
       // Repricing also rechecks paid status and must not replace a newly paid quote.
-      await page.goto('http://127.0.0.1:4182/?status=quoted');
+      await navigate('http://127.0.0.1:4182/?status=quoted');
       await page.getByText('Awaiting payment', { exact: true }).waitFor();
       await page.evaluate(() => { window.paidReturnHarness.status = 'paid'; });
       await page.getByRole('button', { name: 'Recalculate project price', exact: true }).click();
       await page.getByText('Payment confirmed', { exact: true }).waitFor();
       await assertPassive();
 
-      await page.goto('http://127.0.0.1:4182/?status=complete&offline=1');
+      await navigate('http://127.0.0.1:4182/?status=complete&offline=1');
       await page.getByText('Reading ready to review', { exact: true }).waitFor();
       await assertPassive();
       await page.getByRole('button', { name: 'Open saved reading', exact: true }).click();
@@ -120,14 +137,14 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       assert.equal(await page.evaluate(() => window.paidReturnHarness.jobs.length), 0);
 
       // A completed job never upgrades a refunded/revoked payment back to paid.
-      await page.goto('http://127.0.0.1:4182/?status=revoked&poll=1');
+      await navigate('http://127.0.0.1:4182/?status=revoked&poll=1');
       await page.getByText('Payment access revoked', { exact: true }).waitFor();
       await page.waitForFunction(() => window.paidReturnHarness.patches === 1);
       assert.equal(await page.getByText('Payment access revoked', { exact: true }).isVisible(), true);
       assert.equal(await page.getByRole('button', { name: 'Open saved reading', exact: true }).count(), 0);
       assert.equal(await page.evaluate(() => window.paidReturnHarness.jobs.length), 0);
 
-      await page.goto('http://127.0.0.1:4182/?fail=1');
+      await navigate('http://127.0.0.1:4182/?fail=1');
       const retry = page.getByRole('button', { name: 'Payment status could not be loaded. Retry.', exact: true });
       await retry.waitFor();
       assert.equal(await page.getByRole('button', { name: 'Calculate project price', exact: true }).isDisabled(), true);
@@ -137,6 +154,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       await page.getByText('Payment confirmed', { exact: true }).waitFor();
       await assertPassive();
       assert.deepEqual(errors, []);
+      assert.deepEqual(external, []);
       console.log('PASS ' + browserName + ': passive paid return, original scope, explicit single AI start, payment refresh, safe repricing, saved reading offline, revocation retained, recovery failure/retry');
     } finally { await browser.close(); }
   }

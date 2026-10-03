@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 // Isolated synthetic fixture only. No login, customer PDF, Stripe, or AI call.
-const playwright = await import(new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
+const playwright = await import(process.env.PLAYWRIGHT_MODULE_PATH || new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const root = await mkdtemp(path.join(repo, '.viewer-check-'));
 let server;
