@@ -335,7 +335,10 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           catch { /* The selected durable route will fail closed without a queue. */ }
         }
       }
-      if ((fullV2Request || pathname.endsWith('/restart')) && process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.REDIS_URL) {
+      // Purchase availability checks the live queue consumer as well as the
+      // persisted heartbeat. Supply that dependency on the access GET too.
+      const fullAccessRequest = request.method === 'GET' && pathname.endsWith('/ai-plan-entitlement');
+      if ((fullV2Request || pathname.endsWith('/restart') || fullAccessRequest) && process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.REDIS_URL) {
         try { fullTakeoffV2Queue = await createFullTakeoffV2Queue(process.env.REDIS_URL); }
         catch { /* Full V2 fails closed without its dedicated queue. */ }
       }
