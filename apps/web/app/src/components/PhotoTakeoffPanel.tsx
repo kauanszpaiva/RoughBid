@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Camera, Loader2 } from 'lucide-react';
 import { ApiError, grantWorkspaceAiConsent } from '../services/api';
 import { beginPhotoUpload, cancelPhotoRun, completePhotoUpload, createPhotoPreview, createPhotoRun, getPhotoCapability,
@@ -13,7 +13,12 @@ type UploadSelection = { file: File; asset?: PhotoSourceAsset; status: 'selected
 const message = (error: unknown) => error instanceof Error ? error.message : 'Photo operation could not be confirmed. Reload saved state.';
 const retryRead = (error: unknown) => !(error instanceof ApiError && [401, 403, 404].includes(error.status));
 
-export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { workspaceId: string | null; projectId: string | undefined; canWrite: boolean }) {
+export type PhotoIntakeState = { busy: boolean; ready: boolean; count: number; error: string | null };
+export type PhotoTakeoffHandle = { generate: () => Promise<void> };
+export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
+  workspaceId: string | null; projectId: string | undefined; canWrite: boolean;
+  uploadRequest?: { id: string; files: File[] } | undefined; onIntakeState?: (state: PhotoIntakeState) => void;
+}>(function PhotoTakeoffPanel({ workspaceId, projectId, canWrite, uploadRequest, onIntakeState }, ref) {
   const [capability, setCapability] = useState<PhotoCapability | null>(null);
   const [history, setHistory] = useState<Array<Omit<PhotoRun, 'result'>>>([]);
   const [selection, setSelection] = useState<UploadSelection[]>([]);
@@ -45,6 +50,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
   const context = useRef('');
   const selectedRun = useRef<string | null>(null);
   const contextKey = `${workspaceId}:${projectId}`;
+  const incomingHandled = useRef<string | null>(null);
   context.current = contextKey;
   selectedRun.current = runId;
 
@@ -131,6 +137,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
     const validation = validatePhotoSelection(items.map(item => item.file));
     if (validation) { setActionError(validation); return; }
     actionLock.current = true; setBusy('upload'); setActionError(null);
+    const uploadedItems = items.map(item => ({ ...item }));
     const update = (index: number, patch: Partial<UploadSelection>) => setSelection(current => current.map((item, position) => position === index ? { ...item, ...patch } : item));
     try {
       let failed = false;
@@ -147,6 +154,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
           const complete = await completePhotoUpload(workspaceId, projectId, reserved.asset.id);
           if (context.current !== contextKey) return;
           update(index, { status: 'ready', asset: complete.asset });
+          uploadedItems[index] = { ...uploadedItems[index]!, status: 'ready', asset: complete.asset };
         } catch (error) {
           if (context.current !== contextKey) return;
           update(index, { status: 'failed', error: message(error) });
@@ -156,8 +164,29 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
         }
       }
       if (context.current === contextKey && !failed) setNotice('Your photos are saved. Confirm the reading below to continue.');
+      return uploadedItems;
     } finally { actionLock.current = false; if (context.current === contextKey) setBusy(null); }
   };
+
+  useEffect(() => {
+    if (!uploadRequest || incomingHandled.current === uploadRequest.id || !capability || !canWrite || actionLock.current) return;
+    incomingHandled.current = uploadRequest.id;
+    if (!capability.enabled || (!capability.includedAvailable && !capability.purchaseAvailable)) {
+      setActionError('Photo processing is unavailable for this workspace. Your PDF plans can still be processed.');
+      return;
+    }
+    const error = validatePhotoSelection(uploadRequest.files);
+    if (error) { setActionError(error); return; }
+    const items: UploadSelection[] = uploadRequest.files.map(file => ({ file, status: 'selected' }));
+    setSelection(items); setRunId(null); setDetail(null); setActionError(null);
+    requestKey.current = null; acknowledgedRun.current = null;
+    void handleUpload(items);
+  }, [uploadRequest, capability, canWrite, busy]);
+
+  useEffect(() => {
+    onIntakeState?.({ busy: Boolean(busy), ready: selection.length > 0 && selection.every(item => Boolean(item.asset)),
+      count: Math.max(selection.length, uploadRequest?.files.length ?? 0), error: actionError ?? readError });
+  }, [busy, selection, uploadRequest, actionError, readError, onIntakeState]);
 
   const handleConsent = async () => {
     if (!canWrite || !workspaceId || actionLock.current) return;
@@ -173,10 +202,10 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
     else if (approved) setRefresh(value => value + 1);
   };
 
-  const handleStart = async (consentConfirmed = false) => {
+  const handleStart = async (consentConfirmed = false, items: UploadSelection[] = selection) => {
     if (!consentConfirmed || !canWrite || !capability?.enabled || !capability.includedAvailable || !capability.workerReady || !workspaceId || !projectId || actionLock.current || needsRead.current) return;
-    if (acknowledgedRun.current) { setRunId(acknowledgedRun.current); setRefresh(value => value + 1); return; }
-    const assets = selection.map(item => item.asset);
+    if (acknowledgedRun.current) { setRunId(acknowledgedRun.current); setRefresh(value => value + 1); return true; }
+    const assets = items.map(item => item.asset);
     if (!assets.length || assets.some(asset => !asset)) { setActionError('Complete every private photo upload first.'); return; }
     if (!requestKey.current) requestKey.current = crypto.randomUUID();
     actionLock.current = true; setBusy('start'); setActionError(null);
@@ -187,10 +216,24 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
       setHistory(current => [saved.run, ...current.filter(run => run.id !== saved.run.id)]);
       setNotice(saved.enqueued ? 'Photo reading saved and queued. You can leave this page and recover the job later.' : 'The run is saved, but queue acknowledgement was not confirmed. Reload saved progress and explicitly resume this run.');
       setRefresh(value => value + 1);
+      return saved.enqueued;
     } catch (error) {
       if (context.current === contextKey) { needsRead.current = true; if (error instanceof ApiError && error.status === 403 && /consent/i.test(message(error))) setNeedsConsent(true); setActionError(`${message(error)} Reload saved runs before another start; the original request identity will be reused.`); }
     } finally { actionLock.current = false; if (context.current === contextKey) setBusy(null); }
   };
+
+  useImperativeHandle(ref, () => ({ generate: async () => {
+    if (!capability?.enabled || !capability.workerReady) throw new Error('Photo processing is unavailable. Review saved photos below.');
+    const items = selection.some(item => !item.asset) ? await handleUpload() : selection;
+    if (!items?.length || items.some(item => !item.asset)) throw new Error('Some photos could not be uploaded. Retry their uploads below.');
+    if (capability.includedAvailable) {
+      if (!await handleStart(true, items)) throw new Error('Photo processing could not be confirmed. Review the saved run below before retrying.');
+    }
+    else {
+      setNotice('Review the photo processing fee below and confirm payment to start.');
+      document.getElementById('project-photos')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } }));
 
   const handleRunAction = async (action: 'cancel' | 'resume') => {
     if (!canWrite || !workspaceId || !projectId || !detail || actionLock.current || needsRead.current) return;
@@ -284,7 +327,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
       {capability && (!selection.length || selection.every(item => item.asset)) && <PhotoPurchasePanel key={`${contextKey}:${selection.map(item => item.asset?.id).sort().join(',')}`}
         workspaceId={workspaceId} projectId={projectId} assets={selection.flatMap(item => item.asset ? [item.asset] : [])} newSelection={selection.length > 0}
         canWrite={canWrite} purchaseAvailable={capability.purchaseAvailable === true} includedAvailable={capability.includedAvailable === true} workerReady={capability.workerReady}
-        busy={Boolean(busy)} actionLock={actionLock} onBusy={value => setBusy(value ? 'purchase' : null)} onIncludedStart={() => handleStart(true)}
+        busy={Boolean(busy)} actionLock={actionLock} onBusy={value => setBusy(value ? 'purchase' : null)} onIncludedStart={async () => { await handleStart(true); }}
         onConsentRequired={() => setNeedsConsent(true)}
         onRunId={id => { if (selectedRun.current === id) return; acknowledgedRun.current = id; setRunId(id); loadedDraftRun.current = null; setDrafts({}); setRefresh(value => value + 1); }} />}
       {history.length > 0 && <label className="block text-xs font-medium">Saved photo runs<select aria-label="Saved photo runs" value={runId ?? ''} onChange={event => { setRunId(event.target.value); loadedDraftRun.current = null; setDrafts({}); setActionError(null); }} disabled={Boolean(busy)} className="block mt-1 w-full rounded-md border border-slate-300 p-2">{history.map(run => <option key={run.id} value={run.id}>{run.created_at ? new Date(run.created_at).toLocaleString() : run.id} — {run.status.replaceAll('_', ' ')}</option>)}</select></label>}
@@ -308,7 +351,7 @@ export function PhotoTakeoffPanel({ workspaceId, projectId, canWrite }: { worksp
       </>}
     </>}
   </section>;
-}
+});
 
 export const PhotoRunEvidence = ({ detail, previews, previewErrors, previewLoading, onPreview, canReview, disabled, drafts, onDraft,
   checkpoints = {}, checkpointErrors = {}, checkpointLoading = {}, onCheckpoint }: {

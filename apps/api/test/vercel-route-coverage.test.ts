@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { matchesGlob } from 'node:path';
 
 /**
  * Vercel publishes one serverless function per file under api/. There is no
@@ -48,11 +49,19 @@ test('photo/measurement routes and researched catalog have deployable source cov
     assert.ok(existsSync(new URL(`../../../api/${route}.ts`,import.meta.url)),`Missing deployable route: ${route}`);
   }
   const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));
-  assert.ok(vercel.functions['api/**/*.ts'].includeFiles.includes('packages/domain/data/**'),'The API calculation must include its versioned JSON catalog.');
+  assert.ok(matchesGlob('packages/domain/data/estimating-catalog.v1.json', vercel.functions['api/**/*.ts'].includeFiles),'The API calculation must include its versioned JSON catalog.');
 });
 
 test('durable provider bridge deploys with explicit PDF rendering resources',()=>{
   assert.ok(existsSync(new URL('../../../api/internal/provider-bridge/v1.ts',import.meta.url)));
   const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));
-  for(const resource of ['standard_fonts','cmaps','wasm'])assert.ok(vercel.functions['api/**/*.ts'].includeFiles.includes(`node_modules/pdfjs-dist/${resource}/**`));
+  const pattern = vercel.functions['api/**/*.ts'].includeFiles;
+  assert.ok(pattern.length <= 256, 'Vercel includeFiles schema limit');
+  for(const resource of ['standard_fonts','cmaps','wasm']) {
+    const files = readdirSync(new URL(`../../../node_modules/pdfjs-dist/${resource}/`, import.meta.url));
+    assert.ok(files.length > 0);
+    for(const file of files) assert.ok(matchesGlob(`node_modules/pdfjs-dist/${resource}/${file}`, pattern), `Missing renderer resource: ${resource}/${file}`);
+  }
+  assert.ok(matchesGlob('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', pattern));
+  assert.ok(matchesGlob('node_modules/@napi-rs/canvas-linux-x64-gnu/skia.linux-x64-gnu.node', pattern));
 });

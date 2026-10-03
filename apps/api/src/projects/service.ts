@@ -145,18 +145,25 @@ export class ProjectService {
   }
 
   async create(input: Record<string, unknown>) {
+    if (input.intakeMode != null && input.intakeMode !== 'quick') throw new ProjectApiError(400, 'Invalid intake mode');
+    // Draft intake does not invent a client's identity or a pricing location.
+    // Existing detailed intake retains its required applicability inputs.
+    const quick = input.intakeMode === 'quick' && (input.status == null || input.status === 'draft');
+    const jurisdiction = input.jurisdiction_state ?? input.jurisdictionState;
+    const zip = input.postal_code ?? input.postalCode;
+    const date = input.permit_date ?? input.permitDate;
     const row = {
       workspace_id: this.workspaceId,
       created_by: this.userId,
       name: requiredText(input.name, 'name', 160),
-      client_name: requiredText(input.client_name ?? input.clientName, 'client_name', 160),
+      client_name: quick ? optionalText(input.client_name ?? input.clientName, 'client_name', 160) : requiredText(input.client_name ?? input.clientName, 'client_name', 160),
       project_type: requiredText(input.project_type ?? input.projectType, 'project_type', 120),
       project_number: optionalText(input.project_number, 'project_number', 80),
       address_text: optionalText(input.address, 'address', 500),
-      jurisdiction_state: newEnglandState(input.jurisdiction_state ?? input.jurisdictionState),
-      municipality: requiredText(input.municipality, 'municipality', 120),
-      postal_code: postalCode(input.postal_code ?? input.postalCode),
-      permit_date: permitDate(input.permit_date ?? input.permitDate),
+      jurisdiction_state: quick && !jurisdiction ? null : newEnglandState(jurisdiction),
+      municipality: quick ? optionalText(input.municipality, 'municipality', 120) : requiredText(input.municipality, 'municipality', 120),
+      postal_code: quick && !zip ? null : postalCode(zip),
+      permit_date: quick && !date ? null : permitDate(date),
       status: input.status == null ? 'draft' : status(input.status),
       app_state: appState(input),
     };
@@ -169,8 +176,9 @@ export class ProjectService {
 
   async update(projectId: string, input: Record<string, unknown>) {
     const changes: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const quick = input.intakeMode === 'quick';
     if ('name' in input) changes.name = requiredText(input.name, 'name', 160);
-    if ('client_name' in input || 'clientName' in input) changes.client_name = requiredText(input.client_name ?? input.clientName, 'client_name', 160);
+    if ('client_name' in input || 'clientName' in input) changes.client_name = quick ? optionalText(input.client_name ?? input.clientName, 'client_name', 160) : requiredText(input.client_name ?? input.clientName, 'client_name', 160);
     if ('project_type' in input || 'projectType' in input) changes.project_type = requiredText(input.project_type ?? input.projectType, 'project_type', 120);
     if ('project_number' in input) changes.project_number = optionalText(input.project_number, 'project_number', 80);
     if ('address' in input) changes.address_text = optionalText(input.address, 'address', 500);

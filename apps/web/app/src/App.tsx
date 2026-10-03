@@ -102,6 +102,7 @@ export default function App() {
 
   // Modal States
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
+  const [initialEstimateFiles, setInitialEstimateFiles] = useState<{ projectId: string; files: File[] } | null>(null);
   const [newProjectType, setNewProjectType] = useState("Deck Renovation");
   const [showAIModal, setShowAIModal] = useState<boolean>(false);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
@@ -162,6 +163,7 @@ export default function App() {
   };
 
   const projectPayload = (project: Project) => ({
+    intakeMode: project.intakeMode,
     name: project.name,
     address: project.address,
     clientName: project.clientName,
@@ -635,6 +637,9 @@ export default function App() {
                 <>
                   {activeStep === "plans" && (
                     <PlansPage
+                      initialFiles={initialEstimateFiles?.projectId === activeProject.id ? initialEstimateFiles.files : undefined}
+                      onInitialFilesHandled={() => setInitialEstimateFiles(null)}
+                      onOpenResult={setActiveStep}
                       canWrite={canWrite}
                       onBeforeFullCheckout={async fileId => {
                         const scope = scopeRef.current, queue = saveQueueRef.current, projectId = activeProject.id;
@@ -728,7 +733,10 @@ export default function App() {
       {canWrite && showNewProjectModal && <NewProjectModal
         isOpen={showNewProjectModal}
         onClose={() => setShowNewProjectModal(false)}
-        onCreate={handleCreateProject}
+        onCreate={async (project, files) => {
+          await handleCreateProject(project);
+          if (files?.length) setInitialEstimateFiles({ projectId: project.id, files });
+        }}
         initialProjectType={newProjectType}
         defaultOverhead={user.defaultOverhead}
         defaultMarkup={user.defaultMarkup}

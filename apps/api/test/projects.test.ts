@@ -9,6 +9,31 @@ const VALID_PROJECT = {
   permitDate: '2026-09-11',
 };
 
+test('quick draft intake persists unknown client and jurisdiction as null without inventing pricing inputs', async () => {
+  let inserted: Record<string, unknown> | undefined;
+  const service = new ProjectService({ from() { return { insert(row: Record<string, unknown>) {
+    inserted = row;
+    return { select: () => ({ single: async () => ({ data: row, error: null }) }) };
+  } }; } } as never, 'user-1', 'workspace-1');
+  await service.create({ name: 'Bathroom photos', projectType: 'Tile', intakeMode: 'quick', status: 'draft' });
+  assert.equal(inserted!.client_name, null);
+  for (const field of ['jurisdiction_state', 'municipality', 'postal_code', 'permit_date']) assert.equal(inserted![field], null);
+  assert.equal(inserted!.workspace_id, 'workspace-1');
+  assert.equal(inserted!.created_by, 'user-1');
+});
+
+test('quick intake does not bypass supplied location validation or relax active/detailed project creation', async () => {
+  let inserts = 0;
+  const service = new ProjectService({ from() { return { insert() { inserts++; } }; } } as never, 'user-1', 'workspace-1');
+  const draft = { name: 'Photos', projectType: 'Tile', intakeMode: 'quick' };
+  for (const input of [
+    { ...draft, jurisdictionState: 'NY' }, { ...draft, postalCode: 'fake' },
+    { ...draft, permitDate: '2026-02-31' }, { ...draft, status: 'active' },
+    { name: 'Traditional project', projectType: 'Tile' }, { ...draft, intakeMode: 'unknown' },
+  ]) await assert.rejects(service.create(input), (error: unknown) => error instanceof ProjectApiError && error.status === 400);
+  assert.equal(inserts, 0);
+});
+
 test('plan upload validation accepts a genuine PDF by name, MIME type, and signature', async () => {
   const file = new File(['%PDF-1.7\ncontent'], 'plans.PDF', { type: 'application/pdf' });
   await assert.doesNotReject(validatePlanFile(file));

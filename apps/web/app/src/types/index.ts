@@ -25,6 +25,7 @@ export interface PlanRevision {
   processingStatus?: "uploading" | "queued" | "processing" | "ready" | "failed";
   aiPlanJobId?: string;
   aiPlanMode?: "quick" | "detailed" | "full_v2";
+  aiPlanRequestScope?: string;
   aiPlanStatus?: "queued" | "processing" | "needs_review" | "ready" | "failed" | "cancelled" | "waiting_budget";
   annotations?: PlanAnnotation[];
 }
@@ -79,6 +80,8 @@ export interface Project {
   clientName: string;
   address: string;
   projectType: string;
+  intakeMode?: 'quick';
+  selectedServices?: string[];
   jurisdictionState?: "CT" | "MA" | "ME" | "NH" | "RI" | "VT";
   municipality?: string;
   postalCode?: string;
