@@ -34,6 +34,8 @@ async function fixture(){
   for(const file of ['0017_paid_project_readings.sql','0023_durable_ai_plan_jobs.sql','20260910225937_takeoff_v2_foundation.sql','20261002120000_full_takeoff_v2_durable.sql',
     '20261002140000_takeoff_measurement_review.sql','20261002150000_full_takeoff_regions.sql','20261002160000_full_takeoff_run_budgets.sql','20261003010000_paid_full_takeoff.sql']) await db.exec(migration(file));
   await db.query('select touch_full_takeoff_v2_worker($1,$2)',['offline-worker',version]);
+  await db.exec('alter table takeoff_runs add column error_code text,add column not_before timestamptz,add column waiting_reason text');
+  await db.exec(migration('20261003080000_complimentary_configuration_retry.sql'));
   return db;
 }
 async function quote(db,hash='d'.repeat(64),fullContract=contract){
@@ -50,6 +52,44 @@ async function spend(db,run,event){
   await db.query('insert into api_usage_events values($1,$2,$3,$4,$5,$6,$7)',[event,ids.workspace,ids.project,ids.user,'gemini','gemini-3.8-flash',`rb1:${run.id}:generate:pending`]);
   return db.query('select reserve_provider_spend($1,$2,$3,$4,$5,$6)',[event,run.id,ids.workspace,ids.user,'gemini','gemini-3.8-flash']);
 }
+
+test('untouched complimentary configuration failure accepts fresh consent and queues the same source once',async()=>{
+  const db=await fixture();try{
+    await db.exec('update profiles set is_platform_admin=true');
+    const approved={...manifest,spendApproval:{version:'full-user-spend-v1',approvedBy:ids.user,providers:[{provider:'gemini',approvedUsd:5}]}};
+    const request=async m=>(await db.query('select reserve_full_takeoff_v2($1,$2,$3,$4,$5,$6) r',[ids.user,ids.workspace,ids.project,ids.file,JSON.stringify(m),version])).rows[0].r;
+    const initial=await request(approved);
+    await db.query("update takeoff_runs set status='failed',error_code='reading_configuration_unavailable',processing_error='Configuration unavailable',completed_at=now() where id=$1",[initial.run.id]);
+    const fresh={...approved,spendApproval:{...approved.spendApproval,providers:[{provider:'gemini',approvedUsd:30}]}};
+    await assert.rejects(request({...fresh,sheets:[{...manifest.sheets[0],pageSha256:'f'.repeat(64)}]}),/requires reconciliation/);
+    await assert.rejects(request({...fresh,spendApproval:{...fresh.spendApproval,approvedBy:'someone-else'}}),/requires reconciliation/);
+    const retry=await request(fresh);
+    assert.equal(retry.run.id,initial.run.id);assert.equal(retry.run.status,'queued');assert.equal(retry.reused,true);
+    assert.equal((await request(fresh)).run.id,initial.run.id);
+    const saved=(await db.query('select manifest,error_code,processing_error,completed_at from takeoff_runs')).rows[0];
+    assert.deepEqual(saved.manifest,fresh);assert.equal(saved.error_code,null);assert.equal(saved.processing_error,null);assert.equal(saved.completed_at,null);
+    assert.equal((await db.query('select count(*)::int n from takeoff_runs')).rows[0].n,1);
+  }finally{await db.close();}
+});
+
+test('complimentary reauthorization rejects active work, unknown outcomes and any provider usage',async()=>{
+  const db=await fixture();try{
+    await db.exec('update profiles set is_platform_admin=true');
+    const approved={...manifest,spendApproval:{version:'full-user-spend-v1',approvedBy:ids.user,providers:[{provider:'gemini',approvedUsd:5}]}};
+    const request=m=>db.query('select reserve_full_takeoff_v2($1,$2,$3,$4,$5,$6) r',[ids.user,ids.workspace,ids.project,ids.file,JSON.stringify(m),version]);
+    const initial=(await request(approved)).rows[0].r;
+    const fresh={...approved,spendApproval:{...approved.spendApproval,providers:[{provider:'gemini',approvedUsd:30}]}};
+    await assert.rejects(request(fresh),/requires reconciliation/);
+    await db.query("update takeoff_runs set status='failed',error_code='unknown_provider_outcome' where id=$1",[initial.run.id]);
+    await assert.rejects(request(fresh),/requires reconciliation/);
+    await db.query("update takeoff_runs set error_code='reading_configuration_unavailable',worker_lease_id=gen_random_uuid() where id=$1",[initial.run.id]);
+    await assert.rejects(request(fresh),/requires reconciliation/);
+    await db.query('update takeoff_runs set worker_lease_id=null where id=$1',[initial.run.id]);
+    await db.query('insert into api_usage_events values(gen_random_uuid(),$1,$2,$3,$4,$5,$6)',[ids.workspace,ids.project,ids.user,'gemini','gemini-3.8-flash',`rb1:${initial.run.id}:generate:pending`]);
+    await assert.rejects(request(fresh),/requires reconciliation/);
+    assert.deepEqual((await db.query('select manifest from takeoff_runs')).rows[0].manifest,approved);
+  }finally{await db.close();}
+});
 
 test('paid Full SQL requires live confirmed consent, binds one run, preserves quick/free isolation and immutable contract',async()=>{
   const db=await fixture();try{
