@@ -7,9 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import { reviewPhotoEvidence, PHOTO_ASSET_LIMITS } from '../../api/src/photo-evidence.ts';
 import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
-  PHOTO_UPLOAD_LIMITS, validatePhotoSelection, type PhotoReviewDraft } from '../app/src/utils/photoReview.ts';
+  PHOTO_UPLOAD_LIMITS, photoReadingSteps, photoCapacityWait, validatePhotoSelection, type PhotoReviewDraft } from '../app/src/utils/photoReview.ts';
 import type { PhotoObservation, PhotoRun, PhotoRunDetail, PhotoSourceAsset } from '../app/src/services/photos-api.ts';
 import { reviewIssueMessages } from '../app/src/utils/reviewMessages.ts';
+import { ApiError } from '../app/src/services/authenticatedFetch.ts';
 
 const code = readFileSync(new URL('../app/src/components/PhotoTakeoffPanel.tsx', import.meta.url), 'utf8');
 function productionFunction(name: string, context: Record<string, unknown>) {
@@ -122,6 +123,8 @@ test('photo resume is unavailable for uncertain outcomes or live provider attemp
   assert.equal(canResumePhotoRun(detail({ run: photoRun({ status: 'cancelled', reconciliation_required: true }) })), false);
   assert.equal(canResumePhotoRun(detail({ steps: [{ photo_asset_id: 'photo-one', status: 'processing' }] })), false);
   assert.equal(canResumePhotoRun(detail({ run: photoRun({ status: 'processing' }) })), false);
+  assert.equal(canResumePhotoRun(detail({ run: photoRun({ status: 'waiting_budget' }) })), false);
+  assert.equal(canResumePhotoRun(detail({ run: photoRun({ status: 'blocked', error_code: 'processing_review_required' }) })), false);
   assert.equal(canResumePhotoRun(detail({ run: photoRun({ status: 'cancelled' }) })), true);
   assert.equal(isPhotoRunInFlight('queued'), true);
   assert.equal(isPhotoRunInFlight('needs_review'), false);
@@ -130,9 +133,21 @@ test('photo resume is unavailable for uncertain outcomes or live provider attemp
   assert.equal(photoCheckpointProgress(detail({ run: photoRun({ progress: { completed: 2, total: 1 } }) })), 'Saved progress is not available yet');
 });
 
+test('three photo stages require saved coverage of every source and capacity waiting never becomes completion', () => {
+  const saved = detail({ assets: [asset(), asset('photo-two')], run: photoRun({ status: 'waiting_budget', not_before: '2099-01-01T00:00:00Z' }),
+    stageCheckpoints: [{ operation_key: 'observation:one', stage: 'observation', asset_ids: ['photo-one'], status: 'completed', completed_at: '2026-10-03T00:00:00Z' }] });
+  assert.deepEqual(photoReadingSteps(saved).map(value => value.status), ['Pending', 'Pending', 'Pending']);
+  saved.stageCheckpoints!.push({ operation_key: 'observation:two', stage: 'observation', asset_ids: ['photo-two'], status: 'completed', completed_at: '2026-10-03T00:00:00Z' });
+  assert.deepEqual(photoReadingSteps(saved).map(value => value.status), ['Completed', 'Pending', 'Pending']);
+  assert.equal(isPhotoRunInFlight(saved.run.status), true);
+  assert.match(photoCapacityWait(saved)!.message, /automatically/); assert.ok(photoCapacityWait(saved)!.estimate);
+  saved.run.not_before = 'unknown'; assert.equal(photoCapacityWait(saved)!.estimate, null);
+  saved.run.status = 'needs_review'; assert.equal(photoCapacityWait(saved), null);
+});
+
 function startFixture(overrides: Record<string, unknown> = {}) {
   const calls: unknown[] = [], lock = { current: false }, key = { current: null as string | null }, savedId = { current: null as string | null };
-  const context: Record<string, unknown> = { canWrite: true, capability: { enabled: true, ownerAccess: true, workerReady: true }, workspaceId: 'workspace', projectId: 'project',
+  const context: Record<string, unknown> = { canWrite: true, capability: { enabled: true, ownerAccess: true, includedAvailable: true, workerReady: true }, workspaceId: 'workspace', projectId: 'project', ApiError, setNeedsConsent: noop,
     actionLock: lock, needsRead: { current: false }, acknowledgedRun: savedId, selection: [{ asset: asset() }], requestKey: key,
     crypto: { randomUUID: () => 'stable-request-key' }, contextKey: 'same', context: { current: 'same' }, loadedDraftRun: { current: null },
     setRunId: noop, setDetail: noop, setDrafts: noop, setHistory: noop, setNotice: noop, setRefresh: noop, setBusy: noop, setActionError: noop,
@@ -143,9 +158,11 @@ function startFixture(overrides: Record<string, unknown> = {}) {
 test('photo start acknowledges one durable identity and reopening it does not start a new provider job', async () => {
   const fixture = startFixture();
   const start = productionFunction('handleStart', fixture.context);
-  await start(); await start();
+  await start(); assert.equal(fixture.calls.length, 0, 'Included access never implies user consent');
+  await start(true); await start(true);
   assert.equal(fixture.calls.length, 1);
   assert.equal((fixture.calls[0] as any[])[2].requestKey, 'stable-request-key');
+  assert.equal((fixture.calls[0] as any[])[2].consentConfirmed, true);
   assert.equal(fixture.savedId.current, 'run-one');
 });
 
@@ -153,12 +170,12 @@ test('lost photo-start acknowledgement keeps its request key and blocks retry un
   const fixture = startFixture();
   fixture.context.createPhotoRun = async (...args: unknown[]) => { fixture.calls.push(args); throw new Error('Network interrupted'); };
   const start = productionFunction('handleStart', fixture.context);
-  await start(); await start();
+  await start(true); await start(true);
   assert.equal(fixture.calls.length, 1);
   assert.equal(fixture.key.current, 'stable-request-key');
   assert.equal((fixture.context.needsRead as { current: boolean }).current, true);
   (fixture.context.needsRead as { current: boolean }).current = false; // A confirmed metadata read.
-  await start();
+  await start(true);
   assert.equal((fixture.calls[1] as any[])[2].requestKey, 'stable-request-key');
 });
 
@@ -168,7 +185,7 @@ test('a second photo action before rerender cannot dispatch another expensive re
   const fixture = startFixture();
   fixture.context.createPhotoRun = (...args: unknown[]) => { fixture.calls.push(args); return pending; };
   const start = productionFunction('handleStart', fixture.context);
-  const first = start(), second = start();
+  const first = start(true), second = start(true);
   assert.equal(fixture.calls.length, 1);
   resolve({ run: photoRun(), enqueued: true });
   await Promise.all([first, second]);
@@ -176,10 +193,10 @@ test('a second photo action before rerender cannot dispatch another expensive re
 });
 
 test('viewer, disabled provider and missing worker prevent photo dispatch', async () => {
-  for (const override of [{ canWrite: false }, { capability: { enabled: false, ownerAccess: true, workerReady: true } },
-    { capability: { enabled: true, ownerAccess: false, workerReady: true } }, { capability: { enabled: true, ownerAccess: true, workerReady: false } }]) {
+  for (const override of [{ canWrite: false }, { capability: { enabled: false, includedAvailable: true, workerReady: true } },
+    { capability: { enabled: true, ownerAccess: true, purchaseAvailable: true, includedAvailable: false, workerReady: true } }, { capability: { enabled: true, includedAvailable: true, workerReady: false } }]) {
     const fixture = startFixture(override);
-    await productionFunction('handleStart', fixture.context)();
+    await productionFunction('handleStart', fixture.context)(true);
     assert.equal(fixture.calls.length, 0);
     assert.equal(fixture.lock.current, false);
   }
@@ -188,7 +205,7 @@ test('viewer, disabled provider and missing worker prevent photo dispatch', asyn
 test('private photo upload sends bytes only to the signed storage URL then verifies metadata', async () => {
   const file = { name: 'source.jpg', type: 'image/jpeg', size: 10 };
   const calls: Array<{ kind: string; args: any[] }> = [];
-  const context = { canWrite: true, capability: { enabled: true, ownerAccess: true }, workspaceId: 'workspace', projectId: 'project', actionLock: { current: false }, needsRead: { current: false },
+  const context = { canWrite: true, capability: { enabled: true, purchaseAvailable: true }, workspaceId: 'workspace', projectId: 'project', actionLock: { current: false }, needsRead: { current: false },
     selection: [{ file, status: 'selected' }], validatePhotoSelection, setActionError: noop, setBusy: noop, setSelection: noop, setNotice: noop,
     contextKey: 'same', context: { current: 'same' }, AbortSignal,
     beginPhotoUpload: async (...args: unknown[]) => { calls.push({ kind: 'reserve', args }); return { asset: { id: 'photo-one' }, upload: { url: 'https://private-storage.invalid/photo', method: 'PUT', headers: { 'content-type': 'image/jpeg' } } }; },

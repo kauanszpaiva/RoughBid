@@ -16,12 +16,10 @@ import {
 import { createGeminiClient, GeminiPlanReader, geminiSweepOptionsFromEnv } from '../apps/api/src/ai-plan/gemini.ts';
 import { DurableFullTakeoffV2Processor, requeueDueFullTakeoffBudgetRuns, FULL_TAKEOFF_V2_QUEUE, FULL_TAKEOFF_V2_DURABLE_VERSION, type FullTakeoffV2WorkerJob } from '../apps/api/src/takeoff-v2/durable.ts';
 import { createStageDeepPassProviderFactory } from '../apps/api/src/takeoff-v2/stage-provider.ts';
-import { requireStageDeepPassConfig } from '../apps/api/src/takeoff-v2/stage-config.ts';
 import { SqlRegionCheckpointStore } from '../apps/api/src/takeoff-v2/stage-regions.ts';
 import { createLocalRegionRenderer } from '../apps/api/src/takeoff-v2/local-region-renderer.ts';
-import { configureFullRunSpendLimits, requireFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
-import { fullTakeoffApprovalProfile, userApprovedFullRunLimits } from '../apps/api/src/takeoff-v2/user-spend-approval.ts';
-import { paidFullRunLimits } from '../apps/api/src/takeoff-v2/paid-access.ts';
+import { configureFullRunSpendLimits } from '../apps/api/src/takeoff-v2/run-spend-policy.ts';
+import { createFullTakeoffRunSpendPolicy } from '../apps/api/src/takeoff-v2/paid-access.ts';
 import { loadAcceptedGeometryMeasurements } from '../apps/api/src/takeoff-v2/measurement-review.ts';
 import { loadPlanPageImages } from '../apps/api/src/ai-plan/page-images.ts';
 import { PLAN_READING_UNAVAILABLE } from '../apps/api/src/ai-plan/readiness.ts';
@@ -33,13 +31,19 @@ import type { PlanReader, PlanReadingFindingsWriter } from '../apps/api/src/ai-p
 import { loadObjectStorageConfig, S3ObjectStorage } from '../apps/api/src/storage/object-storage.ts';
 import { loadVercelBlobStorageConfig, VercelBlobObjectStorage } from '../apps/api/src/storage/vercel-blob-storage.ts';
 import { PHOTO_TAKEOFF_VERSION, requirePhotoTakeoffConfig } from '../apps/api/src/photos/config.ts';
-import { PHOTO_TAKEOFF_QUEUE, type PhotoTakeoffJob } from '../apps/api/src/photos/queue.ts';
+import { requirePhotoBridgeConfig } from '../apps/api/src/provider-bridge/photo-config.ts';
+import { PhotoBridgeReader } from '../apps/api/src/provider-bridge/photo-client.ts';
+import { PHOTO_TAKEOFF_QUEUE, createPhotoTakeoffQueue, type PhotoTakeoffQueue, type PhotoTakeoffJob } from '../apps/api/src/photos/queue.ts';
+import { recoverCompletePhotoRuns } from '../apps/api/src/photos/complete-worker.ts';
 import { HttpPhotoReader } from '../apps/api/src/photos/provider.ts';
 import { PhotoTakeoffProcessor } from '../apps/api/src/photos/worker.ts';
 import { loadGeometryProfile } from '../apps/api/src/geometry/config.ts';
 import { createGeometryQueue, GEOMETRY_QUEUE, type GeometryJob, type GeometryQueue } from '../apps/api/src/geometry/queue.ts';
 import { GeometryProcessor } from '../apps/api/src/geometry/worker.ts';
 import { createAutomaticGeometryCoordinator, loadAutomaticGeometryForSheet } from '../apps/api/src/takeoff-v2/automatic-geometry.ts';
+import { ProviderBridgeClient } from '../apps/api/src/provider-bridge/client.ts';
+import { requireBridgeRuntimeConfig } from '../apps/api/src/provider-bridge/config.ts';
+import { bridgePageImages } from '../apps/api/src/provider-bridge/renderer.ts';
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -102,6 +106,7 @@ async function main() {
   let fullTakeoffPresence: ReturnType<typeof createFullTakeoffConsumerPresence> | undefined;
   let fullTakeoffPresenceQueue: Queue | undefined;
   let photoTakeoffHeartbeat: ReturnType<typeof setInterval> | undefined;
+  let photoRecoveryQueue:PhotoTakeoffQueue|undefined;
   let workerHeartbeat: ReturnType<typeof setInterval> | undefined;
   let geometryHeartbeat:ReturnType<typeof setInterval>|undefined;
   let geometryQueue:GeometryQueue|undefined;
@@ -174,18 +179,23 @@ async function main() {
   }
 
   if (process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.TAKEOFF_V2_WORKER_ENABLED === 'true') {
-    // Validate exact capabilities and separately approved exposure before a
-    // consumer is advertised. This starts no provider request and no spending.
+    // Validate exact capabilities before advertising a consumer. Spending
+    // authority is validated per run, before its budget is persisted.
     const rpc = async (name: string, args: Record<string, unknown>) => await db.rpc(name, args);
-    const spendLimits = requireFullRunSpendLimits(process.env, requireStageDeepPassConfig(process.env));
-    const approvalProfile = fullTakeoffApprovalProfile(process.env);
+    const workerId = crypto.randomUUID();
+    const bridge = process.env.TAKEOFF_V2_TRANSPORT === 'bridge'
+      ? new ProviderBridgeClient(db, requireBridgeRuntimeConfig(process.env, 'worker'), workerId, crypto.randomUUID()) : undefined;
+    // Key parity, real endpoint, schema and exact profile are proven without inference.
+    // A configured bridge failure never falls back to local provider credentials.
+    if (bridge) await bridge.handshake();
+    const runSpendPolicy = createFullTakeoffRunSpendPolicy(process.env);
     const schema = await db.rpc('full_takeoff_stage_schema_ready');
     if (schema.error || schema.data !== true) throw new Error('Full Takeoff regional/measurement/budget schema has not been reviewed and activated.');
     const renderRegion = createLocalRegionRenderer(process.env);
     const factory = createStageDeepPassProviderFactory(process.env, fetch, {
+      ...(bridge ? { evidenceTransport: bridge.evidenceTransport } : {}),
       async prepareRun(input){
-        await configureFullRunSpendLimits(input,input.manifest.paidAuthorization ? paidFullRunLimits(input.manifest,process.env)
-          : userApprovedFullRunLimits(input.manifest.spendApproval,approvalProfile,spendLimits),rpc);
+        await configureFullRunSpendLimits(input,runSpendPolicy(input.manifest),rpc);
         if(geometryProfile?.kamai&&geometryQueue){
           const actor=await db.from('takeoff_runs').select('requested_by').eq('id',input.runId).eq('workspace_id',input.workspaceId)
             .eq('project_id',input.projectId).eq('file_id',input.fileId).maybeSingle();
@@ -214,6 +224,7 @@ async function main() {
         return {...reviewed,automatic_geometry:automatic};
       },
       async loadPageImages(input, page) {
+        if(bridge)return bridgePageImages(input.fileBytes,input.manifest,page,Number(process.env.TAKEOFF_V2_REGION_GRID??2) as 2|3);
         const prefix = `${input.workspaceId}/${input.projectId}/${input.fileId}/pages/`;
         const images = await loadPlanPageImages({ db, fileId: input.fileId, pageNumbers: [page], maxImages: 1,
           storage: { async presign(method, key, options) {
@@ -224,10 +235,10 @@ async function main() {
           label: `Physical page ${image.pageNumber}`, pageNumber: image.pageNumber }));
       },
     });
-    const workerId = `${process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || 'roughbid'}-full-${crypto.randomUUID()}`.slice(0, 160);
     const processor = new DurableFullTakeoffV2Processor(db as unknown as PlanReadingFindingsWriter,
       storage, factory, workerId);
     const touch = async () => {
+      if (bridge) await bridge.handshake();
       const touched = await db.rpc('touch_full_takeoff_v2_worker', { p_worker_id: workerId, p_version: FULL_TAKEOFF_V2_DURABLE_VERSION });
       if (touched.error || touched.data !== true) throw new Error('Full Takeoff V2 schema/capability heartbeat is unavailable.');
     };
@@ -269,10 +280,13 @@ async function main() {
   if (process.env.PHOTO_TAKEOFF_ENABLED === 'true' && process.env.PHOTO_TAKEOFF_WORKER_ENABLED === 'true') {
     // Photos use their own private-data approval, verified maximum-quality
     // profile and spend authorization. A provider balance never opens this path.
-    const config = requirePhotoTakeoffConfig(process.env);
-    const workerId = `${process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || 'roughbid'}-photo-${crypto.randomUUID()}`.slice(0, 160);
+    const workerId = crypto.randomUUID();
+    const photoBridgeConfig=process.env.PHOTO_TAKEOFF_TRANSPORT==='bridge'?requirePhotoBridgeConfig(process.env,'worker'):undefined;
+    const config=photoBridgeConfig?.profile??requirePhotoTakeoffConfig(process.env);
+    const photoBridge=photoBridgeConfig?new PhotoBridgeReader(db,photoBridgeConfig,workerId,crypto.randomUUID()):undefined;
+    if(photoBridge)await photoBridge.handshake();
     const processor = new PhotoTakeoffProcessor(db as unknown as DocumentDb, storage,
-      new HttpPhotoReader(config), config, workerId);
+      photoBridge??new HttpPhotoReader(requirePhotoTakeoffConfig(process.env)), config, workerId);
     await processor.touch();
     const worker = new Worker(PHOTO_TAKEOFF_QUEUE, job => processor.process(job as unknown as { data: PhotoTakeoffJob }), {
       connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1,
@@ -282,8 +296,17 @@ async function main() {
     worker.on('error', () => console.error('[worker] photo takeoff queue connection failed'));
     await worker.waitUntilReady();
     aiWorkers.push(worker);
+    photoRecoveryQueue = await createPhotoTakeoffQueue(redisUrl);
+    let recoveringPhotos=false;
+    const recoverPhotos=async()=>{
+      if(recoveringPhotos||!photoRecoveryQueue)return;
+      recoveringPhotos=true;
+      try{if(photoBridge)await photoBridge.handshake();await processor.touch();await recoverCompletePhotoRuns(db as unknown as DocumentDb,photoRecoveryQueue,config);}
+      finally{recoveringPhotos=false;}
+    };
+    await recoverPhotos();
     photoTakeoffHeartbeat = setInterval(() => {
-      void processor.touch().catch(() => console.error('[worker] photo takeoff capability heartbeat unavailable'));
+      void recoverPhotos().catch(() => console.error('[worker] photo takeoff heartbeat or saved reading recovery unavailable'));
     }, 30_000);
     console.log('[worker] photo takeoff queue attached', { queue: PHOTO_TAKEOFF_QUEUE, version: PHOTO_TAKEOFF_VERSION, workerId });
   }
@@ -304,6 +327,7 @@ async function main() {
       (pdfPipeline.worker as { close?: () => Promise<void> }).close?.(),
       ...aiWorkers.map((worker) => worker.close()),
       geometryQueue?.close?.(),
+      photoRecoveryQueue?.close?.(),
     ]);
     process.exit(0);
   };
@@ -311,7 +335,7 @@ async function main() {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-main().catch((error) => {
-  console.error('[worker] fatal startup error', error);
+main().catch(() => {
+  console.error('[worker] startup configuration or required dependency unavailable');
   process.exit(1);
 });

@@ -9,10 +9,25 @@ export function validatePhotoSelection(files: ReadonlyArray<Pick<File, 'name' | 
   if (files.reduce((total, file) => total + file.size, 0) > PHOTO_UPLOAD_LIMITS.maximumBatchBytes) return 'The complete photo batch must be no larger than 40 MB.';
   return null;
 }
-export const isPhotoRunInFlight = (status: string) => status === 'queued' || status === 'processing';
+export const isPhotoRunInFlight = (status: string) => status === 'queued' || status === 'processing' || status === 'waiting_budget';
+export function photoReadingSteps(detail: PhotoRunDetail) {
+  return ([['observation', 'Identify visible work'], ['reconciliation', 'Compare the photos'], ['risk_review', 'Check missing details']] as const).map(([stage, label]) => {
+    const records = detail.stageCheckpoints?.filter(value => value.stage === stage) ?? [];
+    const covered = new Set(records.flatMap(value => value.asset_ids));
+    const complete = records.length > 0 ? records.every(value => value.status === 'completed') && detail.assets.length > 0 && detail.assets.every(asset => covered.has(asset.id))
+      : detail.run.result?.stageStatus?.[stage] === 'completed';
+    return { stage, label, status: complete ? 'Completed' : records.some(value => value.status === 'processing' || value.status === 'admitted') ? 'In progress' : 'Pending' };
+  });
+}
+export function photoCapacityWait(detail: Pick<PhotoRunDetail, 'run'>) {
+  if (detail.run.status !== 'waiting_budget') return null;
+  const resume = detail.run.not_before ? new Date(detail.run.not_before) : null;
+  return { message: 'Waiting for processing capacity. Reading will resume automatically with saved progress and no extra charge.',
+    estimate: resume && Number.isFinite(resume.valueOf()) ? resume.toLocaleString() : null };
+}
 export function canResumePhotoRun(detail: PhotoRunDetail): boolean {
   return ['queued', 'blocked', 'cancelled'].includes(detail.run.status)
-    && !detail.run.reconciliation_required && detail.run.error_code !== 'unknown_provider_outcome'
+    && !detail.run.reconciliation_required && !['unknown_provider_outcome', 'processing_review_required'].includes(detail.run.error_code ?? '')
     && !detail.steps.some(step => step.status === 'processing');
 }
 export function photoCheckpointProgress(detail: Pick<PhotoRunDetail, 'run'>): string {

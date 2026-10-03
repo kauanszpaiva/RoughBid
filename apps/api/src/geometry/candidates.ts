@@ -4,7 +4,7 @@ export interface GeometryCandidate {id:string;provider:'kamai'|'aps';sourceEleme
   measurementKind:'area'|'perimeter'|'length'|'opening_width'|'count';quantity:number|null;unit:'m2'|'m'|'EA'|null;
   status:'candidate'|'blocked'|'accepted'|'rejected';geometry:Record<string,unknown>|null;coordinateFrame:'provider_blueprint'|'native_model';
   physicalPageNumber:number|null;fileSha256:string;source:Record<string,unknown>;reviewReasons:string[];reviewRevision:number;
-  aggregationGroup:'room_area'|'object_surface'|'linear_element'|'individual_object'|'native_property';}
+  aggregationGroup:'room_area'|'area_surface'|'object_surface'|'linear_element'|'individual_object'|'native_property';}
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 type XY=[number,number];
 function finitePoint(value:any):value is XY{return Array.isArray(value)&&value.length===2&&value.every((x:any)=>typeof x==='number'&&Number.isFinite(x)&&Math.abs(x)<=1_000_000_000);}
@@ -69,7 +69,9 @@ export function kamaiCandidates(checkpoint:KamaiCheckpoint,input:{runId:string;f
         status:reviewReasons.length?'blocked':'candidate',geometry:feature.geometry,coordinateFrame:'provider_blueprint',physicalPageNumber:input.physicalPageNumber,
         fileSha256:input.fileSha256,source:{geometryRunId:input.runId,providerProjectId:checkpoint.projectId,jobId:checkpoint.jobId,uploadId:checkpoint.uploadId,
           blueprintId:evidence.blueprintId,revision:evidence.revision,providerFileSha256:checkpoint.fileSha256,scale:evidence.scale,relations:feature.relations},
-        reviewReasons:[...new Set(reviewReasons)],reviewRevision:0,aggregationGroup:feature.kind==='area'?'room_area':kind==='count'?'individual_object':feature.kind==='object'?'object_surface':'linear_element'});
+        reviewReasons:[...new Set(reviewReasons)],reviewRevision:0,aggregationGroup:feature.kind==='area'&&kind==='area'
+          ? feature.semanticClass==='room'?'room_area':'area_surface'
+          :kind==='count'?'individual_object':feature.kind==='object'?'object_surface':'linear_element'});
     }
   }return candidates;
 }

@@ -41,7 +41,7 @@ test('workspace estimating catalog has a deployable function file', () => {
 });
 
 test('photo/measurement routes and researched catalog have deployable source coverage',()=>{
-  for(const route of ['projects/[id]/photos/uploads','projects/[id]/photos/capability','projects/[id]/photos/runs','projects/[id]/photos/runs/[runId]',
+  for(const route of ['projects/[id]/photos/uploads','projects/[id]/photos/capability','projects/[id]/photos/quote','projects/[id]/photos/checkout','projects/[id]/photos/runs','projects/[id]/photos/runs/[runId]',
     'projects/[id]/photos/runs/[runId]/cancel','projects/[id]/photos/runs/[runId]/resume','projects/[id]/photos/runs/[runId]/review','takeoff-runs/[id]/measurements',
     'projects/[id]/geometry/capability','projects/[id]/geometry/runs','projects/[id]/geometry/runs/[runId]',
     'projects/[id]/geometry/runs/[runId]/cancel','projects/[id]/geometry/runs/[runId]/resume','projects/[id]/geometry/runs/[runId]/review']){
@@ -49,4 +49,10 @@ test('photo/measurement routes and researched catalog have deployable source cov
   }
   const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));
   assert.ok(vercel.functions['api/**/*.ts'].includeFiles.includes('packages/domain/data/**'),'The API calculation must include its versioned JSON catalog.');
+});
+
+test('durable provider bridge deploys with explicit PDF rendering resources',()=>{
+  assert.ok(existsSync(new URL('../../../api/internal/provider-bridge/v1.ts',import.meta.url)));
+  const vercel=JSON.parse(readFileSync(new URL('../../../vercel.json',import.meta.url),'utf8'));
+  for(const resource of ['standard_fonts','cmaps','wasm'])assert.ok(vercel.functions['api/**/*.ts'].includeFiles.includes(`node_modules/pdfjs-dist/${resource}/**`));
 });

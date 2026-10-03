@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { createHash } from 'node:crypto';
 import { buildReadingOrderContract, hashReadingOrder } from '../../apps/api/src/billing/full-reading-orders.ts';
+import { hashPaidFullContract } from '../../apps/api/src/billing/full-takeoff-pricing.ts';
 
 const ids={user:'00000000-0000-4000-8000-000000000001',workspace:'10000000-0000-4000-8000-000000000001',
   project:'20000000-0000-4000-8000-000000000001',file:'30000000-0000-4000-8000-000000000001'};
@@ -51,7 +52,7 @@ async function child(db,index,pages=1,options={}){
       ...(options.expiresAt?{expiresAt:options.expiresAt}:{})}};
   const input={workspace_id:ids.workspace,project_id:ids.project,file_id:file,user_id:ids.user,file_sha256:sha,page_count:pages,trades:['Framing'],scope:'',
     amount_cents:full.pricing.amountCents,cost_cents:cost,pricing_version:'offline-test',membership:'standard',livemode:true,mode:'full_v2',full_contract:full,
-    full_contract_hash:createHash('sha256').update(JSON.stringify(full)).digest('hex')};
+    full_contract_hash:hashPaidFullContract(full)};
   return(await db.query('select create_paid_full_quote($1) q',[JSON.stringify(input)])).rows[0].q;
 }
 const scope={workspace_id:ids.workspace,project_id:ids.project,user_id:ids.user};

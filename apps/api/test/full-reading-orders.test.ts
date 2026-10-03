@@ -4,13 +4,14 @@ import { buildReadingOrderContract,hashReadingOrder,readingOrderFiles,readingOrd
 import { buildPaidFullContract,hashPaidFullContract } from '../src/billing/full-takeoff-pricing.ts';
 import { pricingEnv,testManifest } from './full-takeoff-pricing.test.ts';
 import { projectChargeCents } from '../../../packages/domain/src/project-charge.ts';
+import { multiproviderEnv } from './full-takeoff-multiprovider.test.ts';
 
-function fixture() {
-  const env={...pricingEnv(),PROJECT_PAYMENT_FIXED_CENTS:'30',PROJECT_PAYMENT_FEE_BPS:'290',STRIPE_SECRET_KEY:'rk_live_fixture',
+function fixture(baseEnv: Record<string,string> = pricingEnv()) {
+  const env={...baseEnv,PROJECT_PAYMENT_FIXED_CENTS:'30',PROJECT_PAYMENT_FEE_BPS:'290',STRIPE_SECRET_KEY:'rk_live_fixture',
     STRIPE_WEBHOOK_SECRET:'whsec_fixture',STRIPE_EXPECTED_ACCOUNT_ID:'acct_fixture',APP_URL:'https://roughbid.test'};
   const scope={workspace_id:'workspace',project_id:'project',user_id:'user'};
   const quotes=[1,2].map(n=>{const manifest=testManifest(n);manifest.fileSha256=String(n).repeat(64);
-    const full_contract=buildPaidFullContract({manifest,membership:'standard',env});
+    const full_contract=buildPaidFullContract({manifest,membership:'standard',env,companyPolicy:{callReservationUsd:2.5,spendCapUsd:25}});
     return {id:`quote-${n}`,file_id:`00000000-0000-4000-8000-00000000000${n}`,...scope,mode:'full_v2',livemode:true,currency:'usd',status:'quoted',
       full_contract,full_contract_hash:hashPaidFullContract(full_contract),cost_cents:full_contract.pricing.costCents,amount_cents:full_contract.pricing.amountCents,
       file_sha256:manifest.fileSha256,page_count:n,purchase_order_id:'order',full_run_id:null};});
@@ -19,6 +20,7 @@ function fixture() {
     cost_cents:contract.pricing.costCents,currency:'usd',status:'quoted',livemode:true,expires_at:new Date(Date.now()+3600_000).toISOString(),paid_at:null};
   const items=contract.items.map(item=>({...item,order_id:order.id}));
   const runs:any[]=[]; const calls:Array<{fn:string;args:any}>=[];const requests:Array<{url:string;init?:RequestInit}>=[];
+  const companyPolicy={enabled:true,spend_cap_usd:25,rolling_window_seconds:86400,call_reservation_usd:2.5,available_usd:25};
   const db={from(table:string){const filters:Array<(row:any)=>boolean>=[];let single=false;
     const query:any={select:()=>query,eq:(key:string,value:any)=>{filters.push(row=>row[key]===value);return query;},
       in:(key:string,value:any[])=>{filters.push(row=>value.includes(row[key]));return query;},order:()=>query,limit:()=>query,
@@ -27,14 +29,13 @@ function fixture() {
           table==='workspaces'?[{id:'workspace',ai_processing_consented_at:'2026-10-01'}]:table==='takeoff_runs'?runs:[];
         const rows=tableRows.filter(row=>filters.every(filter=>filter(row)));
         return Promise.resolve({data:single?rows[0]??null:rows,error:null}).then(resolve,reject);}};return query;},
-    async rpc(fn:string,args:any){calls.push({fn,args});return {data:fn==='paid_full_capacity_policy'?{
-      enabled:true,spend_cap_usd:25,rolling_window_seconds:86400,call_reservation_usd:2.5}:order,error:null};}};
+    async rpc(fn:string,args:any){calls.push({fn,args});return {data:fn==='paid_full_capacity_policy'?companyPolicy:order,error:null};}};
   const fetcher=(async(url:any,init?:RequestInit)=>{requests.push({url:String(url),init});
     if(String(url).endsWith('/account'))return Response.json({id:'acct_fixture',charges_enabled:true});
     return Response.json({id:'cs_order',url:'https://checkout.stripe.com/fixture'});}) as typeof fetch;
   const input={db,env,fetcher,ready:async()=>{},userId:'user',workspaceId:'workspace',projectId:'project',orderId:order.id,
     consent:{confirmed:true,contract_hash:order.contract_hash}};
-  return {env,scope,quotes,contract,order,items,runs,db,calls,requests,input};
+  return {env,scope,quotes,contract,order,items,runs,db,calls,requests,input,companyPolicy};
 }
 test('batch charges one fixed fee and allocates exact cents deterministically without duplicated files',()=>{
   const f=fixture(),p=f.contract.pricing;
@@ -116,4 +117,68 @@ test('dispute delivered before paid confirmation resolves authenticated Charge a
   const unavailable=fixture();paidEvent(unavailable);
   await assert.rejects(reconcileReadingOrder(unavailable.db,event,start,{env:f.env,fetcher:async()=>Response.json({}, {status:503})}),/does not match/);
   assert.equal(unavailable.calls.length,0);
+});
+
+test('multiprovider batch binds all operations through child hashes, charges one fee and keeps GET passive',async()=>{
+  const f=fixture({...multiproviderEnv(),TAKEOFF_V2_CALL_RESERVATION_USD:'0.01'});
+  assert.equal(f.contract.version,'paid-full-order-v1');
+  assert.ok(f.quotes.every(q=>q.full_contract.version==='paid-full-v2'));
+  assert.equal(f.contract.pricing.amountCents,projectChargeCents(f.quotes.reduce((sum,q)=>sum+q.cost_cents,0),30,290,'standard'));
+  assert.ok(f.contract.pricing.amountCents<f.quotes.reduce((sum,q)=>sum+q.amount_cents,0));
+  const publicOrder=await savedReadingOrder(f.db,'user','workspace','project','order');
+  assert.deepEqual(f.calls,[]);assert.deepEqual(f.requests,[]);
+  assert.equal(publicOrder?.items[1]?.full_summary.maximumCalls,32);
+  assert.equal(publicOrder?.items[0]?.full_summary.providers.length,5);
+  assert.equal(JSON.stringify(publicOrder).includes('reservationUsd'),false);
+  await openReadingOrderCheckout(f.input);
+  assert.deepEqual(f.calls.map(c=>c.fn),['paid_full_capacity_policy','accept_full_reading_order','save_full_reading_order_session']);
+  assert.equal(f.requests.length,2);
+  assert.equal((f.requests[1]!.init!.body as URLSearchParams).get('line_items[0][price_data][unit_amount]'),String(f.order.amount_cents));
+});
+
+test('a v2 batch cannot mix policies, alter a child price, or outgrow the current company cap',async()=>{
+  for(const change of [(q:any)=>{q.full_contract.policyId='changed';q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.full_contract.version='paid-full-v1';q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.full_contract.pricing.callReservationUsd=3;q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.full_contract.pricing.overheadBaseCents=300;q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.full_contract.pricing.overheadPageCents=25;q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.full_contract.pricing.overheadBasePolicy='file';q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{delete q.full_contract.pricing.overheadBasePolicy;q.full_contract_hash=hashPaidFullContract(q.full_contract);},
+    (q:any)=>{q.cost_cents++;}]){
+    const f=fixture(multiproviderEnv());change(f.quotes[0]);
+    assert.throws(()=>buildReadingOrderContract(f.quotes,f.scope),/policy/);
+    await assert.rejects(openReadingOrderCheckout(f.input));assert.deepEqual(f.calls,[]);assert.deepEqual(f.requests,[]);
+  }
+  const f=fixture(multiproviderEnv());f.companyPolicy.spend_cap_usd=20;
+  await assert.rejects(openReadingOrderCheckout(f.input),/individual processing/);
+  assert.deepEqual(f.calls.map(c=>c.fn),['paid_full_capacity_policy']);assert.deepEqual(f.requests,[]);
+});
+
+test('two v2 PDFs apply one frozen purchase base and one payment fee with exact child allocations',async()=>{
+  const f=fixture({...multiproviderEnv(),PAID_FULL_OVERHEAD_BASE_CENTS:'300',PAID_FULL_OVERHEAD_PAGE_CENTS:'25'});
+  const originalCost=f.quotes.reduce((sum,q)=>sum+q.cost_cents,0);
+  const providerCost=f.quotes.reduce((sum,q)=>sum+Math.ceil(q.full_contract.pricing.providerCostUpperBoundUsd*100),0);
+  assert.equal(f.contract.pricing.costCents,providerCost+300+3*25);
+  assert.equal(f.contract.pricing.costCents,originalCost-300);
+  assert.equal(f.contract.pricing.overheadBaseCents,300);
+  assert.equal(f.contract.pricing.overheadPageCents,25);
+  assert.equal(f.contract.pricing.overheadBasePolicy,'purchase');
+  assert.equal(f.contract.pricing.amountCents,projectChargeCents(providerCost+300+75,30,290,'standard'));
+  assert.equal(f.contract.items.reduce((sum,item)=>sum+item.amount_cents,0),f.contract.pricing.amountCents);
+  assert.ok(f.contract.items.every(item=>item.amount_cents>0));
+  assert.deepEqual(buildReadingOrderContract([...f.quotes].reverse(),f.scope),f.contract);
+  assert.equal(buildReadingOrderContract([f.quotes[0]],f.scope).pricing.costCents,f.quotes[0]!.cost_cents);
+  await openReadingOrderCheckout(f.input);
+  assert.equal((f.requests[1]!.init!.body as URLSearchParams).get('line_items[0][price_data][unit_amount]'),String(f.contract.pricing.amountCents));
+  const legacy=fixture({...pricingEnv(),PAID_FULL_OVERHEAD_BASE_CENTS:'300',PAID_FULL_OVERHEAD_PAGE_CENTS:'25'});
+  assert.equal(legacy.contract.pricing.costCents,legacy.quotes.reduce((sum,q)=>sum+q.cost_cents,0));
+  assert.equal(Object.hasOwn(legacy.contract.pricing,'overheadBasePolicy'),false);
+});
+
+test('v2 webhook fanout follows saved order even when the database returns reversed children',async()=>{
+  const f=fixture(multiproviderEnv()),event=paidEvent(f),started:string[]=[];
+  f.quotes.reverse();await reconcileReadingOrder(f.db,event,async quoteId=>{started.push(quoteId);});
+  assert.deepEqual(started,f.contract.items.map(item=>item.quote_id));
+  assert.deepEqual(f.calls.map(c=>c.fn),['confirm_full_reading_order_payment']);
+  assert.deepEqual(f.requests,[]);
 });
