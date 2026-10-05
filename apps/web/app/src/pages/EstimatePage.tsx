@@ -20,7 +20,6 @@ import {
   formatCurrency,
   formatPercentage,
 } from "../utils/calculations";
-import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 
 interface EstimatePageProps {
@@ -29,6 +28,7 @@ interface EstimatePageProps {
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onSelectStep: (step: ProjectStep) => void;
+  onStepLockChange?: (locked: boolean) => void;
   onOpenAIAssistant: () => void;
 }
 
@@ -38,6 +38,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   onUpdateProject,
   onContinue,
   onSelectStep,
+  onStepLockChange,
   onOpenAIAssistant,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -66,6 +67,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   const [markupInput, setMarkupInput] = useState<number>(project.markupPercentage);
 
   useEffect(() => { if (!canWrite) { setEditingItemId(null); setIsAddingLine(false); setShowRateModal(false); } }, [canWrite]);
+  useEffect(() => {
+    onStepLockChange?.(editingItemId !== null || isAddingLine);
+    return () => onStepLockChange?.(false);
+  }, [editingItemId, isAddingLine, onStepLockChange]);
+
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
   const unpricedItems = project.estimateItems.filter((item) => hasUnverifiedAiPrice(item) || item.pricingStatus === 'missing_price' || calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
@@ -225,9 +231,6 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Stepper timeline */}
-      <Stepper currentStep="estimate" onSelectStep={(step) => { if (editingItemId || isAddingLine) { setError("Save or cancel your open item before changing steps."); return; } onSelectStep(step); }} />
 
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
         Costs below are <strong>totals for the entire line in USD</strong>, not prices per unit.

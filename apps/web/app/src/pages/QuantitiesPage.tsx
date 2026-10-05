@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { Project, QuantityItem, UnitType } from "../types";
 import { createUnpricedEstimateItem, updateTakeoffQuantity, validateEstimateInput } from "../utils/manualEstimate";
-import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 
 interface QuantitiesPageProps {
@@ -20,6 +19,7 @@ interface QuantitiesPageProps {
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onSelectStep: (step: ProjectStep) => void;
+  onStepLockChange?: (locked: boolean) => void;
   onOpenAIAssistant: () => void;
 }
 
@@ -29,6 +29,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
   onUpdateProject,
   onContinue,
   onSelectStep,
+  onStepLockChange,
   onOpenAIAssistant,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -43,6 +44,11 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
   const [error, setError] = useState<string>("");
 
   useEffect(() => { if (!canWrite) { setEditingId(null); setIsAddingNew(false); } }, [canWrite]);
+  useEffect(() => {
+    onStepLockChange?.(editingId !== null || isAddingNew);
+    return () => onStepLockChange?.(false);
+  }, [editingId, isAddingNew, onStepLockChange]);
+
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
 
@@ -144,9 +150,6 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
           <span>Scope Help</span>
         </button>
       </div>
-
-      {/* Stepper timeline */}
-      <Stepper currentStep="quantities" onSelectStep={(step) => { if (editingId || isAddingNew) { setError("Save or cancel your open item before changing steps."); return; } onSelectStep(step); }} />
 
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
         New items start with no costs. Quantity edits update linked estimate costs proportionally.

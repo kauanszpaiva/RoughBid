@@ -13,7 +13,6 @@ import {
   formatCurrency,
   formatPercentage,
 } from "../utils/calculations";
-import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 import { projectReadiness } from "../utils/projectReadiness";
 
@@ -90,9 +89,6 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
           <span>Audit Consistency</span>
         </button>
       </div>
-
-      {/* Stepper timeline */}
-      <Stepper currentStep="review" onSelectStep={onSelectStep} />
 
       {/* Top 4 Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
