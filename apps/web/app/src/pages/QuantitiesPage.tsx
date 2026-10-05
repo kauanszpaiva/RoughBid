@@ -19,6 +19,7 @@ interface QuantitiesPageProps {
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onSelectStep: (step: ProjectStep) => void;
+  onStepLockChange?: (locked: boolean) => void;
   onOpenAIAssistant: () => void;
 }
 
@@ -28,6 +29,7 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
   onUpdateProject,
   onContinue,
   onSelectStep,
+  onStepLockChange,
   onOpenAIAssistant,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -42,6 +44,11 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
   const [error, setError] = useState<string>("");
 
   useEffect(() => { if (!canWrite) { setEditingId(null); setIsAddingNew(false); } }, [canWrite]);
+  useEffect(() => {
+    onStepLockChange?.(editingId !== null || isAddingNew);
+    return () => onStepLockChange?.(false);
+  }, [editingId, isAddingNew, onStepLockChange]);
+
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
 
