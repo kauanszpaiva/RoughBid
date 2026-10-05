@@ -532,11 +532,6 @@ export default function App() {
     setActiveStep(step);
   };
 
-  const handleCreateEstimate = () => {
-    if (!activeProject) return;
-    handleSelectProjectStep("estimate");
-  };
-
   useEffect(() => {
     if (!projectStepLocked) setStepNavigationNotice(null);
   }, [projectStepLocked]);
@@ -605,7 +600,6 @@ export default function App() {
           onSelectStep={handleSelectProjectStep}
           onBackToProjects={handleBackToProjects}
           onExportPDF={handleExportPDF}
-          onCreateEstimate={handleCreateEstimate}
           onOpenNewProject={() => { if (canWriteRef.current) setShowNewProjectModal(true); }}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           user={user}
