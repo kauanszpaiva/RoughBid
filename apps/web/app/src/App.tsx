@@ -575,6 +575,7 @@ export default function App() {
         onCloseMobile={() => setIsMobileMenuOpen(false)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapsed={handleToggleSidebar}
+        projectFocusMode={activeTab === "projects" && activeProject !== null}
       />
 
       {/* Main Content Area */}
