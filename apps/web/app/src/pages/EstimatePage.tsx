@@ -20,7 +20,6 @@ import {
   formatCurrency,
   formatPercentage,
 } from "../utils/calculations";
-import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 
 interface EstimatePageProps {
@@ -225,9 +224,6 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Stepper timeline */}
-      <Stepper currentStep="estimate" onSelectStep={(step) => { if (editingItemId || isAddingLine) { setError("Save or cancel your open item before changing steps."); return; } onSelectStep(step); }} />
 
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
         Costs below are <strong>totals for the entire line in USD</strong>, not prices per unit.
