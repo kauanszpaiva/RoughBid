@@ -70,6 +70,8 @@ export interface AiPlanRequestDependencies {
   freeReader?: PlanReader | undefined;
   /** Whether the paid provider is actually configured on this server. */
   paidReaderAvailable?: boolean | undefined;
+  /** Bounded administrator-only reader, independent of customer checkout and Full workers. */
+  platformAdminReader?: PlanReader;
   /** Production always resolves cohort membership before selecting any reader. */
   pilotEnforcement?: boolean;
   pilotReader?: PlanReader;
@@ -130,8 +132,8 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       const body = await request.json().catch(() => ({})) as Record<string, unknown>;
       if (Object.prototype.hasOwnProperty.call(body, 'page_number') && body.mode !== FULL_TAKEOFF_V2_MODE) {
         if (!await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) throw new ProjectApiError(403, 'Page-by-page review is not enabled for this account.');
-        if (deps.paidReaderAvailable !== true) throw new ProjectApiError(503, 'The page-reading provider is unavailable. No job was started.');
-        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.reader, data.user.id, workspaceId, undefined, undefined, true, undefined, deps.pageImagesEnabled === true);
+        if (!deps.platformAdminReader && deps.paidReaderAvailable !== true) throw new ProjectApiError(503, 'The page-reading provider is unavailable. No job was started.');
+        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.platformAdminReader ?? deps.reader, data.user.id, workspaceId, undefined, undefined, true, undefined, deps.pageImagesEnabled === true);
         return json(await owner.create(parts[1], body), 201);
       }
       if (body.mode === FULL_TAKEOFF_V2_MODE) {
@@ -149,6 +151,11 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
       // and internal callers that omit it preserve the legacy service contract.
       // Platform-owner identity is verified exactly once here and then injected
       // into the service; the service never trusts browser-provided metadata.
+      if (deps.platformAdminReader && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
+        const owner = new AiPlanReadingService(db, deps.findingsWriter, deps.storage, deps.platformAdminReader,
+          data.user.id, workspaceId, undefined, undefined, true);
+        return json(await owner.create(parts[1], body), 201);
+      }
       if (deps.paidReaderAvailable !== undefined) {
         const platformAdmin = await isPlatformAdmin(db, data.user.id);
         if (platformAdmin) {
@@ -222,14 +229,14 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
             }
           } catch { /* Retain the last verified reason; capability stays closed. */ }
         }
-        return json({ freeReadingAvailable: deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval, ...(fullTakeoffUnavailableReason ? { fullTakeoffUnavailableReason } : {}), ...purchaseCapability });
+        return json({ freeReadingAvailable: Boolean(deps.platformAdminReader) || deps.paidReaderAvailable === true, fullTakeoffV2Available, fullTakeoffApproval, ...(fullTakeoffUnavailableReason ? { fullTakeoffUnavailableReason } : {}), ...purchaseCapability });
       }
       // Platform-admin complimentary access deliberately uses the paid provider,
       // but still requires the caller to be an admin/estimator in this workspace,
       // the project to belong to it, and AI consent to already exist. Only the
       // production wiring that explicitly confirms a paid reader triggers this
       // lookup, so legacy/free-provider callers remain independent.
-      if (deps.paidReaderAvailable === true && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
+      if ((deps.platformAdminReader || deps.paidReaderAvailable === true) && await hasPlatformAdminProjectAccess(db, data.user.id, workspaceId, parts[1])) {
         return json({ freeReadingAvailable: true, ...purchaseCapability });
       }
 

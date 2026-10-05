@@ -19,7 +19,7 @@ import { createDurableAiPlanQueue, type DurableAiPlanQueue } from '../ai-plan/du
 import { createFullTakeoffV2Queue, type FullTakeoffV2Queue } from '../takeoff-v2/durable.ts';
 import { handleClientProposalRequest } from '../proposals/routes.ts';
 import { createGeminiClient, GeminiPlanReader } from '../ai-plan/gemini.ts';
-import { PLAN_READING_UNAVAILABLE } from '../ai-plan/readiness.ts';
+import { PLAN_READING_UNAVAILABLE, requirePlatformAdminPlanReadingConfig } from '../ai-plan/readiness.ts';
 import { MultiProviderPlanReader } from '../ai-plan/multi-provider.ts';
 import { buildConfiguredPlanReaders } from '../ai-plan/readers.ts';
 import { runtimeCapabilities } from './capabilities.ts';
@@ -303,6 +303,11 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       // One paid provider set, built by the same module the durable worker uses,
       // so a provider cannot exist on one path and silently be missing on the other.
       const { ordered: readers, configured: configuredReaders } = await buildConfiguredPlanReaders(process.env);
+      let platformAdminReader: AiPlanRequestDependencies['platformAdminReader'];
+      try {
+        const config = requirePlatformAdminPlanReadingConfig(process.env);
+        platformAdminReader = new GeminiPlanReader(await createGeminiClient(config.apiKey), [config.model]);
+      } catch { /* Administrator processing stays closed until explicitly enabled. */ }
       let pilotReader: PilotPlanReader | undefined;
       try {
         const config = requirePilotReaderConfig(process.env);
@@ -323,7 +328,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
       const isCreateReading = request.method === 'POST' && /^\/api\/projects\/[^/]+\/ai-plan-readings$/.test(pathname);
       const fullV2Request = isCreateReading && (await request.clone().json().catch(() => ({})))?.mode === 'full_v2';
-      if (!readers.length && !freeReader && !pilotReader && isCreateReading && !fullV2Request) {
+      if (!readers.length && !platformAdminReader && !freeReader && !pilotReader && isCreateReading && !fullV2Request) {
         return json({ error: PLAN_READING_UNAVAILABLE }, 503);
       }
       if (isCreateReading && process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
@@ -365,6 +370,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         reader,
         freeReader,
         paidReaderAvailable: readers.length > 0,
+        ...(platformAdminReader ? { platformAdminReader } : {}),
         // Only the image-native providers consume `pageImages`. Gemini reads the
         // PDF directly, so loading images for it would be wasted bandwidth.
         pageImagesEnabled: configuredReaders.has('kimi') || configuredReaders.has('deepseek'),

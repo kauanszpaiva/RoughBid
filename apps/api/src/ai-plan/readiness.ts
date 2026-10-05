@@ -2,6 +2,15 @@ import { ProjectApiError } from '../projects/service.ts';
 
 export const PLAN_READING_UNAVAILABLE = 'AI plan reading is currently unavailable. You can continue with manual quantities and export your proposal.';
 
+/** Owner testing never enables checkout or the customer provider set. */
+export function requirePlatformAdminPlanReadingConfig(env: Record<string, string | undefined>) {
+  const apiKey = env.GEMINI_API_KEY?.trim();
+  const model = env.PLATFORM_ADMIN_GEMINI_MODEL?.trim();
+  if (env.PLATFORM_ADMIN_PLAN_READINGS_ENABLED !== 'true' || !isConfiguredValue(apiKey)
+    || model !== 'gemini-3.8-flash') throw new ProjectApiError(503, PLAN_READING_UNAVAILABLE);
+  return { apiKey, model };
+}
+
 /** Deployment previews can contain masked values; those are never credentials. */
 export function isConfiguredValue(value: string | undefined): value is string {
   if (!value?.trim()) return false;
