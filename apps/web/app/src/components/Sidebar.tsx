@@ -57,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   projectFocusMode = false,
 }) => {
   const ownerAvatar = ownerProfileImage(user.email);
+  const desktopCollapsed = projectFocusMode || isCollapsed;
   const mainNavItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     {
       id: "dashboard",
@@ -104,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const renderNavContent = (isDrawer = false) => {
-    const collapsed = !isDrawer && (projectFocusMode || isCollapsed);
+    const collapsed = !isDrawer && desktopCollapsed;
     return (
     <>
       {/* Top Logo Section */}
@@ -152,17 +153,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 onClick={() => handleItemClick(item.id)}
                 title={collapsed ? item.label : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 aria-current={isActive ? "page" : undefined}
-                className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
+                className={`group relative flex items-center ${collapsed ? "mx-auto h-10 w-10 justify-center px-0" : "w-full gap-3 px-3 py-2.5"} text-sm transition text-left cursor-pointer rounded-lg ${
                   isActive
                     ? "bg-brand-50 text-brand-700 font-semibold"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 }`}
               >
+                {collapsed && isActive && <span aria-hidden="true" className="absolute -left-2 h-5 w-0.5 rounded-r-full bg-brand-500" />}
                 <span className={isActive ? "text-brand-600" : "text-slate-400"}>
                   {item.icon}
                 </span>
                 {!collapsed && <span>{item.label}</span>}
+                {collapsed && (
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-full z-50 ml-3 hidden whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus-visible:block"
+                  >
+                    {item.label}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -173,29 +184,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => handleItemClick("settings")}
             title={collapsed ? "Settings" : undefined}
+            aria-label={collapsed ? "Settings" : undefined}
             aria-current={currentTab === "settings" ? "page" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
+            className={`group relative flex items-center ${collapsed ? "mx-auto h-10 w-10 justify-center px-0" : "w-full gap-3 px-3 py-2.5"} text-sm transition text-left cursor-pointer rounded-lg ${
               currentTab === "settings"
                 ? "bg-brand-50 text-brand-700 font-semibold"
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
+            {collapsed && currentTab === "settings" && <span aria-hidden="true" className="absolute -left-2 h-5 w-0.5 rounded-r-full bg-brand-500" />}
             <Settings className={`w-4 h-4 ${currentTab === "settings" ? "text-brand-600" : "text-slate-400"}`} />
             {!collapsed && <span>Settings</span>}
+            {collapsed && <span role="tooltip" className="pointer-events-none absolute left-full z-50 ml-3 hidden whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus-visible:block">Settings</span>}
           </button>
 
           <button
             onClick={() => handleItemClick("help")}
             title={collapsed ? "Help & Docs" : undefined}
+            aria-label={collapsed ? "Help & Docs" : undefined}
             aria-current={currentTab === "help" ? "page" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 text-sm transition text-left cursor-pointer rounded-lg ${
+            className={`group relative flex items-center ${collapsed ? "mx-auto h-10 w-10 justify-center px-0" : "w-full gap-3 px-3 py-2.5"} text-sm transition text-left cursor-pointer rounded-lg ${
               currentTab === "help"
                 ? "bg-brand-50 text-brand-700 font-semibold"
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
+            {collapsed && currentTab === "help" && <span aria-hidden="true" className="absolute -left-2 h-5 w-0.5 rounded-r-full bg-brand-500" />}
             <HelpCircle className={`w-4 h-4 ${currentTab === "help" ? "text-brand-600" : "text-slate-400"}`} />
             {!collapsed && <span>Help & Docs</span>}
+            {collapsed && <span role="tooltip" className="pointer-events-none absolute left-full z-50 ml-3 hidden whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus-visible:block">Help & Docs</span>}
           </button>
         </nav>
       </div>
@@ -213,13 +230,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
           </button>
         )}
-        <div
+        <button
+          type="button"
           onClick={() => {
             onOpenAuth();
             if (onCloseMobile) onCloseMobile();
           }}
-          className={`border border-slate-200 bg-slate-50 hover:bg-slate-100 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition`}
+          className={`group relative w-full border border-slate-200 bg-slate-50 hover:bg-slate-100 ${collapsed ? "p-2 justify-center" : "p-3 gap-3"} rounded-lg flex items-center cursor-pointer transition text-left`}
           title={collapsed ? "Account" : undefined}
+          aria-label={collapsed ? "Account" : undefined}
         >
           <div className={`${isSignedIn ? "bg-brand-50 text-brand-700" : "bg-slate-200 text-slate-600"} w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center shrink-0`}>
             {isSignedIn
@@ -238,7 +257,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>{isSignedIn ? user.plan : "Create account"}</span>
             </p>
           </div>}
-        </div>
+          {collapsed && <span role="tooltip" className="pointer-events-none absolute left-full z-50 ml-3 hidden whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus-visible:block">Account</span>}
+        </button>
       </div>
     </>
   );
@@ -247,7 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop Sidebar (hidden on mobile) */}
-      <aside className={`hidden md:flex ${isCollapsed ? "w-16" : "w-64"} bg-white border-r border-slate-200 flex-col justify-between h-screen select-none shrink-0 transition-[width] duration-200`}>
+      <aside className={`hidden md:flex ${desktopCollapsed ? "w-16" : "w-64"} bg-white border-r border-slate-200 flex-col justify-between h-screen select-none shrink-0 transition-[width] duration-200`}>
         {renderNavContent(false)}
       </aside>
 
