@@ -84,6 +84,8 @@ export default function App() {
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
   const [saveStates, setSaveStates] = useState<Record<string, { state: SaveState; message?: string }>>({});
   const [operationNotice, setOperationNotice] = useState<string | null>(null);
+  const [projectStepLocked, setProjectStepLocked] = useState(false);
+  const [stepNavigationNotice, setStepNavigationNotice] = useState<string | null>(null);
   const [localCacheWarning, setLocalCacheWarning] = useState(false);
   const [operationCount, setOperationCount] = useState(0);
   const projectsRef = useRef<Project[]>([]);
@@ -520,10 +522,24 @@ export default function App() {
     exportClientProposalPDF(activeProject);
   };
 
+  const handleSelectProjectStep = (step: ProjectStep) => {
+    if (step === activeStep) return;
+    if (projectStepLocked) {
+      setStepNavigationNotice("Save or cancel your open item before changing project steps.");
+      return;
+    }
+    setStepNavigationNotice(null);
+    setActiveStep(step);
+  };
+
   const handleCreateEstimate = () => {
     if (!activeProject) return;
-    setActiveStep("estimate");
+    handleSelectProjectStep("estimate");
   };
+
+  useEffect(() => {
+    if (!projectStepLocked) setStepNavigationNotice(null);
+  }, [projectStepLocked]);
 
   if (isAuthConfigured && sessionLoading) {
     return (
@@ -586,7 +602,7 @@ export default function App() {
           pageTitle={{ dashboard: "Dashboard", projects: "Projects", materials: "Materials", assemblies: "Assemblies", pricelists: "Price Lists", billing: "Billing", access: "Access invitations", templates: "Templates", settings: "Settings", help: "Help" }[activeTab]}
           project={activeTab === "projects" ? activeProject : null}
           activeStep={activeStep}
-          onSelectStep={(step) => setActiveStep(step)}
+          onSelectStep={handleSelectProjectStep}
           onBackToProjects={handleBackToProjects}
           onExportPDF={handleExportPDF}
           onCreateEstimate={handleCreateEstimate}
@@ -606,6 +622,7 @@ export default function App() {
           </span>
           {saveErrors.length > 0 && <button className="font-semibold text-brand-700 underline" onClick={() => saveErrors.forEach(([id]) => saveQueueRef.current?.retry(id))}>Retry saving</button>}
           {operationNotice && <span role="status" className="text-slate-700">{operationNotice}</span>}
+          {stepNavigationNotice && <span role="alert" className="font-semibold text-amber-800">{stepNavigationNotice}</span>}
           {localCacheWarning && <span className="text-amber-800" role="alert">Browser backup is unavailable. Keep this tab open until changes are saved.</span>}
         </div>
         {saveErrors.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 sm:px-6 py-2 text-xs text-amber-900" role="alert">{saveErrors[0]?.[1].message ?? "Changes remain in this browser. Retry saving before leaving."}</div>}
@@ -675,7 +692,8 @@ export default function App() {
                       project={activeProject}
                       onUpdateProject={handleUpdateProject}
                       onContinue={() => setActiveStep("estimate")}
-                      onSelectStep={(step) => setActiveStep(step)}
+                      onSelectStep={handleSelectProjectStep}
+                      onStepLockChange={setProjectStepLocked}
                       onOpenAIAssistant={() => setShowAIModal(true)}
                     />
                   )}
@@ -686,7 +704,8 @@ export default function App() {
                       project={activeProject}
                       onUpdateProject={handleUpdateProject}
                       onContinue={() => setActiveStep("review")}
-                      onSelectStep={(step) => setActiveStep(step)}
+                      onSelectStep={handleSelectProjectStep}
+                      onStepLockChange={setProjectStepLocked}
                       onOpenAIAssistant={() => setShowAIModal(true)}
                     />
                   )}
@@ -696,7 +715,7 @@ export default function App() {
                       project={activeProject}
                       onContinue={() => setActiveStep("export")}
                       onBack={() => setActiveStep("estimate")}
-                      onSelectStep={(step) => setActiveStep(step)}
+                      onSelectStep={handleSelectProjectStep}
                       onOpenAIAssistant={() => setShowAIModal(true)}
                     />
                   )}
@@ -707,7 +726,7 @@ export default function App() {
                       project={activeProject}
                       isProjectSaved={!saveQueueRef.current?.getPending().some((project) => project.id === activeProject.id)}
                       workspaceId={workspace?.id ?? null}
-                      onSelectStep={(step) => setActiveStep(step)}
+                      onSelectStep={handleSelectProjectStep}
                     />
                   )}
                 </>
