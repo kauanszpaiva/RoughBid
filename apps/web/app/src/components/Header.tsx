@@ -39,13 +39,18 @@ export const Header: React.FC<HeaderProps> = ({
   pageTitle = "Projects",
   showNewProjectAction = true,
 }) => {
-  const steps: { id: ProjectStep; label: string }[] = [
-    { id: "plans", label: "Plans" },
-    { id: "quantities", label: "Quantities" },
-    { id: "estimate", label: "Estimate" },
-    { id: "review", label: "Review" },
-    { id: "export", label: "Export" },
+  const steps: { id: ProjectStep; label: string; helper: string }[] = [
+    { id: "plans", label: "Plans", helper: "Upload plans and choose what work you want priced." },
+    { id: "quantities", label: "Quantities", helper: "Confirm measured areas, lengths, counts, and takeoff items." },
+    { id: "estimate", label: "Estimate", helper: "Add verified material, labor, and equipment costs." },
+    { id: "review", label: "Review", helper: "Check scope, pricing, and readiness before client delivery." },
+    { id: "export", label: "Export", helper: "Create the client proposal or internal estimate package." },
   ];
+  const currentStepIndex = steps.findIndex((step) => step.id === activeStep);
+  const currentStepMeta = steps[Math.max(0, currentStepIndex)]!;
+  const nextStepMeta = currentStepIndex >= 0 && currentStepIndex < steps.length - 1
+    ? steps[currentStepIndex + 1]
+    : null;
 
   const userInitials = user?.name
     ? user.name
@@ -106,28 +111,6 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Center (Desktop only): Pill Stepper navigation if project is active */}
-        {project && (
-          <div className="hidden md:flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
-            {steps.map((step) => {
-              const isActive = activeStep === step.id;
-              return (
-                <button
-                  key={step.id}
-                  onClick={() => onSelectStep(step.id)}
-                  aria-current={isActive ? "step" : undefined}
-                  className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                    isActive
-                      ? "bg-white text-brand-700 shadow-sm"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  {step.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         {/* Right: Actions & User Avatar */}
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
@@ -142,13 +125,15 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Export PDF</span>
               </button>
 
-              <button
-                onClick={onCreateEstimate}
-                disabled={!canWrite}
-                className="hidden md:flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-              >
-                <span>Create Estimate</span>
-              </button>
+              {nextStepMeta && (
+                <button
+                  onClick={() => onSelectStep(nextStepMeta.id)}
+                  disabled={!canWrite}
+                  className="hidden md:flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                >
+                  <span>Next: {nextStepMeta.label}</span>
+                </button>
+              )}
 
               {/* Mobile quick export icon button */}
               <button
@@ -192,45 +177,74 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      {/* Mobile Project Horizontal Stepper Bar */}
       {project && (
-        <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1.5 min-w-max">
-            {steps.map((step, idx) => {
-              const isActive = activeStep === step.id;
-              const stepIdx = steps.findIndex((s) => s.id === step.id);
-              const currentIdx = steps.findIndex((s) => s.id === activeStep);
-              const isPast = stepIdx < currentIdx;
-
-              return (
+        <section className="border-b border-slate-200 bg-slate-50 px-3 py-3 sm:px-4 md:px-6 xl:px-8" aria-label="Project workflow">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Project workflow · Step {currentStepIndex + 1} of {steps.length}
+                </p>
+                <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <strong className="text-sm text-slate-900">{currentStepMeta.label}</strong>
+                  <span className="text-xs text-slate-500">{currentStepMeta.helper}</span>
+                </div>
+              </div>
+              {nextStepMeta && (
                 <button
-                  key={step.id}
-                  onClick={() => onSelectStep(step.id)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                    isActive
-                      ? "bg-brand-500 text-white font-semibold shadow-xs"
-                      : isPast
-                      ? "bg-white text-slate-600 border border-slate-200"
-                      : "bg-white text-slate-500 border border-slate-200"
-                  }`}
+                  type="button"
+                  onClick={() => onSelectStep(nextStepMeta.id)}
+                  disabled={!canWrite}
+                  className="hidden shrink-0 rounded-lg bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 sm:inline-flex"
                 >
-                  <span
-                    className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                      isActive
-                        ? "bg-white/20 text-white"
-                        : isPast
-                        ? "bg-brand-50 text-brand-500"
-                        : "bg-slate-100 text-slate-400"
-                    }`}
-                  >
-                    {idx + 1}
-                  </span>
-                  <span>{step.label}</span>
+                  Continue to {nextStepMeta.label}
                 </button>
-              );
-            })}
+              )}
+            </div>
+
+            <div className="overflow-x-auto no-scrollbar">
+              <div className="flex min-w-max items-center gap-1.5">
+                {steps.map((step, idx) => {
+                  const isActive = activeStep === step.id;
+                  const isPast = idx < currentStepIndex;
+                  return (
+                    <button
+                      key={step.id}
+                      type="button"
+                      onClick={() => onSelectStep(step.id)}
+                      aria-current={isActive ? "step" : undefined}
+                      className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        isActive
+                          ? "border-brand-500 bg-brand-500 text-white"
+                          : isPast
+                          ? "border-brand-200 bg-white text-brand-700"
+                          : "border-slate-200 bg-white text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${
+                        isActive ? "bg-white/20 text-white" : isPast ? "bg-brand-50 text-brand-600" : "bg-slate-100 text-slate-400"
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      {step.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {nextStepMeta && (
+              <button
+                type="button"
+                onClick={() => onSelectStep(nextStepMeta.id)}
+                disabled={!canWrite}
+                className="w-full rounded-lg bg-brand-500 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 sm:hidden"
+              >
+                Continue to {nextStepMeta.label}
+              </button>
+            )}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
