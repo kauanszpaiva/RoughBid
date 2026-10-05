@@ -28,6 +28,7 @@ interface EstimatePageProps {
   onUpdateProject: (updated: Project) => void;
   onContinue: () => void;
   onSelectStep: (step: ProjectStep) => void;
+  onStepLockChange?: (locked: boolean) => void;
   onOpenAIAssistant: () => void;
 }
 
@@ -37,6 +38,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   onUpdateProject,
   onContinue,
   onSelectStep,
+  onStepLockChange,
   onOpenAIAssistant,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -65,6 +67,11 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   const [markupInput, setMarkupInput] = useState<number>(project.markupPercentage);
 
   useEffect(() => { if (!canWrite) { setEditingItemId(null); setIsAddingLine(false); setShowRateModal(false); } }, [canWrite]);
+  useEffect(() => {
+    onStepLockChange?.(editingItemId !== null || isAddingLine);
+    return () => onStepLockChange?.(false);
+  }, [editingItemId, isAddingLine, onStepLockChange]);
+
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
   const unpricedItems = project.estimateItems.filter((item) => hasUnverifiedAiPrice(item) || item.pricingStatus === 'missing_price' || calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
