@@ -15,7 +15,6 @@ import { Project } from "../types";
 import { calculateProjectFinancials, formatCurrency } from "../utils/calculations";
 import { exportInternalEstimatePDF, exportClientProposalPDF } from "../utils/pdfExport";
 import { exportProjectCSV, exportRoughBidJSON } from "../utils/csvExport";
-import { Stepper } from "../components/Stepper";
 import { ProjectStep } from "../components/Header";
 import { ProposalModal } from "../components/ProposalModal";
 import { createClientProposal, type ClientProposalPayload } from "../services/api";
@@ -135,9 +134,6 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           </strong>
         </div>
       </div>
-
-      {/* Stepper timeline */}
-      <Stepper currentStep="export" onSelectStep={onSelectStep} />
 
       {!canExport && (
         <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs flex items-start gap-2.5">
