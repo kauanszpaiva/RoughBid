@@ -772,6 +772,22 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         </div>
         <p className="text-xs text-slate-500">Missing measurements and source prices stay pending. Review the saved evidence below.</p>
       </section>
+      <details
+        open={Boolean(needsAiConsent || readingQuote || uploadFailure) || undefined}
+        className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+      >
+        <summary className="cursor-pointer list-none">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Project files, payments & advanced tools</p>
+              <p className="mt-1 text-xs text-slate-500">Revisions, processing details, plan viewer, purchasing controls, photos, and construction budget.</p>
+            </div>
+            <span className="mt-2 self-start rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:mt-0">
+              Optional details
+            </span>
+          </div>
+        </summary>
+        <div className="mt-5 space-y-6">
       <PlanFilesPanel workspaceId={workspaceId} projectId={project.remoteId} revisions={project.revisions} selectedId={currentRevision?.id}
         selectedOrder={selectedOrder}
         selectedFileIds={selectedFileIds} onToggle={(fileId, selected) => { setReturnOrderId(null); setRecoverLatestOrder(false); setSelectedFileIds(previous => selected ? [...new Set([...previous, fileId])].slice(0, 20) : previous.filter(id => id !== fileId)); }}
@@ -1120,6 +1136,8 @@ export const PlansPage: React.FC<PlansPageProps> = ({
       <div id="project-photos"><PhotoTakeoffPanel key={`${workspaceId}:${project.remoteId}`} ref={photoPanel} uploadRequest={photoUploadRequest} onIntakeState={setPhotoIntakeState} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} /></div>
 
       {workspaceId && project.remoteId && <ConstructionBudgetPanel key={`budget:${workspaceId}:${project.remoteId}`} workspaceId={workspaceId} projectId={project.remoteId} canWrite={canWrite} />}
+        </div>
+      </details>
 
       {/* Bottom Next Step Button */}
       <div className="flex justify-end pt-4 border-t border-slate-200">
