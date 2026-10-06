@@ -51,6 +51,10 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
 
 
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
+  const invalidQuantityCount = project.quantities.filter(
+    (item) => !item.name.trim() || !Number.isFinite(item.quantity) || item.quantity <= 0
+  ).length;
+  const readyQuantityCount = project.quantities.length - invalidQuantityCount;
 
   const handleStartEdit = (item: QuantityItem) => {
     if (!canWrite) return;
@@ -150,6 +154,24 @@ export const QuantitiesPage: React.FC<QuantitiesPageProps> = ({
           <span>Scope Help</span>
         </button>
       </div>
+
+      <section aria-label="Takeoff status" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Measurements</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{project.quantities.length}</p>
+          <p className="mt-1 text-xs text-slate-500">Total takeoff items</p>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700"><Check className="h-3.5 w-3.5" />Ready</p>
+          <p className="mt-1 text-xl font-bold text-emerald-900">{readyQuantityCount}</p>
+          <p className="mt-1 text-xs text-emerald-700">Ready for pricing</p>
+        </div>
+        <div className={`rounded-xl border p-4 ${invalidQuantityCount ? "border-amber-200 bg-amber-50/70" : "border-slate-200 bg-white"}`}>
+          <p className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${invalidQuantityCount ? "text-amber-700" : "text-slate-400"}`}><AlertCircle className="h-3.5 w-3.5" />Needs review</p>
+          <p className={`mt-1 text-xl font-bold ${invalidQuantityCount ? "text-amber-900" : "text-slate-900"}`}>{invalidQuantityCount}</p>
+          <p className={`mt-1 text-xs ${invalidQuantityCount ? "text-amber-700" : "text-slate-500"}`}>{invalidQuantityCount ? "Fix name or quantity" : "No quantity issues"}</p>
+        </div>
+      </section>
 
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
         New items start with no costs. Quantity edits update linked estimate costs proportionally.
