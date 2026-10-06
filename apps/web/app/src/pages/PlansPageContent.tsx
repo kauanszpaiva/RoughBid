@@ -148,6 +148,7 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [editingFileName, setEditingFileName] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>("");
+  const intakeDisabled = !canWrite || isUploading || isStartingAi || isPaying || photoIntakeState.busy || !workspaceId || !project.remoteId;
 
   const currentRevision =
     project.revisions.find((r) => r.isCurrent) || project.revisions[project.revisions.length - 1];
@@ -701,13 +702,48 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         {statusBusy && <p className="text-xs text-blue-900">{uploading ? 'Keep this page open until the upload finishes.' : 'Saved reading progress remains available when you return. Uploading a file alone does not start AI processing.'}</p>}
       </section>
       <section aria-label="Generate an estimate" className="grid gap-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-6 lg:grid-cols-2">
-        <div className="space-y-3"><h3 className="text-sm font-semibold">1. Photos and/or PDF plans</h3>
-          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold">
-            <Upload className="mx-auto mb-2 h-6 w-6 text-brand-500" />Add files
-            <input aria-label="Add photos and PDF plans" type="file" accept={ESTIMATE_FILE_ACCEPT} multiple onChange={handleIntakeSelection} className="mt-3 block w-full text-xs" disabled={!canWrite || isUploading || isStartingAi || isPaying || photoIntakeState.busy || !workspaceId || !project.remoteId} />
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold">1. Photos and/or PDF plans</h3>
+          <label className={`group block rounded-xl border-2 border-dashed p-5 text-center transition ${
+            intakeDisabled
+              ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60"
+              : "cursor-pointer border-slate-300 bg-slate-50 hover:border-brand-300 hover:bg-brand-50/40"
+          }`}>
+            <input
+              aria-label="Choose photos and PDF plans"
+              type="file"
+              accept={ESTIMATE_FILE_ACCEPT}
+              multiple
+              onChange={handleIntakeSelection}
+              className="sr-only"
+              disabled={intakeDisabled}
+            />
+            <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100">
+              <Upload className="h-5 w-5" />
+            </span>
+            <span className="mt-3 block text-sm font-semibold text-slate-900">Choose files</span>
+            <span className="mt-1 block text-xs font-normal text-slate-500">PDF, JPEG, PNG or WebP · multiple files supported</span>
           </label>
-          <label className="block text-sm text-brand-700">Take a photo<input aria-label="Take a construction photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handleIntakeSelection} disabled={!canWrite || isUploading || isStartingAi || isPaying || photoIntakeState.busy} className="mt-1 block w-full text-xs" /></label>
-          <p className="text-xs text-slate-500">PDF, JPEG, PNG and WebP. You can combine plans and site photos.</p>
+
+          <label className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+            intakeDisabled
+              ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+              : "cursor-pointer border-slate-200 bg-white text-brand-700 hover:border-brand-200 hover:bg-brand-50"
+          }`}>
+            <input
+              aria-label="Take a construction photo"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              onChange={handleIntakeSelection}
+              disabled={intakeDisabled}
+              className="sr-only"
+            />
+            <Upload className="h-4 w-4" />
+            <span>Take a photo</span>
+          </label>
+
+          <p className="text-xs text-slate-500">Files upload immediately after selection. You can combine plans and site photos.</p>
         </div>
         <div className="space-y-4"><p className="text-xs font-semibold text-brand-600">2. Select the work</p>
           <EstimateServicePicker selected={services} disabled={!canWrite || isUploading || isStartingAi || isPaying || photoIntakeState.busy} onChange={ids => {

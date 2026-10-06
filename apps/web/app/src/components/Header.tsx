@@ -12,7 +12,6 @@ interface HeaderProps {
   onSelectStep: (step: ProjectStep) => void;
   onBackToProjects: () => void;
   onExportPDF: () => void;
-  onCreateEstimate: () => void;
   onOpenNewProject: () => void;
   onToggleMobileMenu?: () => void;
   user?: UserProfile;
@@ -30,7 +29,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectStep,
   onBackToProjects,
   onExportPDF,
-  onCreateEstimate,
   onOpenNewProject,
   onToggleMobileMenu,
   user,
@@ -51,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   const nextStepMeta = currentStepIndex >= 0 && currentStepIndex < steps.length - 1
     ? steps[currentStepIndex + 1]
     : null;
+  const showQuickExport = activeStep === "review" || activeStep === "export";
 
   const userInitials = user?.name
     ? user.name
@@ -116,33 +115,26 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
           {project ? (
             <>
-              {/* Desktop quick export & estimate buttons */}
-              <button
-                onClick={onExportPDF}
-                className="hidden sm:flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 cursor-pointer"
-              >
-                <FileDown className="w-3.5 h-3.5 text-slate-500" />
-                <span>Export PDF</span>
-              </button>
+              {showQuickExport && (
+                <>
+                  <button
+                    onClick={onExportPDF}
+                    className="hidden sm:flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 cursor-pointer"
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Export PDF</span>
+                  </button>
 
-              {nextStepMeta && (
-                <button
-                  onClick={() => onSelectStep(nextStepMeta.id)}
-                  disabled={!canWrite}
-                  className="hidden md:flex items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                >
-                  <span>Next: {nextStepMeta.label}</span>
-                </button>
+                  <button
+                    onClick={onExportPDF}
+                    className="sm:hidden rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:bg-slate-50 cursor-pointer"
+                    title="Export PDF"
+                    aria-label="Export PDF"
+                  >
+                    <FileDown className="w-4 h-4 text-slate-600" />
+                  </button>
+                </>
               )}
-
-              {/* Mobile quick export icon button */}
-              <button
-                onClick={onExportPDF}
-                className="sm:hidden rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:bg-slate-50 cursor-pointer"
-                title="Export PDF"
-              >
-                <FileDown className="w-4 h-4 text-slate-600" />
-              </button>
             </>
           ) : (
             showNewProjectAction && (
