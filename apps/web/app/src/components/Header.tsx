@@ -1,7 +1,10 @@
 import React from "react";
-import { FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
+import { AlertCircle, Check, FileDown, Plus, ChevronLeft, Menu, LogIn } from "lucide-react";
 import { Project, UserProfile } from "../types";
 import { ownerProfileImage } from "../utils/branding";
+import { projectReadiness } from "../utils/projectReadiness";
+import { hasUnverifiedAiPrice } from "../utils/aiFindingReview";
+import { calculateLineDirectCost } from "../utils/calculations";
 
 export type ProjectStep = "plans" | "quantities" | "estimate" | "review" | "export";
 
@@ -50,6 +53,46 @@ export const Header: React.FC<HeaderProps> = ({
     ? steps[currentStepIndex + 1]
     : null;
   const showQuickExport = activeStep === "review" || activeStep === "export";
+  const readiness = project ? projectReadiness(project) : null;
+  const invalidQuantityCount = project
+    ? project.quantities.filter((item) => !item.name.trim() || !Number.isFinite(item.quantity) || item.quantity <= 0).length
+    : 0;
+  const unpricedEstimateCount = project
+    ? project.estimateItems.filter((item) =>
+        hasUnverifiedAiPrice(item) ||
+        item.pricingStatus === "missing_price" ||
+        calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0
+      ).length
+    : 0;
+
+  const stepState = (step: ProjectStep): "complete" | "attention" | "pending" => {
+    if (!project || !readiness) return "pending";
+    if (step === "plans") return readiness.hasPlan ? "complete" : project.revisions.length ? "attention" : "pending";
+    if (step === "quantities") return readiness.hasQuantities ? "complete" : project.quantities.length ? "attention" : "pending";
+    if (step === "estimate") return readiness.hasEstimate ? "complete" : project.estimateItems.length ? "attention" : "pending";
+    if (step === "review") return readiness.canExport ? "complete" : activeStep === "review" ? "attention" : "pending";
+    return readiness.canExport ? "complete" : activeStep === "export" ? "attention" : "pending";
+  };
+
+  const currentStatusText = project && readiness
+    ? activeStep === "plans"
+      ? readiness.hasPlan ? "Plan saved and ready for takeoff." : "Add a saved plan to continue."
+      : activeStep === "quantities"
+      ? invalidQuantityCount > 0
+        ? `${invalidQuantityCount} measurement${invalidQuantityCount === 1 ? "" : "s"} need review.`
+        : project.quantities.length
+        ? `${project.quantities.length} measurement${project.quantities.length === 1 ? "" : "s"} ready for pricing.`
+        : "Add measured areas, lengths, or counts."
+      : activeStep === "estimate"
+      ? unpricedEstimateCount > 0
+        ? `${unpricedEstimateCount} item${unpricedEstimateCount === 1 ? "" : "s"} need verified costs.`
+        : readiness.hasEstimate
+        ? `${project.estimateItems.length} line item${project.estimateItems.length === 1 ? "" : "s"} fully priced.`
+        : "Add verified material, labor, and equipment costs."
+      : activeStep === "review"
+      ? readiness.canExport ? "All readiness checks passed." : `${readiness.issues.length} check${readiness.issues.length === 1 ? "" : "s"} still need attention.`
+      : readiness.canExport ? "Ready for client delivery." : "Resolve review issues before exporting."
+    : "";
 
   const userInitials = user?.name
     ? user.name
@@ -180,6 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <strong className="text-sm text-slate-900">{currentStepMeta.label}</strong>
                   <span className="text-xs text-slate-500">{currentStepMeta.helper}</span>
+                  {currentStatusText && <span className="text-xs font-medium text-slate-700">· {currentStatusText}</span>}
                 </div>
               </div>
               {nextStepMeta && (
@@ -198,25 +242,36 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex min-w-max items-center gap-1.5">
                 {steps.map((step, idx) => {
                   const isActive = activeStep === step.id;
-                  const isPast = idx < currentStepIndex;
+                  const state = stepState(step.id);
+                  const isComplete = state === "complete";
+                  const needsAttention = state === "attention";
                   return (
                     <button
                       key={step.id}
                       type="button"
                       onClick={() => onSelectStep(step.id)}
                       aria-current={isActive ? "step" : undefined}
+                      title={isComplete ? `${step.label} complete` : needsAttention ? `${step.label} needs attention` : `${step.label} pending`}
                       className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                         isActive
                           ? "border-brand-500 bg-brand-500 text-white"
-                          : isPast
-                          ? "border-brand-200 bg-white text-brand-700"
+                          : isComplete
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : needsAttention
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
                           : "border-slate-200 bg-white text-slate-500 hover:text-slate-800"
                       }`}
                     >
                       <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${
-                        isActive ? "bg-white/20 text-white" : isPast ? "bg-brand-50 text-brand-600" : "bg-slate-100 text-slate-400"
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : isComplete
+                          ? "bg-emerald-100 text-emerald-700"
+                          : needsAttention
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-100 text-slate-400"
                       }`}>
-                        {idx + 1}
+                        {isComplete ? <Check className="h-3 w-3" /> : needsAttention ? <AlertCircle className="h-3 w-3" /> : idx + 1}
                       </span>
                       {step.label}
                     </button>

@@ -76,6 +76,7 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
   const units: UnitType[] = ["SF", "LF", "EA", "CY", "SY", "HR", "LS"];
   const unpricedItems = project.estimateItems.filter((item) => hasUnverifiedAiPrice(item) || item.pricingStatus === 'missing_price' || calculateLineDirectCost(item.materialCost, item.laborCost, item.equipmentCost) === 0);
   const missingQuantities = project.quantities.filter((quantity) => !project.estimateItems.some((item) => item.quantityId === quantity.id));
+  const pricedItemsCount = Math.max(0, project.estimateItems.length - unpricedItems.length);
 
   const handleOpenRates = () => {
     if (!canWrite) return;
@@ -231,6 +232,24 @@ export const EstimatePage: React.FC<EstimatePageProps> = ({
           </button>
         </div>
       </div>
+
+      <section aria-label="Pricing status" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Estimate lines</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{project.estimateItems.length}</p>
+          <p className="mt-1 text-xs text-slate-500">Items included in pricing</p>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700"><Check className="h-3.5 w-3.5" />Priced</p>
+          <p className="mt-1 text-xl font-bold text-emerald-900">{pricedItemsCount}</p>
+          <p className="mt-1 text-xs text-emerald-700">Verified cost lines</p>
+        </div>
+        <div className={`rounded-xl border p-4 ${unpricedItems.length ? "border-amber-200 bg-amber-50/70" : "border-slate-200 bg-white"}`}>
+          <p className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${unpricedItems.length ? "text-amber-700" : "text-slate-400"}`}><AlertCircle className="h-3.5 w-3.5" />Needs costs</p>
+          <p className={`mt-1 text-xl font-bold ${unpricedItems.length ? "text-amber-900" : "text-slate-900"}`}>{unpricedItems.length}</p>
+          <p className={`mt-1 text-xs ${unpricedItems.length ? "text-amber-700" : "text-slate-500"}`}>{unpricedItems.length ? "Verify material, labor, or equipment" : "All lines priced"}</p>
+        </div>
+      </section>
 
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-900">
         Costs below are <strong>totals for the entire line in USD</strong>, not prices per unit.
