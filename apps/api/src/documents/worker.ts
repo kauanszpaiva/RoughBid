@@ -1,3 +1,5 @@
+import { WaitingError } from 'bullmq';
+import type { QuotaCircuit, QuotaWorker } from '../queue/quota-circuit.ts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,9 +75,24 @@ export class PdfJobProcessor {
 
 export interface BullMqModule { Queue: new (name: string, options: unknown) => unknown; Worker: new (name: string, processor: (job: { data: PdfJob }) => Promise<unknown>, options: unknown) => unknown; }
 
-export async function createBullMqPipeline(redisUrl: string, processor: PdfJobProcessor, loader: () => Promise<BullMqModule> = () => import('bullmq') as Promise<unknown> as Promise<BullMqModule>) {
+export async function createBullMqPipeline(redisUrl: string, processor: PdfJobProcessor, loader: () => Promise<BullMqModule> = () => import('bullmq') as Promise<unknown> as Promise<BullMqModule>, circuit?: QuotaCircuit) {
   if (!redisUrl) throw new Error('REDIS_URL is required');
   const bull = await loader();
   const connection = { url: redisUrl, maxRetriesPerRequest: null };
-  return { queue: new bull.Queue('pdf-processing', { connection }), worker: new bull.Worker('pdf-processing', (job) => processor.process(job.data), { connection, concurrency: 2 }) };
+  circuit?.assertOpen();
+  const queue = new bull.Queue('pdf-processing', { connection });
+  const resource = queue as { on?: (event: string, listener: (error: unknown) => void) => unknown; close?: () => Promise<void> };
+  resource.on?.('error', error => { circuit?.observe(error); });
+  // Do not close an initializing Queue on trip: BullMQ can remove its error
+  // listeners before initialization rejects. The parked connection does not poll.
+  const worker = new bull.Worker('pdf-processing', (job) => {
+    if (circuit?.tripped) throw new WaitingError();
+    return processor.process(job.data);
+  }, { connection, concurrency: 2, ...(circuit ? { autorun: false } : {}) });
+  if (circuit) {
+    circuit.registerWorker(worker as QuotaWorker);
+    if (!circuit.tripped) void (worker as { run: () => Promise<void> }).run().catch(error => { circuit.observe(error); });
+  }
+  return { queue, worker };
 }
+

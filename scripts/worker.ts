@@ -3,7 +3,8 @@
 // provider-specific durable AI plan-reading queues. Deploy this process only on
 // a host that supports a continuously running worker (Railway/Fly/Render/VM).
 import { createClient } from '@supabase/supabase-js';
-import { Queue, Worker } from 'bullmq';
+import { Queue, Worker, WaitingError, type Processor, type WorkerOptions } from 'bullmq';
+import { createQuotaCircuit } from '../apps/api/src/queue/quota-circuit.ts';
 import { createFullTakeoffConsumerPresence, FULL_TAKEOFF_PRESENCE_INTERVAL_MS, type PresenceConsumer, type PresenceRedis } from '../apps/api/src/takeoff-v2/worker-presence.ts';
 import type { DocumentDb } from '../apps/api/src/documents/service.ts';
 import { PdfJobProcessor, PopplerPdfConverter, createBullMqPipeline } from '../apps/api/src/documents/worker.ts';
@@ -86,7 +87,47 @@ async function buildReaders(): Promise<{
   };
 }
 
+let startupComplete = false;
+const quotaCircuit = createQuotaCircuit();
+quotaCircuit.onTrip(() => {
+  // Keep the process parked rather than triggering Railway restart/replay.
+  setInterval(() => {}, 60_000);
+});
+process.on('SIGTERM', () => { if (!startupComplete || quotaCircuit.tripped) process.exit(0); });
+process.on('SIGINT', () => { if (!startupComplete || quotaCircuit.tripped) process.exit(0); });
+
 async function main() {
+  const createConsumer = (name: string, processor: Processor, options: WorkerOptions) => {
+    quotaCircuit.assertOpen();
+    const worker = new Worker(name, (job, token, signal) => {
+      // A fetched job can arrive in the same tick another consumer trips.
+      // Preserve it for reconciliation without starting its provider processor.
+      if (quotaCircuit.tripped) throw new WaitingError();
+      const updateProgress = job.updateProgress.bind(job);
+      job.updateProgress = async progress => {
+        quotaCircuit.assertOpen();
+        try { return await updateProgress(progress); }
+        catch (error) { quotaCircuit.observe(error); throw error; }
+      };
+      return processor(job, token, signal);
+    }, { ...options, autorun: false });
+    quotaCircuit.registerWorker(worker);
+    void worker.run().catch(error => {
+      if (!quotaCircuit.observe(error) && !quotaCircuit.tripped) console.error('[worker] consumer stopped unexpectedly');
+    });
+    return worker;
+  };
+  const protectQueue = (queue: { add: (...args: any[]) => Promise<unknown>; close?: () => Promise<void> }) => {
+    const originalAdd = queue.add.bind(queue);
+    queue.add = async (...args: any[]) => {
+      quotaCircuit.assertOpen();
+      try { return await originalAdd(...args); }
+      catch (error) { quotaCircuit.observe(error); throw error; }
+    };
+    (queue as unknown as { on?: (event: string, listener: (error: unknown) => void) => unknown })
+      .on?.('error', quotaCircuit.observe);
+    // Leave initializing Queue connections open; fencing adds/timers is safe.
+  };
   const redisUrl = required('REDIS_URL');
   const db = createClient(required('SUPABASE_URL'), required('SUPABASE_SERVICE_ROLE_KEY'), {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -98,7 +139,9 @@ async function main() {
   const pdfPipeline = await createBullMqPipeline(
     redisUrl,
     new PdfJobProcessor(db as unknown as DocumentDb, storage, new PopplerPdfConverter()),
+    undefined, quotaCircuit,
   );
+  quotaCircuit.assertOpen();
   console.log('[worker] pdf-processing queue attached');
 
   const aiWorkers: Worker[] = [];
@@ -113,24 +156,27 @@ async function main() {
   let geometryQueue:GeometryQueue|undefined;
   const geometryProfile=loadGeometryProfile(process.env);
   if(geometryProfile){
+    quotaCircuit.assertOpen();
     geometryQueue=await createGeometryQueue(redisUrl);
+    protectQueue(geometryQueue);
     const workerId=`${process.env.RAILWAY_REPLICA_ID||process.env.HOSTNAME||'roughbid'}-geometry-${crypto.randomUUID()}`.slice(0,160);
     const processor=new GeometryProcessor(db as unknown as DocumentDb,storage,geometryProfile,workerId,geometryQueue);
-    const worker=new Worker(GEOMETRY_QUEUE,job=>processor.process(job as unknown as {data:GeometryJob}),{
+    const worker=createConsumer(GEOMETRY_QUEUE,job=>processor.process(job as unknown as {data:GeometryJob}),{
       connection:{url:redisUrl,maxRetriesPerRequest:null},concurrency:1,lockDuration:30_000,stalledInterval:30_000,maxStalledCount:1});
     worker.on('failed',job=>console.error('[worker] geometry job requires reconciliation',{runId:job?.data?.runId}));
-    worker.on('error',()=>console.error('[worker] geometry queue connection unavailable'));
-    await worker.waitUntilReady();await processor.touch();await processor.recover();aiWorkers.push(worker);
+    worker.on('error',()=>{if(!quotaCircuit.tripped)console.error('[worker] geometry queue connection unavailable');});
+    await worker.waitUntilReady();quotaCircuit.assertOpen();await processor.touch();quotaCircuit.assertOpen();await processor.recover();aiWorkers.push(worker);
     let geometryRecoveryRunning=false;
-    geometryHeartbeat=setInterval(()=>{
-      if(geometryRecoveryRunning)return;
+    geometryHeartbeat=quotaCircuit.interval(()=>{
+      if(quotaCircuit.tripped||geometryRecoveryRunning)return;
       geometryRecoveryRunning=true;
-      void processor.touch().then(()=>processor.recover()).catch(()=>console.error('[worker] geometry heartbeat or recovery unavailable'))
+      void processor.touch().then(()=>{quotaCircuit.assertOpen();return processor.recover();}).catch(error=>{quotaCircuit.observe(error);if(!quotaCircuit.tripped)console.error('[worker] geometry heartbeat or recovery unavailable');})
         .finally(()=>{geometryRecoveryRunning=false;});
     },30_000);
     console.log('[worker] geometry queue attached',{queue:GEOMETRY_QUEUE,workerId});
   }
   if (process.env.AI_PLAN_DURABLE_ENABLED === 'true') {
+    quotaCircuit.assertOpen();
     const { paidReader, freeReader, paidEnabled, freeEnabled } = await buildReaders();
     if (!paidEnabled && !freeEnabled) throw new Error('AI_PLAN_DURABLE_ENABLED=true but no authorized AI provider is configured on the worker.');
     const workerId = (process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || `roughbid-${crypto.randomUUID()}`).slice(0, 160);
@@ -144,7 +190,7 @@ async function main() {
     const connection = { url: redisUrl, maxRetriesPerRequest: null };
 
     const attach = async (entitlement: DurableEntitlement) => {
-      const worker = new Worker(
+      const worker = createConsumer(
         aiPlanQueueName(entitlement),
         (job) => processor.process(job as unknown as DurableAiPlanWorkerJob),
         {
@@ -157,8 +203,8 @@ async function main() {
       );
       worker.on('stalled', (jobId) => console.error('[worker] ai-plan job stalled', { jobId, entitlement }));
       worker.on('failed', (job, error) => console.error('[worker] ai-plan job failed', { jobId: job?.id, entitlement, message: error.message }));
-      worker.on('error', (error) => console.error('[worker] ai-plan worker error', { entitlement, message: error.message }));
-      await worker.waitUntilReady();
+      worker.on('error', () => {if(!quotaCircuit.tripped)console.error('[worker] ai-plan worker connection unavailable', { entitlement });});
+      await worker.waitUntilReady();quotaCircuit.assertOpen();
       aiWorkers.push(worker);
       console.log('[worker] ai-plan queue attached', { queue: aiPlanQueueName(entitlement), workerId });
     };
@@ -167,6 +213,7 @@ async function main() {
     if (freeEnabled) await attach('owner_free');
 
     const touch = async () => {
+      if (quotaCircuit.tripped) return;
       const result = await db.rpc('touch_ai_plan_worker', {
         p_worker_id: workerId,
         p_paid_enabled: paidEnabled,
@@ -175,11 +222,12 @@ async function main() {
       if (result.error) console.error('[worker] ai-plan heartbeat failed', { message: result.error.message });
     };
     await touch();
-    workerHeartbeat = setInterval(() => { void touch(); }, 30_000);
+    workerHeartbeat = quotaCircuit.interval(() => { void touch(); }, 30_000);
     console.log('[worker] ai-plan heartbeat active', { workerId, paidEnabled, freeEnabled });
   }
 
   if (process.env.TAKEOFF_V2_ENABLED === 'true' && process.env.TAKEOFF_V2_WORKER_ENABLED === 'true') {
+    quotaCircuit.assertOpen();
     // Validate exact capabilities before advertising a consumer. Spending
     // authority is validated per run, before its budget is persisted.
     const rpc = async (name: string, args: Record<string, unknown>) => await db.rpc(name, args);
@@ -255,46 +303,51 @@ async function main() {
     const processor = new DurableFullTakeoffV2Processor(db as unknown as PlanReadingFindingsWriter,
       storage, factory, workerId);
     const touch = async () => {
+      if (quotaCircuit.tripped) return;
       if (bridge) await bridge.handshake();
+      if (quotaCircuit.tripped) return;
       const touched = await db.rpc('touch_full_takeoff_v2_worker', { p_worker_id: workerId, p_version: FULL_TAKEOFF_V2_DURABLE_VERSION });
       if (touched.error || touched.data !== true) throw new Error('Full Takeoff V2 schema/capability heartbeat is unavailable.');
     };
     // Fail before attaching a consumer if the reviewed migration is missing.
     await touch();
-    const worker = new Worker(FULL_TAKEOFF_V2_QUEUE, job => processor.process(job as unknown as FullTakeoffV2WorkerJob), {
+    const worker = createConsumer(FULL_TAKEOFF_V2_QUEUE, job => processor.process(job as unknown as FullTakeoffV2WorkerJob), {
       connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1,
       lockDuration: 30_000, stalledInterval: 30_000, maxStalledCount: 1,
     });
     worker.on('failed', job => console.error('[worker] Full Takeoff V2 stopped', { runId: job?.data?.runId }));
-    worker.on('error', () => console.error('[worker] Full Takeoff V2 queue connection failed'));
-    await worker.waitUntilReady();
+    worker.on('error', () => {if(!quotaCircuit.tripped)console.error('[worker] Full Takeoff V2 queue connection failed');});
+    await worker.waitUntilReady();quotaCircuit.assertOpen();
     aiWorkers.push(worker);
     fullTakeoffPresenceQueue = new Queue(FULL_TAKEOFF_V2_QUEUE, { skipMetasUpdate: true, connection: {
       url: redisUrl, maxRetriesPerRequest: 1, enableOfflineQueue: false, autoResendUnfulfilledCommands: false,
       connectTimeout: 5000, commandTimeout: 5000,
     } });
-    fullTakeoffPresenceQueue.on('error', () => console.error('[worker] Full Takeoff V2 presence connection unavailable'));
+    fullTakeoffPresenceQueue.on('error', error => { if (!quotaCircuit.observe(error) && !quotaCircuit.tripped) console.error('[worker] Full Takeoff V2 presence connection unavailable'); });
     fullTakeoffPresence = createFullTakeoffConsumerPresence(worker as unknown as PresenceConsumer, workerId,
-      fullTakeoffPresenceQueue.client as unknown as Promise<PresenceRedis>);
+      fullTakeoffPresenceQueue.client as unknown as Promise<PresenceRedis>, quotaCircuit.observe);
+    quotaCircuit.onTrip(() => fullTakeoffPresence?.suspend());
+    // A lease Queue may still be initializing when another consumer trips.
     let recoveringBudget = false;
     const refreshPresence = async () => {
+      if (quotaCircuit.tripped) return;
       if (!await fullTakeoffPresence!.refresh()) { console.error('[worker] Full Takeoff V2 consumer presence unavailable'); return; }
-      if (recoveringBudget) return;
+      if (quotaCircuit.tripped || recoveringBudget) return;
       recoveringBudget = true;
       try {
-        await requeueDueFullTakeoffBudgetRuns(db as unknown as PlanReadingFindingsWriter, {add: runId =>
-          fullTakeoffPresenceQueue!.add('full-takeoff',{runId},{jobId:runId,attempts:3,
-            backoff:{type:'exponential',delay:5000},removeOnComplete:true,removeOnFail:true})});
-      } catch { console.error('[worker] Full Takeoff V2 saved waiting readings will retry queue recovery'); }
+        await requeueDueFullTakeoffBudgetRuns(db as unknown as PlanReadingFindingsWriter, {add: runId => { quotaCircuit.assertOpen(); return fullTakeoffPresenceQueue!.add('full-takeoff',{runId},{jobId:runId,attempts:3,
+            backoff:{type:'exponential',delay:5000},removeOnComplete:true,removeOnFail:true}); }});
+      } catch (error) { quotaCircuit.observe(error); if (!quotaCircuit.tripped) console.error('[worker] Full Takeoff V2 saved waiting readings will retry queue recovery'); }
       finally { recoveringBudget = false; }
     };
     await refreshPresence();
-    fullTakeoffPresenceTimer = setInterval(() => { void refreshPresence(); }, FULL_TAKEOFF_PRESENCE_INTERVAL_MS);
-    fullTakeoffHeartbeat = setInterval(() => { void touch().catch(() => console.error('[worker] Full Takeoff V2 heartbeat unavailable')); }, 30_000);
+    fullTakeoffPresenceTimer = quotaCircuit.interval(() => { void refreshPresence(); }, FULL_TAKEOFF_PRESENCE_INTERVAL_MS);
+    fullTakeoffHeartbeat = quotaCircuit.interval(() => { void touch().catch(() => console.error('[worker] Full Takeoff V2 heartbeat unavailable')); }, 30_000);
     console.log('[worker] Full Takeoff V2 queue attached', { queue: FULL_TAKEOFF_V2_QUEUE, workerId });
   }
 
   if (process.env.PHOTO_TAKEOFF_ENABLED === 'true' && process.env.PHOTO_TAKEOFF_WORKER_ENABLED === 'true') {
+    quotaCircuit.assertOpen();
     // Photos use their own private-data approval, verified maximum-quality
     // profile and spend authorization. A provider balance never opens this path.
     const workerId = crypto.randomUUID();
@@ -305,25 +358,26 @@ async function main() {
     const processor = new PhotoTakeoffProcessor(db as unknown as DocumentDb, storage,
       photoBridge??new HttpPhotoReader(requirePhotoTakeoffConfig(process.env)), config, workerId);
     await processor.touch();
-    const worker = new Worker(PHOTO_TAKEOFF_QUEUE, job => processor.process(job as unknown as { data: PhotoTakeoffJob }), {
+    const worker = createConsumer(PHOTO_TAKEOFF_QUEUE, job => processor.process(job as unknown as { data: PhotoTakeoffJob }), {
       connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1,
       lockDuration: 30_000, stalledInterval: 30_000, maxStalledCount: 1,
     });
     worker.on('failed', job => console.error('[worker] photo takeoff stopped', { runId: job?.data?.runId }));
-    worker.on('error', () => console.error('[worker] photo takeoff queue connection failed'));
-    await worker.waitUntilReady();
+    worker.on('error', () => {if(!quotaCircuit.tripped)console.error('[worker] photo takeoff queue connection failed');});
+    await worker.waitUntilReady();quotaCircuit.assertOpen();
     aiWorkers.push(worker);
     photoRecoveryQueue = await createPhotoTakeoffQueue(redisUrl);
+    protectQueue(photoRecoveryQueue);
     let recoveringPhotos=false;
     const recoverPhotos=async()=>{
-      if(recoveringPhotos||!photoRecoveryQueue)return;
+      if(quotaCircuit.tripped||recoveringPhotos||!photoRecoveryQueue)return;
       recoveringPhotos=true;
-      try{if(photoBridge)await photoBridge.handshake();await processor.touch();await recoverCompletePhotoRuns(db as unknown as DocumentDb,photoRecoveryQueue,config);}
+      try{if(photoBridge)await photoBridge.handshake();quotaCircuit.assertOpen();await processor.touch();quotaCircuit.assertOpen();await recoverCompletePhotoRuns(db as unknown as DocumentDb,photoRecoveryQueue,config);}
       finally{recoveringPhotos=false;}
     };
     await recoverPhotos();
-    photoTakeoffHeartbeat = setInterval(() => {
-      void recoverPhotos().catch(() => console.error('[worker] photo takeoff heartbeat or saved reading recovery unavailable'));
+    photoTakeoffHeartbeat = quotaCircuit.interval(() => {
+      void recoverPhotos().catch(error => {quotaCircuit.observe(error);if(!quotaCircuit.tripped)console.error('[worker] photo takeoff heartbeat or saved reading recovery unavailable');});
     }, 30_000);
     console.log('[worker] photo takeoff queue attached', { queue: PHOTO_TAKEOFF_QUEUE, version: PHOTO_TAKEOFF_VERSION, workerId });
   }
@@ -352,7 +406,9 @@ async function main() {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-main().catch(() => {
+main().then(() => { startupComplete = true; }).catch(error => {
+  quotaCircuit.observe(error);
+  if (quotaCircuit.tripped) return;
   console.error('[worker] startup configuration or required dependency unavailable');
   process.exit(1);
 });

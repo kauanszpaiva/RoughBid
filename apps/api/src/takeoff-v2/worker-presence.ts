@@ -48,17 +48,19 @@ export async function fullTakeoffConsumerPresent(client: PromiseLike<PresenceRed
 }
 /** Dedicated lease connection must have commandTimeout and offline queue disabled. */
 export function createFullTakeoffConsumerPresence(consumer: PresenceConsumer, workerId: string,
-  leaseClient: PromiseLike<PresenceRedis>) {
+  leaseClient: PromiseLike<PresenceRedis>, onError: (error: unknown) => unknown = () => {}) {
   if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(workerId)) throw new Error('Invalid worker presence identity');
   let stopping = false;
+  let suspended = false;
   let pending: Promise<boolean> | undefined;
-  const running = () => !stopping && consumer.isRunning() && !consumer.isPaused() && !consumer.closing && !consumer.closed;
+  const running = () => !suspended && !stopping && consumer.isRunning() && !consumer.isPaused() && !consumer.closing && !consumer.closed;
   const revoke = async () => {
-    try { const client = await bounded(leaseClient); if (client.status === 'ready') await bounded(client.zrem(FULL_TAKEOFF_PRESENCE_KEY, workerId)); }
-    catch { /* Its server-side expiry remains the fail-closed fallback. */ }
+    if (suspended) return;
+    try { const client = await bounded(leaseClient); if (!suspended && client.status === 'ready') await bounded(client.zrem(FULL_TAKEOFF_PRESENCE_KEY, workerId)); }
+    catch (error) { onError(error); /* Its server-side expiry remains the fail-closed fallback. */ }
   };
   const refresh = (): Promise<boolean> => {
-    if (stopping) return Promise.resolve(false);
+    if (stopping || suspended) return Promise.resolve(false);
     if (pending) return pending;
     pending = (async () => {
       try {
@@ -72,13 +74,16 @@ export function createFullTakeoffConsumerPresence(consumer: PresenceConsumer, wo
         const result = await lease.eval(RENEW_FULL_TAKEOFF_PRESENCE, 1, FULL_TAKEOFF_PRESENCE_KEY, workerId, FULL_TAKEOFF_PRESENCE_TTL_MS);
         if (!running() || primary.status !== 'ready' || blocking.status !== 'ready') { await revoke(); return false; }
         return result === 1;
-      } catch { await revoke(); return false; }
+      } catch (error) { onError(error); await revoke(); return false; }
       finally { pending = undefined; }
     })();
     return pending;
   };
   return {
     refresh,
+    // Quota exhaustion: stop publication without another failing Redis write.
+    // An in-flight lease can remain visible for at most its existing TTL.
+    suspend() { suspended = true; },
     async close() {
       stopping = true;
       // Publication and final removal are ordered: a delayed renewal cannot
@@ -88,3 +93,4 @@ export function createFullTakeoffConsumerPresence(consumer: PresenceConsumer, wo
     },
   };
 }
+
