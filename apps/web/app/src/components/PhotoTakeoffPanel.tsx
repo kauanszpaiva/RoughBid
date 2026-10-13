@@ -5,6 +5,7 @@ import { beginPhotoUpload, cancelPhotoRun, completePhotoUpload, createPhotoPrevi
   getPhotoRun, getPhotoCheckpoint, listPhotoRuns, resumePhotoRun, savePhotoReview, type PhotoCapability, type PhotoRun, type PhotoRunDetail, type PhotoSourceAsset, type PhotoReviewRequest, type PhotoCheckpoint } from '../services/photos-api';
 import { buildPhotoHumanReview, canResumePhotoRun, emptyPhotoReviewDraft, emptyPhotoPlanarDraft, restorePhotoReviewDraft, isPhotoRunInFlight, photoCheckpointProgress,
   photoReadingSteps, photoCapacityWait, validatePhotoSelection, type PhotoReviewDraft } from '../utils/photoReview';
+import { completeTransferredUpload } from '../utils/uploadCompletion';
 import { PhotoPlanarReview } from './PhotoPlanarReview';
 import { PhotoPurchasePanel } from './PhotoPurchasePanel';
 import { reviewIssueMessage, reviewIssueMessages } from '../utils/reviewMessages';
@@ -51,6 +52,7 @@ export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
   const selectedRun = useRef<string | null>(null);
   const contextKey = `${workspaceId}:${projectId}`;
   const incomingHandled = useRef<string | null>(null);
+  const transferredFiles = useRef(new Map<File, string>());
   context.current = contextKey;
   selectedRun.current = runId;
 
@@ -60,8 +62,8 @@ export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
     setNotice(null); setReadError(null); setActionError(null); setBusy(null); setDrafts({}); setNeedsConsent(false);
     setPreviews({}); setPreviewErrors({}); setPreviewLoading({});
     requestKey.current = null; acknowledgedRun.current = null; loadedDraftRun.current = null; needsRead.current = false;
-    pendingReview.current = null; reviewNeedsRead.current = false;
-    return () => { context.current = ''; for (const url of previewUrls.current.values()) URL.revokeObjectURL(url); previewUrls.current.clear(); };
+    pendingReview.current = null; reviewNeedsRead.current = false; transferredFiles.current.clear();
+    return () => { context.current = ''; transferredFiles.current.clear(); for (const url of previewUrls.current.values()) URL.revokeObjectURL(url); previewUrls.current.clear(); };
   }, [contextKey]);
   useEffect(() => { setCheckpoints({}); setCheckpointErrors({}); setCheckpointLoading({}); }, [contextKey, runId]);
 
@@ -146,13 +148,19 @@ export const PhotoTakeoffPanel = forwardRef<PhotoTakeoffHandle, {
         update(index, { status: 'uploading', error: '' });
         try {
           const selected = items[index]!.file;
-          const reserved = await beginPhotoUpload(workspaceId, projectId, selected);
-          if (context.current !== contextKey) return;
-          const uploaded = await fetch(reserved.upload.url, { method: reserved.upload.method, headers: reserved.upload.headers,
-            body: selected, redirect: 'error', signal: AbortSignal.timeout(120_000) });
-          if (!uploaded.ok) throw new Error('The private photo upload could not be completed.');
-          const complete = await completePhotoUpload(workspaceId, projectId, reserved.asset.id);
-          if (context.current !== contextKey) return;
+          const complete = await completeTransferredUpload(selected, transferredFiles.current, {
+            isCurrent: () => context.current === contextKey,
+            transfer: async () => {
+              const reserved = await beginPhotoUpload(workspaceId, projectId, selected);
+              if (context.current !== contextKey) return undefined;
+              const uploaded = await fetch(reserved.upload.url, { method: reserved.upload.method, headers: reserved.upload.headers,
+                body: selected, redirect: 'error', signal: AbortSignal.timeout(120_000) });
+              if (!uploaded.ok) throw new Error('The private photo upload could not be completed.');
+              return reserved.asset.id;
+            },
+            complete: assetId => completePhotoUpload(workspaceId, projectId, assetId),
+          });
+          if (!complete || context.current !== contextKey) return;
           update(index, { status: 'ready', asset: complete.asset });
           uploadedItems[index] = { ...uploadedItems[index]!, status: 'ready', asset: complete.asset };
         } catch (error) {

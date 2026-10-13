@@ -1,3 +1,4 @@
+import { completeTransferredUpload } from '../app/src/utils/uploadCompletion.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -205,7 +206,7 @@ test('viewer, disabled provider and missing worker prevent photo dispatch', asyn
 test('private photo upload sends bytes only to the signed storage URL then verifies metadata', async () => {
   const file = { name: 'source.jpg', type: 'image/jpeg', size: 10 };
   const calls: Array<{ kind: string; args: any[] }> = [];
-  const context = { canWrite: true, capability: { enabled: true, purchaseAvailable: true }, workspaceId: 'workspace', projectId: 'project', actionLock: { current: false }, needsRead: { current: false },
+  const context = { completeTransferredUpload, transferredFiles: { current: new Map() }, canWrite: true, capability: { enabled: true, purchaseAvailable: true }, workspaceId: 'workspace', projectId: 'project', actionLock: { current: false }, needsRead: { current: false },
     selection: [{ file, status: 'selected' }], validatePhotoSelection, setActionError: noop, setBusy: noop, setSelection: noop, setNotice: noop,
     contextKey: 'same', context: { current: 'same' }, AbortSignal,
     beginPhotoUpload: async (...args: unknown[]) => { calls.push({ kind: 'reserve', args }); return { asset: { id: 'photo-one' }, upload: { url: 'https://private-storage.invalid/photo', method: 'PUT', headers: { 'content-type': 'image/jpeg' } } }; },

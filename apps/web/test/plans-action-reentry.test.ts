@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { completeTransferredUpload } from '../app/src/utils/uploadCompletion.ts';
 
 // Execute each real handler body from the TSX source. State setters intentionally
 // do not rerender: a second click before React commits must still be excluded.
@@ -31,6 +32,7 @@ function harness() {
   const lock = { current: false };
   const noop = (..._args: unknown[]) => {};
   const context: Record<string, unknown> = {
+    completeTransferredUpload, transferredFiles: { current: new Map() },
     canWrite: true, workspaceId: 'workspace-1', project: { remoteId: 'project-1', revisions: [], projectType: 'Residential' },
     currentRevision: { id: 'revision-1', remoteFileId: 'file-1' },
     readingQuote: { id: 'quote-1', file_id: 'file-1' }, quoteRecoveryReady: true,
