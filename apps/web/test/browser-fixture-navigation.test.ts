@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openFixtureDetails, openPlanReadingTools, openProjectDetails } from '../../../scripts/browser-fixture-navigation.mjs';
+import { openFixtureDetails, openPaidReturnReadingTools, openPlanReadingTools, openProjectDetails } from '../../../scripts/browser-fixture-navigation.mjs';
 
 const projectLabel = 'Project files, payments & advanced tools';
 const readingLabel = 'Plan viewer and advanced reading tools';
@@ -64,4 +64,43 @@ test('browser navigation rejects a label outside a details element', async () =>
     waitFor: async () => {},
     evaluate: async (read: (element: { closest: () => null }) => unknown) => read({ closest: () => null }),
   }) }, projectLabel), /no details ancestor/);
+});
+
+for (const recoveryFailed of [false, true]) {
+  test(`paid return waits for committed ${recoveryFailed ? 'failure' : 'payment'} UI before disclosure navigation`, async () => {
+    const h = fixture();
+    let commit!: () => void;
+    const pendingRecovery = new Promise<void>(resolve => { commit = resolve; });
+    let recoveryObserved = false;
+    const page = { ...h.page, getByRole(role: string, options: { name: string; exact: boolean; includeHidden: boolean }) {
+      assert.equal(role, recoveryFailed ? 'button' : 'region');
+      assert.deepEqual(options, { name: recoveryFailed ? 'Payment status could not be loaded. Retry.' : 'Project payment', exact: true, includeHidden: true });
+      return { async waitFor(options: { state: string }) {
+        assert.deepEqual(options, { state: 'attached' });
+        await pendingRecovery;
+        recoveryObserved = true;
+      } };
+    }, getByText(label: string, options: { exact: boolean }) {
+      assert.equal(recoveryObserved, true, 'Do not even inspect disclosure state while quote recovery can still change it');
+      return h.page.getByText(label, options);
+    } };
+    const navigating = openPaidReturnReadingTools(page, recoveryFailed);
+    await Promise.resolve();
+    assert.deepEqual(h.clicks, []);
+    // Successful recovery opens the parent in the same React commit as the
+    // payment region. A recovery error leaves that parent closed.
+    h.states.get(projectLabel)!.open = !recoveryFailed;
+    commit();
+    await navigating;
+    assert.deepEqual(h.clicks, recoveryFailed ? [projectLabel, readingLabel] : [readingLabel]);
+    assert.equal(h.states.get(projectLabel)!.open, true);
+    assert.equal(h.states.get(readingLabel)!.open, true);
+  });
+}
+
+test('paid return cannot bypass a missing recovery result by clicking the disclosure', async () => {
+  const h = fixture();
+  const page = { ...h.page, getByRole: () => ({ waitFor: async () => { throw new Error('Recovery result never appeared'); } }) };
+  await assert.rejects(openPaidReturnReadingTools(page), /Recovery result never appeared/);
+  assert.deepEqual(h.clicks, []);
 });

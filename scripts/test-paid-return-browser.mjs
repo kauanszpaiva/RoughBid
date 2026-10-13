@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
-import { openPlanReadingTools } from './browser-fixture-navigation.mjs';
+import { openPaidReturnReadingTools } from './browser-fixture-navigation.mjs';
 
 // Actual Plans UI with isolated synthetic API responses. No auth, PDF, AI or payment calls.
 const playwright = await import(process.env.PLAYWRIGHT_MODULE_PATH || new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
@@ -96,7 +96,7 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       const navigate = async url => {
         assert.deepEqual(await page.evaluate(() => window.paidReturnHarness?.unexpected ?? []), []);
         await page.goto(url);
-        await openPlanReadingTools(page);
+        await openPaidReturnReadingTools(page, new URL(url).searchParams.has('fail'));
       };
       const assertPassive = async () => {
         const h = await page.evaluate(() => window.paidReturnHarness);

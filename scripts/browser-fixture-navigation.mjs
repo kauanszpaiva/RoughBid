@@ -22,3 +22,16 @@ export async function openPlanReadingTools(page) {
   await openProjectDetails(page);
   await openFixtureDetails(page, 'Plan viewer and advanced reading tools');
 }
+
+export async function openPaidReturnReadingTools(page, recoveryFailed = false) {
+  // Saved-quote recovery can auto-open the parent disclosure. Wait for its
+  // committed UI result before checking/clicking, otherwise that auto-open can
+  // land between the check and the click and our click would close it again.
+  // Failed recovery lives inside the closed parent, so attachment (not initial
+  // visibility) is the readiness signal. Opening still uses visible user clicks.
+  const recovered = recoveryFailed
+    ? page.getByRole('button', { name: 'Payment status could not be loaded. Retry.', exact: true, includeHidden: true })
+    : page.getByRole('region', { name: 'Project payment', exact: true, includeHidden: true });
+  await recovered.waitFor({ state: 'attached' });
+  await openPlanReadingTools(page);
+}
