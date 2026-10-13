@@ -49,7 +49,10 @@ try {
         const req = route.request(), url = new URL(req.url()), method = req.method(), body = req.headers()['content-type']?.includes('json') ? req.postDataJSON() : undefined;
         if (url.hostname !== '127.0.0.1') { external.push(url.origin); return route.abort(); }
         if (url.pathname === '/checkout-fixture') return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Synthetic checkout</title><p>No payment performed.</p>' });
-        if (url.pathname.startsWith('/synthetic-upload/')) return route.fulfill({ status: 200, body: '' });
+        if (url.pathname.startsWith('/synthetic-upload/')) {
+          state.transfers.push({ path: url.pathname, method });
+          return route.fulfill({ status: 200, body: '' });
+        }
         if (!url.pathname.startsWith('/api/')) return route.continue();
         const send = (value, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
         state.calls.push({ path: url.pathname, query: url.search, method, body, workspace: req.headers()['x-workspace-id'] });
@@ -94,7 +97,7 @@ try {
       const assertClean = () => { assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(unexpected, []); };
       const navigate = async (suffix = '', patch = {}) => {
         await page.waitForLoadState('networkidle'); assertClean(); page.removeAllListeners('pageerror'); await page.close(); page = await context.newPage(); observe();
-        state = { included: false, quote: null, run: null, uploads: 0, names: {}, calls: [], ...patch };
+        state = { included: false, quote: null, run: null, uploads: 0, names: {}, calls: [], transfers: [], ...patch };
         await page.goto('http://127.0.0.1:4186/' + suffix); await page.getByRole('region', { name: 'Photo takeoff' }).waitFor(); await page.waitForLoadState('networkidle');
       };
       const panel = () => page.getByRole('region', { name: 'Photo reading confirmation' });
@@ -140,7 +143,12 @@ try {
       await page.getByRole('button', { name: 'Retry unsaved photos' }).waitFor(); await page.waitForLoadState('networkidle');
       assert.equal(posts('/photos/uploads').length, 3); assert.equal(posts('/photos/quote').length, 0);
       await page.getByRole('button', { name: 'Retry unsaved photos' }).click(); await panel().getByText('$19.37', { exact: true }).waitFor();
-      assert.equal(posts('/photos/uploads').length, 4); assert.equal(posts('/photos/quote').length, 1); assert.equal(posts('/photos/quote')[0].body.assetIds.length, 3); assert.equal(posts('/photos/runs').length, 0);
+      assert.equal(posts('/photos/uploads').length, 3, 'A completion retry must reuse the existing photo reservation');
+      assert.deepEqual(state.transfers, ['photo-1', 'photo-2', 'photo-3'].map(id => ({ path: `/synthetic-upload/${id}`, method: 'PUT' })), 'Already-transferred photo bytes are not uploaded twice');
+      assert.deepEqual(posts('/complete').map(call => call.path), ['photo-1', 'photo-2', 'photo-3', 'photo-2'].map(id => `/api/projects/project-1/photos/uploads/${id}/complete`), 'Only the failed completion is retried, with its original identity');
+      assert.equal(posts('/photos/quote').length, 1);
+      assert.deepEqual(posts('/photos/quote')[0].body.assetIds.slice().sort(), ['photo-1', 'photo-2', 'photo-3']);
+      assert.equal(posts('/photos/runs').length, 0);
 
       await navigate('', { needsConsent: true }); await choose(); await page.getByRole('button', { name: 'Approve AI processing for this workspace' }).waitFor();
       assert.equal(posts('/photos/quote').length, 0); await page.getByRole('button', { name: 'Approve AI processing for this workspace' }).click();

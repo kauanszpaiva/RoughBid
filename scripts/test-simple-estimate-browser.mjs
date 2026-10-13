@@ -78,7 +78,8 @@ try {
     console.log(`PASS ${label}: real product components, one mixed intake, scoped plan request, no duplicate runs, pending prices and mobile layout`); passed++;
     await page.goto(`${root}/offline-browser-fixture.html?view=viewer`);
     assert.equal(await page.getByRole('button', { name: '3. Generate estimate', exact: true }).isDisabled(), true);
-    assert.equal(await page.getByLabel('Add photos and PDF plans').isDisabled(), true);
+    assert.equal(await page.getByLabel('Choose photos and PDF plans', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Take a construction photo', { exact: true }).isDisabled(), true);
     console.log(`PASS ${label}: read-only workspace cannot upload or generate`); passed++;
     await context.close();
   }

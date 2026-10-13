@@ -80,7 +80,10 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
         const req = route.request(), url = new URL(req.url()), method = req.method(), body = req.headers()['content-type']?.includes('json') ? req.postDataJSON() : undefined;
         if (url.hostname !== '127.0.0.1') { external.push(url.origin); return route.abort(); }
         if (url.pathname === '/checkout-fixture') return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Synthetic checkout destination</title><p>No payment is performed.</p>' });
-        if (url.pathname.startsWith('/synthetic-upload/')) return route.fulfill({ status: 200, body: '' });
+        if (url.pathname.startsWith('/synthetic-upload/')) {
+          state.transfers.push({ path: url.pathname, method });
+          return route.fulfill({ status: 200, body: '' });
+        }
         if (!url.pathname.startsWith('/api/')) return route.continue();
         const send = (value, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
         state.calls.push({ path: url.pathname, method, body, query: url.search, workspace: req.headers()['x-workspace-id'] });
@@ -164,7 +167,9 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
         page = await context.newPage();
         page.setDefaultTimeout(12_000);
         page.on('pageerror', error => errors.push(error.message));
-        state = { owner: true, offline: false, quote: null, calls: [], ...override };
+        // Batch purchasing is a customer flow. Owner included-access coverage
+        // below deliberately retains its separate complimentary entitlement.
+        state = { owner: !override.batch, offline: false, quote: null, calls: [], transfers: [], ...override };
         await page.goto('http://127.0.0.1:4185/' + suffix);
         if (suffix.includes('draft=1')) await page.getByText(project.name, { exact: true }).click();
         // A completed return opens its saved reading automatically. Verify that
@@ -256,8 +261,12 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       await page.getByRole('article', { name: 'File first.pdf', exact: true }).waitFor();
       await page.getByRole('article', { name: 'File last.pdf', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Retry failed uploads' }).click();
+      await page.getByText('1 of 1 PDFs saved. Reading has not started. Confirm processing and select Generate estimate to continue.', { exact: true }).waitFor();
+      await openProjectDetails(page);
       await page.getByRole('article', { name: 'File retry.pdf', exact: true }).waitFor();
-      assert.equal(state.calls.filter(call => call.path.endsWith('/documents/upload-url')).length, 4, 'Retry uploads only the failed source');
+      assert.equal(state.calls.filter(call => call.path.endsWith('/documents/upload-url')).length, 3, 'A completion retry must reuse the existing PDF reservation');
+      assert.deepEqual(state.transfers, ['upload-1', 'upload-2', 'upload-3'].map(id => ({ path: `/synthetic-upload/${id}`, method: 'PUT' })), 'Already-transferred PDF bytes are not uploaded twice');
+      assert.deepEqual(state.calls.filter(call => call.path.endsWith('/complete') && call.method === 'POST').map(call => call.path), ['upload-1', 'upload-2', 'upload-3', 'upload-2'].map(id => `/api/documents/${id}/complete`), 'Only the failed completion is retried, with its original identity');
       assert.equal(await page.getByLabel(/Include .*\.pdf in reading/).count(), 5);
       assert.equal(starts().length, 0);
       assert.equal(state.calls.filter(call => /reading-order|reading-checkout/.test(call.path) && call.method === 'POST').length, 0, 'Uploading cannot create a purchase or call AI');
