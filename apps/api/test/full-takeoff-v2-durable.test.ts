@@ -103,6 +103,7 @@ test('founder Full availability requires authorized project, live heartbeat and 
     const response=await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-entitlement',{headers:{'x-workspace-id':'workspace'}}),db() as never,{
       storage:{presign:async()=>({url:'https://test'})},reader:{read:async()=>{throw new Error('No reader required');}},paidReaderAvailable:false,
       findingsWriter:{from:()=>{},rpc:async(fn)=>{assert.equal(fn,'full_takeoff_v2_worker_available');return{data:true,error:null};}},
+      fullTakeoffV2Queue:{isWorkerAvailable:async()=>true,add:async()=>{throw new Error('Read-only entitlement must not enqueue');}},
     });
     assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:true,fullTakeoffApproval:profile});
   }finally {if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(redis===undefined)delete process.env.REDIS_URL;else process.env.REDIS_URL=redis;}
@@ -211,6 +212,7 @@ test('founder entitlement explains an offline worker without granting processing
     const response=await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-entitlement',{headers:{'x-workspace-id':'workspace'}}),db() as never,{
       storage:{presign:async()=>({url:'https://test'})},reader:{read:async()=>{throw new Error('No reader may run');}},paidReaderAvailable:false,
       findingsWriter:{from:()=>{},rpc:async(fn)=>{assert.equal(fn,'full_takeoff_v2_worker_available');return{data:false,error:null};}},
+      fullTakeoffV2Queue:{isWorkerAvailable:async()=>{throw new Error('Stale heartbeat must short-circuit');},add:async()=>{}},
     });
     assert.equal(response.status,200);assert.deepEqual(await response.json(),{freeReadingAvailable:false,fullTakeoffV2Available:false,fullTakeoffUnavailableReason:'worker_unavailable'});
   }finally {if(previous===undefined)delete process.env.TAKEOFF_V2_ENABLED;else process.env.TAKEOFF_V2_ENABLED=previous;if(redis===undefined)delete process.env.REDIS_URL;else process.env.REDIS_URL=redis;}
@@ -266,5 +268,42 @@ test('normal and paid retries preserve their original authorization and reject r
     assert.deepEqual(denied.enqueued,[]);
     const normal=configurationRetryFixture(overrides);await normal.service.restart('run');
     assert.equal(normal.calls.some(call=>call.fn==='reserve_full_takeoff_v2'),false);assert.deepEqual(normal.enqueued,['run']);
+  }
+});
+
+test('founder Full entitlement requires a live queue consumer even with a recent SQL heartbeat', async () => {
+  const previous = process.env.TAKEOFF_V2_ENABLED, redis = process.env.REDIS_URL;
+  process.env.TAKEOFF_V2_ENABLED = 'true'; process.env.REDIS_URL = 'redis://localhost';
+  let enqueues = 0, providerCalls = 0;
+  try {
+    for (const consumer of ['missing', 'offline', 'quota', 'live'] as const) {
+      const response = await handleAiPlanRequest(new Request('https://test/api/projects/project/ai-plan-entitlement', {
+        headers: { 'x-workspace-id': 'workspace' },
+      }), db() as never, {
+        storage: { presign: async () => { throw new Error('Entitlement must not download'); } },
+        reader: { read: async () => { providerCalls++; throw new Error('Entitlement must not call a provider'); } },
+        paidReaderAvailable: false,
+        findingsWriter: { from: () => {}, rpc: async fn => {
+          assert.equal(fn, 'full_takeoff_v2_worker_available'); return { data: true, error: null };
+        } },
+        ...(consumer === 'missing' ? {} : { fullTakeoffV2Queue: {
+          isWorkerAvailable: async () => {
+            if (consumer === 'quota') throw new Error('Redis quota exhausted');
+            return consumer === 'live';
+          },
+          add: async () => { enqueues++; },
+        } }),
+      });
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.fullTakeoffV2Available, consumer === 'live');
+      assert.equal(Boolean(result.fullTakeoffApproval), consumer === 'live');
+      if (consumer === 'missing') assert.equal(result.fullTakeoffUnavailableReason, 'processing_configuration_missing');
+      else if (consumer !== 'live') assert.equal(result.fullTakeoffUnavailableReason, 'worker_unavailable');
+    }
+    assert.equal(enqueues, 0); assert.equal(providerCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.TAKEOFF_V2_ENABLED; else process.env.TAKEOFF_V2_ENABLED = previous;
+    if (redis === undefined) delete process.env.REDIS_URL; else process.env.REDIS_URL = redis;
   }
 });

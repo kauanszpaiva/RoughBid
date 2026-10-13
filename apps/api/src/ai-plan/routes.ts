@@ -217,11 +217,13 @@ export async function handleAiPlanRequest(request: Request, db: SupabaseLike, de
         let fullTakeoffV2Available = false;
         let fullTakeoffUnavailableReason: 'worker_unavailable' | 'availability_check_failed' | 'processing_configuration_missing' | undefined = 'processing_configuration_missing';
         let fullTakeoffApproval: FullTakeoffApprovalProfile | undefined;
-        if (process.env.REDIS_URL && deps.findingsWriter.rpc) {
+        if (process.env.REDIS_URL && deps.findingsWriter.rpc && deps.fullTakeoffV2Queue) {
           try {
             const live = await deps.findingsWriter.rpc('full_takeoff_v2_worker_available', { p_version: 'takeoff-v2.2-durable' });
             fullTakeoffUnavailableReason = live.error ? 'availability_check_failed' : 'worker_unavailable';
-            if (!live.error && live.data === true) {
+            // A SQL heartbeat can outlive the actual queue consumer (for example
+            // while a quota-tripped worker is parked). Match the reserve gate.
+            if (!live.error && live.data === true && await deps.fullTakeoffV2Queue.isWorkerAvailable()) {
               fullTakeoffUnavailableReason = 'processing_configuration_missing';
               fullTakeoffApproval = fullTakeoffApprovalProfile(process.env);
               fullTakeoffV2Available = true;

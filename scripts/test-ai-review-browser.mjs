@@ -31,6 +31,7 @@ const unexpected = name => async () => {
   window.reviewHarness.unexpected.push(name);
   throw new Error('Unexpected review fixture API call: ' + name);
 };
+export const getAiPlanEntitlement = unexpected('getAiPlanEntitlement');
 export const getFullTakeoffRun = unexpected('getFullTakeoffRun');
 export const getFullTakeoffCheckpoint = unexpected('getFullTakeoffCheckpoint');
 export const cancelFullTakeoffRun = unexpected('cancelFullTakeoffRun');

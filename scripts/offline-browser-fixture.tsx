@@ -128,6 +128,7 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   if (path.endsWith('/ai-plan-entitlement')) return json({ freeReadingAvailable: false, fullTakeoffV2Available: true, pilotActive: false });
   if (path.endsWith('/documents/upload-url')) return json({ file: { id: 'offline-pdf', original_name: body.name, byte_size: body.byteSize, processing_status: 'uploading' }, upload: { url: `${location.origin}/offline-storage/pdf`, method: 'PUT', headers: {} } });
   if (path === '/offline-storage/pdf' && method === 'PUT') { fixture.pdfBytes = Array.from(new Uint8Array(await new Response(init.body).arrayBuffer())); persist(); return new Response('', { status: 200 }); }
+  if (path === '/api/documents/offline-pdf/complete' && fixture.loseNextPlanCompletion) { fixture.loseNextPlanCompletion = false; fixture.planCompletionSaved = true; persist(); throw new TypeError('Synthetic completion acknowledgement lost'); }
   if (path === '/api/documents/offline-pdf/complete') return json({ id: 'offline-pdf', original_name: fixture.automatic ? 'offline-automatic-plan.pdf' : 'offline-floor-plan.pdf', byte_size: fixture.pdfBytes?.length ?? 0, processing_status: 'ready', page_count: fixture.automatic ? 1 : 2 });
   if (path === '/api/documents/offline-pdf/download-url') return json({ url: `${location.origin}/offline-storage/pdf`, method: 'GET', headers: {} });
   if (path === '/offline-storage/pdf') return new Response(new Uint8Array(fixture.pdfBytes ?? []), { headers: { 'content-type': 'application/pdf' } });
@@ -154,7 +155,12 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     fixture.pendingAsset.revision = fixture.pendingAsset.sha256;
     persist(); return new Response('', { status: 200 });
   }
-  if (/\/photos\/uploads\/[^/]+\/complete$/.test(path)) { fixture.assets.push(fixture.pendingAsset); persist(); return json({ asset: fixture.pendingAsset }); }
+  if (/\/photos\/uploads\/[^/]+\/complete$/.test(path)) {
+    if (!fixture.assets.some((asset: any) => asset.id === fixture.pendingAsset.id)) fixture.assets.push(fixture.pendingAsset);
+    persist();
+    if (fixture.loseNextPhotoCompletion) { fixture.loseNextPhotoCompletion = false; persist(); throw new TypeError('Synthetic completion acknowledgement lost'); }
+    return json({ asset: fixture.pendingAsset });
+  }
   if (/\/photos\/uploads\/[^/]+\/download-url$/.test(path)) return json({ url: `${location.origin}/offline-storage/photo`, method: 'GET', headers: {} });
   if (path === '/offline-storage/photo') return new Response(new Uint8Array(fixture.photoBytes ?? []), { headers: { 'content-type': 'image/png' } });
   if (path.endsWith('/photos/runs') && method === 'POST') { fixture.photoRun = { id: 'offline-photo-run', status: 'processing', review_revision: 0, request_key: body.requestKey, asset_ids: body.assetIds, progress: { completed: 0, total: 1 }, result: null, created_at: '2026-10-02T00:00:00Z' }; persist(); return json({ run: fixture.photoRun, enqueued: true }, 202); }

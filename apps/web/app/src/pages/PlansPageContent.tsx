@@ -16,6 +16,7 @@ import { BlueprintViewer } from "../components/BlueprintViewer";
 import { PhotoTakeoffPanel, type PhotoIntakeState, type PhotoTakeoffHandle } from "../components/PhotoTakeoffPanel";
 import { EstimateServicePicker } from "../components/EstimateServicePicker";
 import { ESTIMATE_FILE_ACCEPT, estimateServiceScope, splitEstimateFiles } from "../utils/estimateIntake";
+import { completeTransferredUpload } from "../utils/uploadCompletion";
 import { projectReadiness } from "../utils/projectReadiness";
 import { calculateProjectFinancials, formatCurrency } from "../utils/calculations";
 import { ConstructionBudgetPanel } from "../components/ConstructionBudgetPanel";
@@ -137,8 +138,11 @@ export const PlansPage: React.FC<PlansPageProps> = ({
   const [showRevisionsModal, setShowRevisionsModal] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadBatch, setUploadBatch] = useState<Array<{ file: File; status: 'pending' | 'uploading' | 'saved' | 'failed'; error?: string | undefined }>>([]);
+  // Keep the verified transfer identity when only completion acknowledgement is lost.
+  // Retrying must not reserve/upload a second copy of an already-stored source.
+  const transferredFiles = useRef(new Map<File, string>());
   const uploadScope = useRef(''); uploadScope.current = `${workspaceId}:${project.remoteId}`;
-  useEffect(() => { uploadScope.current = `${workspaceId}:${project.remoteId}`; setUploadBatch([]); setIsUploading(false); return () => { uploadScope.current = ''; }; }, [workspaceId, project.remoteId]);
+  useEffect(() => { uploadScope.current = `${workspaceId}:${project.remoteId}`; setUploadBatch([]); setIsUploading(false); transferredFiles.current.clear(); return () => { uploadScope.current = ''; transferredFiles.current.clear(); }; }, [workspaceId, project.remoteId]);
   const [isStartingAi, setIsStartingAi] = useState<boolean>(false);
   const [needsAiConsent, setNeedsAiConsent] = useState<boolean>(false);
   const [isGrantingAiConsent, setIsGrantingAiConsent] = useState<boolean>(false);
@@ -351,12 +355,18 @@ export const PlansPage: React.FC<PlansPageProps> = ({
         try {
           if ((file.type && file.type !== 'application/pdf') || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Choose a PDF. Use the Photos section for images.');
           if (file.size > 50 * 1024 * 1024) throw new Error('Choose a PDF no larger than 50 MB.');
-          const remote = await beginDocumentUpload(workspaceId, project.remoteId, { name: file.name, contentType: 'application/pdf', byteSize: file.size });
-          if (!current()) break;
-          const uploaded = await fetch(remote.upload.url, { signal: AbortSignal.timeout(120_000), method: remote.upload.method, headers: remote.upload.headers, body: file });
-          if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
-          const completed = await completeDocumentUpload(workspaceId, remote.file.id);
-          if (!current()) break;
+          const completed = await completeTransferredUpload(file, transferredFiles.current, {
+            isCurrent: current,
+            transfer: async () => {
+              const remote = await beginDocumentUpload(workspaceId, project.remoteId!, { name: file.name, contentType: 'application/pdf', byteSize: file.size });
+              if (!current()) return undefined;
+              const uploaded = await fetch(remote.upload.url, { signal: AbortSignal.timeout(120_000), method: remote.upload.method, headers: remote.upload.headers, body: file });
+              if (!uploaded.ok) throw new Error(`Private plan upload failed (${uploaded.status})`);
+              return remote.file.id;
+            },
+            complete: fileId => completeDocumentUpload(workspaceId, fileId),
+          });
+          if (!completed || !current()) break;
           const nextRevNum = String(project.revisions.length + savedCount + 1).padStart(2, '0');
           applyNewRevision({ id: `rev-${completed.id}`, revisionNumber: nextRevNum, fileName: file.name,
             fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`, pages: completed.page_count ?? 0,

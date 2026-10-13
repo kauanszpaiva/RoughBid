@@ -113,3 +113,15 @@ test('upload size limit matches the production database constraint', async () =>
   await assert.rejects(f.service.beginUpload('project-1', { name: 'large.pdf', contentType: 'application/pdf', byteSize: 50 * 1024 * 1024 + 1 }), (error: any) => error.status === 413);
   assert.deepEqual(f.signed, []);
 });
+
+
+test('completion retry while optional rendering is active reuses verified original without reenqueue', async () => {
+  let enqueues = 0;
+  const f = fixture({ add: async () => { enqueues++; } }, 15, 'processing');
+  const before = structuredClone(f.row());
+  assert.deepEqual(await f.service.completeUpload('file-1'), before);
+  assert.equal(enqueues, 0);
+  assert.deepEqual(f.signed, []);
+  const other = new DocumentService(f.db, f.storage, null, 'user-2', 'workspace-2', f.fetcher);
+  await assert.rejects(other.completeUpload('file-1'), (error: any) => error.status === 403);
+});

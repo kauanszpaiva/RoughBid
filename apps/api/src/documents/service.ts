@@ -77,7 +77,9 @@ export class DocumentService {
     await this.assertWriteAccess();
     const result = await this.db.from('project_files').select('*').eq('workspace_id', this.workspaceId).eq('id', fileId).maybeSingle();
     if (result.error || !result.data) throw new ProjectApiError(404, 'File not found');
-    if (result.data.processing_status === 'ready') return result.data;
+    // Rendering can start before the client receives completion. The original
+    // upload is already verified; retrying must not enqueue it a second time.
+    if (['ready', 'processing'].includes(result.data.processing_status)) return result.data;
     if (result.data.processing_status !== 'uploading' && result.data.processing_status !== 'queued') throw new ProjectApiError(409, 'Upload has already been completed');
     assertPlanStoragePath(result.data.storage_path,this.workspaceId,result.data.project_id,fileId);
     const head = await this.storage.presign('HEAD', result.data.storage_path, { expiresIn: 60 });

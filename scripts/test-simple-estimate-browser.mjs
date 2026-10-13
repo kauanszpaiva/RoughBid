@@ -78,8 +78,35 @@ try {
     console.log(`PASS ${label}: real product components, one mixed intake, scoped plan request, no duplicate runs, pending prices and mobile layout`); passed++;
     await page.goto(`${root}/offline-browser-fixture.html?view=viewer`);
     assert.equal(await page.getByRole('button', { name: '3. Generate estimate', exact: true }).isDisabled(), true);
-    assert.equal(await page.getByLabel('Add photos and PDF plans').isDisabled(), true);
+    assert.equal(await page.getByLabel('Choose photos and PDF plans', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Take a construction photo', { exact: true }).isDisabled(), true);
     console.log(`PASS ${label}: read-only workspace cannot upload or generate`); passed++;
+    await context.close();
+  }
+  for (const [label, source, flag, reservePath, transferPath, retryLabel] of [
+    ['PDF', plan, 'loseNextPlanCompletion', '/documents/upload-url', '/offline-storage/pdf', 'Retry failed uploads'],
+    ['photo', photo, 'loseNextPhotoCompletion', '/photos/uploads', '/offline-storage/photo', 'Retry unsaved photos'],
+  ]) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      return url.origin === root || ['data:', 'blob:'].includes(url.protocol) ? route.continue() : route.abort();
+    });
+    await page.goto(`${root}/offline-browser-fixture.html?view=intake`);
+    await page.getByRole('dialog', { name: 'Start an estimate' }).waitFor();
+    await page.evaluate(flag => { window.__offlineFixture[flag] = true; }, flag);
+    await page.getByLabel('Add estimate photos and plans').setInputFiles([source]);
+    await page.getByLabel('Tile', { exact: true }).check();
+    await page.getByRole('button', { name: 'Upload and continue' }).click();
+    await page.getByRole('button', { name: retryLabel, exact: true }).click();
+    await page.getByRole('region', { name: 'Estimate progress' }).getByText('Files saved — reading has not started', { exact: true }).waitFor();
+    const requests = await page.evaluate(() => window.__offlineFixture.requests);
+    assert.equal(requests.filter(request => request.path.endsWith(reservePath) && request.method === 'POST').length, 1);
+    assert.equal(requests.filter(request => request.path === transferPath && request.method === 'PUT').length, 1);
+    assert.equal(requests.filter(request => request.path.endsWith('/complete') && request.method === 'POST').length, 2);
+    assert.equal(requests.filter(request => request.method === 'POST' && (request.path.endsWith('/ai-plan-readings') || request.path.endsWith('/photos/runs'))).length, 0);
+    console.log(`PASS ${label}: lost completion acknowledgement retries the same saved source, without another reserve, upload or analysis`); passed++;
     await context.close();
   }
   console.log(`${passed}/${passed} browser scenarios passed; APIs/storage are local mocks, no paid calls or production data.`);
