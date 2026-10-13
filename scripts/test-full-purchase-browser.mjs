@@ -5,6 +5,7 @@ import path from 'node:path';
 import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { openPlanReadingTools, openProjectDetails } from './browser-fixture-navigation.mjs';
 
 // Real App/Plans/purchase/HTTP serialization; every response below is synthetic.
 // All non-local traffic is blocked. No Stripe SDK, payment, upload or AI provider.
@@ -166,7 +167,16 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
         state = { owner: true, offline: false, quote: null, calls: [], ...override };
         await page.goto('http://127.0.0.1:4185/' + suffix);
         if (suffix.includes('draft=1')) await page.getByText(project.name, { exact: true }).click();
+        // A completed return opens its saved reading automatically. Verify that
+        // recovery, then dismiss it before using the underlying disclosure.
+        const restoredReading = override.quote?.status === 'complete' && suffix.includes('payment=returned');
+        if (restoredReading) {
+          await page.getByRole('status', { name: 'Reading progress' }).waitFor();
+          await page.getByRole('button', { name: 'Done', exact: true }).click();
+        }
+        await openProjectDetails(page);
         await page.getByRole('region', { name: override.batch ? 'Selected files purchase' : 'Full reading purchase' }).waitFor();
+        if (restoredReading) await page.getByRole('button', { name: 'Open purchased reading', exact: true }).click();
         await page.waitForLoadState('networkidle');
       };
       const mutations = () => state.calls.filter(call => call.method === 'POST' && !call.path.endsWith('/download-url'));
@@ -194,6 +204,7 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       assert.equal(state.calls.filter(call => call.path.endsWith('/reading-order-checkout')).length, 1);
       assert.equal(starts().length, 0);
       await page.goBack();
+      await openProjectDetails(page);
       await batchPanel().waitFor();
       await page.waitForLoadState('networkidle');
       assert.equal(await page.getByLabel('Include file-2.pdf in reading').isEnabled(), true, 'Back from Checkout releases the navigation lock');
@@ -233,7 +244,7 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       state.order.status = 'ready_for_review'; state.runStatus = 'needs_review';
       await batchPanel().getByText('Your results are ready to review').waitFor();
       await batchPanel().getByText(/2 pages need attention/).first().waitFor();
-      await page.reload(); await batchPanel().getByText('Your results are ready to review').waitFor();
+      await page.reload(); await openProjectDetails(page); await batchPanel().getByText('Your results are ready to review').waitFor();
       assert.deepEqual(mutations(), [], 'Reload restores the same batch and every saved run');
 
       await navigate(orderReturn.replace('returned', 'canceled'), { batch: true, owner: false, order: order() });
@@ -252,7 +263,7 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       assert.equal(state.calls.filter(call => /reading-order|reading-checkout/.test(call.path) && call.method === 'POST').length, 0, 'Uploading cannot create a purchase or call AI');
 
       await navigate();
-      await page.getByText('Plan viewer and advanced reading tools', { exact: true }).click();
+      await openPlanReadingTools(page);
       await page.getByRole('button', { name: /^Run AI analysis \(owner workspace\)/ }).waitFor();
       await panel().getByRole('button', { name: 'Purchase full reading', exact: true }).click();
       await clickTwice(panel().getByRole('button', { name: 'Calculate full reading price' }));
@@ -305,6 +316,9 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       state.quote = { ...state.quote, status: 'complete' };
       await panel().getByText('Purchased reading ready to review', { exact: true }).waitFor();
       await page.reload();
+      await page.getByRole('status', { name: 'Reading progress' }).waitFor();
+      await page.getByRole('button', { name: 'Done', exact: true }).click();
+      await openProjectDetails(page);
       await panel().getByText('Purchased reading ready to review', { exact: true }).waitFor();
       assert.deepEqual(mutations(), [], 'Completed purchase reload cannot replenish or repeat the run');
 

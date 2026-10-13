@@ -54,22 +54,30 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_compile_only_no_access
         run: npm run build
       - name: Install isolated browser verification tools
+        id: browser_tools
         run: |
           npm install --prefix .browser-tests --no-package-lock --no-audit --no-fund playwright@1.58.2
           node .browser-tests/node_modules/playwright/cli.js install --with-deps chromium webkit
       - name: Desktop and mobile PDF viewer under production CSP
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-blueprint-browser.mjs
       - name: AI review recovery and pricing evidence boundary
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-ai-review-browser.mjs
       - name: Paid return recovery without automatic AI or payment
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-paid-return-browser.mjs
       - name: Full purchase consent, return and saved revision recovery
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-full-purchase-browser.mjs
       - name: Photo purchase, included access and saved result recovery
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-photo-purchase-browser.mjs
       - name: Simple photo and plan estimate intake
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-simple-estimate-browser.mjs
       - name: Physical page review and safe resume browser checks
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/test-page-review-browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()
