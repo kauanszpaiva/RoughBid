@@ -24,6 +24,13 @@ function fixture(projectOpen = false, readingOpen = false) {
           return read({ closest: selector => { assert.equal(selector, 'details'); return details; } });
         },
         async click() { clicks.push(label); details.open = !details.open; },
+        locator(selector: string) {
+          assert.equal(selector, 'xpath=ancestor::details[1][@open]');
+          return { async waitFor(options: { state: string; timeout: number }) {
+            assert.deepEqual(options, { state: 'attached', timeout: 5000 });
+            assert.equal(details.open, true, 'The nearest disclosure, not an outer ancestor, must be open');
+          } };
+        },
       };
     },
   };
@@ -103,4 +110,54 @@ test('paid return cannot bypass a missing recovery result by clicking the disclo
   const page = { ...h.page, getByRole: () => ({ waitFor: async () => { throw new Error('Recovery result never appeared'); } }) };
   await assert.rejects(openPaidReturnReadingTools(page), /Recovery result never appeared/);
   assert.deepEqual(h.clicks, []);
+});
+
+test('browser navigation awaits an asynchronous open commit after one real click', async () => {
+  const h = fixture(true, false);
+  let clickCount = 0, signalWaiting!: () => void, commit!: () => void;
+  const waiting = new Promise<void>(resolve => { signalWaiting = resolve; });
+  const committed = new Promise<void>(resolve => { commit = resolve; });
+  const page = { getByText(label: string, options: { exact: boolean }) {
+    const summary = h.page.getByText(label, options);
+    return { ...summary,
+      async click() { clickCount++; },
+      locator(selector: string) {
+        assert.equal(selector, 'xpath=ancestor::details[1][@open]');
+        return { async waitFor(options: { state: string; timeout: number }) {
+          assert.deepEqual(options, { state: 'attached', timeout: 5000 });
+          signalWaiting();
+          await committed;
+        } };
+      },
+    };
+  } };
+  let finished = false;
+  const navigating = openFixtureDetails(page, readingLabel).then(() => { finished = true; });
+  await waiting;
+  assert.equal(clickCount, 1);
+  assert.equal(h.states.get(readingLabel)!.open, false);
+  assert.equal(finished, false, 'An open parent cannot bypass the pending inner open state');
+  h.states.get(readingLabel)!.open = true;
+  commit();
+  await navigating;
+  assert.equal(finished, true);
+  assert.equal(clickCount, 1, 'Waiting must not repeat the click');
+});
+
+test('browser navigation fails when a single click never opens the nearest disclosure', async () => {
+  const h = fixture(true, false);
+  let clickCount = 0;
+  const page = { getByText(label: string, options: { exact: boolean }) {
+    return { ...h.page.getByText(label, options),
+      async click() { clickCount++; },
+      locator(selector: string) {
+        assert.equal(selector, 'xpath=ancestor::details[1][@open]');
+        return { async waitFor() { throw new Error('Nearest disclosure did not open'); } };
+      },
+    };
+  } };
+  await assert.rejects(openFixtureDetails(page, readingLabel), /Nearest disclosure did not open/);
+  assert.equal(clickCount, 1);
+  assert.equal(h.states.get(projectLabel)!.open, true);
+  assert.equal(h.states.get(readingLabel)!.open, false);
 });

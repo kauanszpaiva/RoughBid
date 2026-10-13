@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build, preview } from 'vite';
@@ -82,11 +82,40 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
     const browser = await playwright[browserName].launch({ headless: true,
       ...(browserName === 'chromium' && process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}),
     });
+    let reportFailure = async () => {};
     try {
       const page = await browser.newPage({ viewport: browserName === 'webkit' ? { width: 390, height: 844 } : { width: 1365, height: 900 } });
       const errors = [];
       const external = [];
+      await page.addInitScript(() => {
+        window.paidDisclosureEvents = [];
+        const record = (type, details) => {
+          if (!details) return;
+          window.paidDisclosureEvents.push({ type, summary: details.querySelector('summary')?.textContent, open: details.open, time: performance.now() });
+          if (window.paidDisclosureEvents.length > 100) window.paidDisclosureEvents.shift();
+        };
+        document.addEventListener('click', event => record('click', event.target.closest?.('summary')?.closest('details')), true);
+        document.addEventListener('toggle', event => { if (event.target.tagName === 'DETAILS') record('toggle', event.target); }, true);
+      });
       page.on('pageerror', error => errors.push(error.message));
+      reportFailure = async () => {
+        const prefix = path.join(repo, 'test-results', `paid-return-${browserName}-failure`);
+        await mkdir(path.dirname(prefix), { recursive: true });
+        const diagnostics = { browser: browserName, url: page.url(), errors, external,
+          harness: await page.evaluate(() => {
+            const h = window.paidReturnHarness;
+            return h ? { status: h.status, reads: h.reads.length, newQuotes: h.newQuotes.length, jobs: h.jobs.length,
+              jobReads: h.jobReads, payments: h.payments, patches: h.patches, unexpected: h.unexpected } : null;
+          }),
+          disclosureEvents: await page.evaluate(() => window.paidDisclosureEvents ?? []),
+          disclosures: await page.locator('details').evaluateAll(elements => elements.map(element => ({ summary: element.querySelector('summary')?.textContent, open: element.open }))),
+          bodyText: await page.locator('body').innerText(),
+        };
+        await writeFile(`${prefix}.html`, await page.content());
+        await writeFile(`${prefix}.json`, JSON.stringify(diagnostics, null, 2));
+        console.error('Paid return fixture failure diagnostics:', JSON.stringify(diagnostics, null, 2));
+        await page.screenshot({ path: `${prefix}.png`, fullPage: true });
+      };
       await page.route('**/*', route => {
         const hostname = new URL(route.request().url()).hostname;
         if (hostname === '127.0.0.1') return route.continue();
@@ -152,6 +181,14 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       await navigate('http://127.0.0.1:4182/?status=revoked&poll=1');
       await page.getByText('Payment access revoked', { exact: true }).waitFor();
       await page.waitForFunction(() => window.paidReturnHarness.patches === 1);
+      await page.getByText('AI processing finished - partial findings are ready to review. Complete takeoff coverage is not verified.', { exact: true }).waitFor();
+      // The poll has now committed its UI update. Both disclosures must remain
+      // open without another click, and their contents must still be readable.
+      for (const label of ['Project files, payments & advanced tools', 'Plan viewer and advanced reading tools']) {
+        assert.equal(await page.getByText(label, { exact: true }).evaluate(element => element.closest('details').open), true,
+          `${label} must remain open after the saved-job poll commits`);
+      }
+      assert.equal(await page.getByText('Optional reading settings', { exact: true }).isVisible(), true);
       assert.equal(await page.getByText('Payment access revoked', { exact: true }).isVisible(), true);
       assert.equal(await page.getByRole('button', { name: 'Open saved reading', exact: true }).count(), 0);
       assert.equal(await page.evaluate(() => window.paidReturnHarness.jobs.length), 0);
@@ -169,6 +206,9 @@ export async function grantWorkspaceAiConsent() { throw new Error('Unexpected co
       assert.deepEqual(errors, []);
       assert.deepEqual(external, []);
       console.log('PASS ' + browserName + ': passive paid return, original scope, explicit single AI start, payment refresh, safe repricing, saved reading offline, revocation retained, recovery failure/retry');
+    } catch (error) {
+      await reportFailure().catch(diagnosticError => console.error('Could not capture paid return failure diagnostics:', diagnosticError.message));
+      throw error;
     } finally { await browser.close(); }
   }
 } finally {

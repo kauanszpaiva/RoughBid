@@ -11,6 +11,10 @@ export async function openFixtureDetails(page, label) {
     return details.open;
   });
   if (!await isOpen()) await summary.click();
+  // Observe the committed native disclosure state after the single click.
+  // Filter the nearest details ancestor before requiring [open], so an open
+  // outer disclosure cannot satisfy this wait for a still-closed inner one.
+  await summary.locator('xpath=ancestor::details[1][@open]').waitFor({ state: 'attached', timeout: 5000 });
   assert.equal(await isOpen(), true, `${label} must be open`);
 }
 
