@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build, preview } from 'vite';
@@ -7,7 +7,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { openPlanReadingTools, openProjectDetails } from './browser-fixture-navigation.mjs';
 
-// Real App/Plans/purchase/HTTP serialization; every response below is synthetic.
+// Batch creation and saved-return scenarios use the real App/Plans entry paths.
+// No-suffix scenarios explicitly mount the legacy FullPurchasePanel in isolation
+// to test its consent, serialization and stale-revision compatibility behavior;
+// they do not claim that PlansPage exposes a new single-file purchase entry.
+// Every response below is synthetic.
 // All non-local traffic is blocked. No Stripe SDK, payment, upload or AI provider.
 const playwright = await import(process.env.PLAYWRIGHT_MODULE_PATH || new URL('../.browser-tests/node_modules/playwright/index.mjs', import.meta.url).href);
 const repo = fileURLToPath(new URL('../', import.meta.url));
@@ -35,7 +39,7 @@ function Fixture() {
   const [open,setOpen]=useState(false);
   const legacyLock=useRef(false), current=project.revisions.find(r=>r.isCurrent);
   return <><button onClick={()=>setProject(p=>({...p,revisions:p.revisions.map(r=>({...r,isCurrent:r.remoteFileId==='file-2'}))}))}>Select newer revision</button>
-    {!new URLSearchParams(location.search).has('reading_mode')&&!new URLSearchParams(location.search).has('batch')&&<FullPurchasePanel key={current.remoteFileId} workspaceId="workspace-1" projectId="project-1" fileId={current.remoteFileId} fileName={current.fileName} revisionName={current.revisionNumber} canWrite available billingAvailable complimentaryAvailable externallyBusy={false} actionLock={legacyLock} onBusyChange={()=>{}} onConsentRequired={()=>{}} beforeCheckout={async()=>{}} onRun={(run,open)=>{setProject(p=>({...p,revisions:p.revisions.map(r=>r.id===current.id?{...r,aiPlanMode:'full_v2',aiPlanJobId:run.id,aiPlanStatus:run.status}:r)}));if(open)setOpen(true)}}/>}
+    {!new URLSearchParams(location.search).has('reading_mode')&&!new URLSearchParams(location.search).has('batch')&&<div data-testid="standalone-legacy-full-purchase"><FullPurchasePanel key={current.remoteFileId} workspaceId="workspace-1" projectId="project-1" fileId={current.remoteFileId} fileName={current.fileName} revisionName={current.revisionNumber} canWrite available billingAvailable complimentaryAvailable externallyBusy={false} actionLock={legacyLock} onBusyChange={()=>{}} onConsentRequired={()=>{}} beforeCheckout={async()=>{}} onRun={(run,open)=>{setProject(p=>({...p,revisions:p.revisions.map(r=>r.id===current.id?{...r,aiPlanMode:'full_v2',aiPlanJobId:run.id,aiPlanStatus:run.status}:r)}));if(open)setOpen(true)}}/></div>}
     <PlansPage project={project} workspaceId="workspace-1" canWrite onBeforeFullCheckout={async()=>{}} onBeforeOrderCheckout={async()=>{}} onPatchRevision={(id,patch)=>setProject(p=>({...p,revisions:p.revisions.map(r=>r.id===id?{...r,...patch}:r)}))} onAppendRevision={revision=>setProject(p=>({...p,revisions:[...p.revisions.map(r=>({...r,isCurrent:false})),revision]}))} onUpdateProject={setProject} onContinue={()=>{}} onOpenAIAssistant={()=>setOpen(true)}/>
     <AIPlanModal project={project} workspaceId="workspace-1" canWrite isOpen={open} onClose={()=>setOpen(false)} onAddQuantityItem={()=>{throw Error('Unexpected quantity')}}/>
   </>;
@@ -62,6 +66,7 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
   await build(config); server = await preview(config);
   for (const browserName of process.env.PURCHASE_TEST_BROWSERS?.split(',') ?? ['chromium', 'webkit']) {
     const browser = await playwright[browserName].launch({ headless: true, ...(browserName === 'chromium' && process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
+    let reportFailure = async () => {};
     try {
       const context = await browser.newContext(browserName === 'webkit' ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1365, height: 900 } });
       await context.addInitScript(draft => {
@@ -76,6 +81,23 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       const errors = [], external = [], unexpected = [];
       page.on('pageerror', error => errors.push(error.message));
       let state;
+      reportFailure = async () => {
+        const prefix = path.join(repo, 'test-results', `full-purchase-${browserName}-failure`);
+        await mkdir(path.dirname(prefix), { recursive: true });
+        const requestCounts = Object.fromEntries([...new Set((state?.calls ?? []).map(call => `${call.method} ${call.path}`))]
+          .map(key => [key, state.calls.filter(call => `${call.method} ${call.path}` === key).length]));
+        const dom = await page.content();
+        const bodyText = await page.locator('body').innerText();
+        const disclosures = await page.locator('details').evaluateAll(elements => elements.map(element => ({
+          summary: element.querySelector('summary')?.textContent, open: element.open,
+        })));
+        const diagnostics = { browser: browserName, url: page.url(), owner: state?.owner, requestCounts,
+          transfers: state?.transfers ?? [], errors, external, unexpected, disclosures, bodyText };
+        await writeFile(`${prefix}.html`, dom);
+        await writeFile(`${prefix}.json`, JSON.stringify(diagnostics, null, 2));
+        console.error('Full purchase fixture failure diagnostics:', JSON.stringify(diagnostics, null, 2));
+        await page.screenshot({ path: `${prefix}.png`, fullPage: true });
+      };
       await context.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url()), method = req.method(), body = req.headers()['content-type']?.includes('json') ? req.postDataJSON() : undefined;
         if (url.hostname !== '127.0.0.1') { external.push(url.origin); return route.abort(); }
@@ -181,6 +203,10 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
         }
         await openProjectDetails(page);
         await page.getByRole('region', { name: override.batch ? 'Selected files purchase' : 'Full reading purchase' }).waitFor();
+        const query = new URLSearchParams(suffix);
+        const standaloneLegacy = !query.has('app') && !query.has('batch') && !query.has('reading_mode');
+        assert.equal(await page.getByTestId('standalone-legacy-full-purchase').count(), standaloneLegacy ? 1 : 0,
+          'Only the explicit standalone compatibility scenario may mount the legacy purchase panel outside PlansPage');
         if (restoredReading) await page.getByRole('button', { name: 'Open purchased reading', exact: true }).click();
         await page.waitForLoadState('networkidle');
       };
@@ -261,7 +287,9 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       await page.getByRole('article', { name: 'File first.pdf', exact: true }).waitFor();
       await page.getByRole('article', { name: 'File last.pdf', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Retry failed uploads' }).click();
-      await page.getByText('1 of 1 PDFs saved. Reading has not started. Confirm processing and select Generate estimate to continue.', { exact: true }).waitFor();
+      // Appending the recovered current revision clears the old file's notice
+      // in PlansPage's context-reset effect. Wait for persistent upload state.
+      await page.getByRole('region', { name: 'Estimate progress', exact: true }).getByText('Files saved — reading has not started', { exact: true }).waitFor();
       await openProjectDetails(page);
       await page.getByRole('article', { name: 'File retry.pdf', exact: true }).waitFor();
       assert.equal(state.calls.filter(call => call.path.endsWith('/documents/upload-url')).length, 3, 'A completion retry must reuse the existing PDF reservation');
@@ -407,6 +435,9 @@ createRoot(document.getElementById('root')).render(new URLSearchParams(location.
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'No horizontal overflow');
       assert.deepEqual(unexpected, []); assert.deepEqual(external, []); assert.deepEqual(errors, []);
       console.log(`PASS ${browserName}: multi-upload/retry, single batch Checkout, selection recovery, immutable consent, save failure/retry, passive return, capacity wait/resume, all-file pending results, legacy purchase recovery, zero external traffic`);
+    } catch (error) {
+      await reportFailure().catch(diagnosticError => console.error('Could not capture full purchase failure diagnostics:', diagnosticError.message));
+      throw error;
     } finally { await browser.close(); }
   }
 } finally {
